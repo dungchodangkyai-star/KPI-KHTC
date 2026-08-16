@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, FileDown, FileUp, Settings, Plus, Edit2, Trash2, Check, X, AlertCircle } from 'lucide-react';
+import { Download, Upload, FileDown, FileUp, Settings, Plus, Edit2, Trash2, Check, X, AlertCircle, Sliders } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { WORK_NATURE_COEFS } from '../utils';
+import KpiConfigSettings from '../components/KpiConfigSettings';
 
 export default function AdminSettings() {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'TASK_GROUP' | 'TASK' | 'PRODUCT_TYPE'>('TASK');
+  const [activeTab, setActiveTab] = useState<'TASK_GROUP' | 'TASK' | 'PRODUCT_TYPE' | 'KPI_CONFIG'>('KPI_CONFIG');
   
   const [isEditing, setIsEditing] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -216,8 +217,9 @@ export default function AdminSettings() {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="flex border-b border-slate-200">
+        <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/50">
           {[
+            { id: 'KPI_CONFIG', label: 'Cấu hình phân bổ điểm & Xếp loại KPI', icon: Sliders },
             { id: 'TASK', label: 'Danh mục nhiệm vụ' },
             { id: 'TASK_GROUP', label: 'Nhóm công việc' },
             { id: 'PRODUCT_TYPE', label: 'Loại sản phẩm' }
@@ -225,24 +227,29 @@ export default function AdminSettings() {
             <button
               key={tab.id}
               onClick={() => { setActiveTab(tab.id as any); setIsEditing(null); }}
-              className={`px-6 py-4 text-sm font-bold transition-colors ${
+              className={`flex items-center gap-2 px-6 py-4 text-sm font-bold transition-colors ${
                 activeTab === tab.id 
-                  ? 'border-b-2 border-[#1F4E78] text-[#1F4E78] bg-slate-50' 
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  ? 'border-b-2 border-[#1F4E78] text-[#1F4E78] bg-white shadow-xs' 
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
               }`}
             >
+              {tab.icon && <tab.icon className="w-4 h-4 text-[#1F4E78]" />}
               {tab.label}
             </button>
           ))}
         </div>
 
         <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-lg font-bold text-slate-800">
-              {activeTab === 'TASK' ? 'Danh sách nhiệm vụ' : 
-               activeTab === 'TASK_GROUP' ? 'Nhóm công việc' : 'Loại sản phẩm'}
-            </h2>
-            <div className="flex flex-wrap items-center gap-2">
+          {activeTab === 'KPI_CONFIG' ? (
+            <KpiConfigSettings onRecalculateSuccess={fetchCategories} />
+          ) : (
+            <>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-bold text-slate-800">
+                  {activeTab === 'TASK' ? 'Danh sách nhiệm vụ' : 
+                   activeTab === 'TASK_GROUP' ? 'Nhóm công việc' : 'Loại sản phẩm'}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleDownloadTemplate}
                 className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-bold text-sm border border-slate-200"
@@ -457,6 +464,8 @@ export default function AdminSettings() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

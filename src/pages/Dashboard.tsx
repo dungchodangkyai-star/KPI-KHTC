@@ -52,7 +52,10 @@ export default function Dashboard() {
 
   const scopedWorks = works.filter(w => selectedMonth === 'Tất cả' || formatMonth(w.month) === selectedMonth);
   const scopedOvertimes = overtimes.filter(o => selectedMonth === 'Tất cả' || formatMonth(o.month) === selectedMonth);
-  const scopedKpis = kpis.filter(k => selectedMonth === 'Tất cả' || formatMonth(k.month) === selectedMonth);
+  const scopedKpis = kpis
+    .filter(k => (parseFloat(k.totalKpi) || 0) > 0)
+    .filter(k => selectedMonth === 'Tất cả' || formatMonth(k.month) === selectedMonth)
+    .sort((a, b) => (parseFloat(b.totalKpi) || 0) - (parseFloat(a.totalKpi) || 0));
 
   const totalWorks = scopedWorks.length;
   const approvedWorks = scopedWorks.filter(w => w.leaderApproval === 'Duyệt' || w.leaderApproval === 'Đã duyệt').length;
@@ -313,8 +316,12 @@ export default function Dashboard() {
                 ))}
 
                 {scopedKpis.length === 0 && (
-                  <div className="p-6 text-center text-slate-400 text-sm">
-                    Chưa có dữ liệu tính KPI tháng {selectedMonth}.
+                  <div className="py-8 px-4 text-center bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
+                    <Award className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <div className="font-bold text-slate-700 text-xs">Chưa có xếp hạng KPI tháng {selectedMonth}</div>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] mx-auto">
+                      Dữ liệu sẽ tự động xuất hiện khi Lãnh đạo duyệt việc và tổng hợp điểm KPI.
+                    </p>
                   </div>
                 )}
               </div>
@@ -322,9 +329,10 @@ export default function Dashboard() {
 
             <Link 
               to="/kpi" 
-              className="mt-4 w-full py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white text-center text-xs font-bold rounded-xl shadow-sm transition-colors block"
+              className="mt-4 w-full py-2.5 px-3 bg-slate-100 hover:bg-[#1F4E78] text-slate-700 hover:text-white text-center text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 group"
             >
-              Tính toán & xếp loại KPI
+              <span>Xem chi tiết bảng tính KPI toàn phòng</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
             </Link>
           </div>
         </div>

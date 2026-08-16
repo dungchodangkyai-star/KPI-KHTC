@@ -18,8 +18,11 @@ export const createPool = () => {
       user: process.env.SQL_USER || 'postgres',
       password: process.env.SQL_PASSWORD || 'password',
       database: process.env.SQL_DB_NAME || 'postgres',
-      max: 10,
-      connectionTimeoutMillis: 15000,
+      max: 20,
+      idleTimeoutMillis: 15000,
+      connectionTimeoutMillis: 10000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 5000,
     });
 
     global._postgresPool.on('error', (err) => {

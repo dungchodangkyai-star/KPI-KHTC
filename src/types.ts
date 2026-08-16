@@ -3,11 +3,15 @@ export interface User {
   uid?: string | null;
   name: string;
   email: string;
+  phone?: string | null;
+  zalo?: string | null;
   position?: string | null;
   group?: string | null;
   role: 'STAFF' | 'LEADER' | 'ADMIN';
   status: string;
   permissions?: string | null;
+  mustChangePassword?: boolean;
+  lastLoginAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -123,7 +127,7 @@ export interface Category {
   id: number;
   code: string;
   name: string;
-  type: string; // 'TASK_GROUP' | 'TASK' | 'PRODUCT_TYPE' | 'WORK_NATURE' | 'KPI_CRITERIA'
+  type: string; // 'TASK_GROUP' | 'TASK' | 'PRODUCT_TYPE' | 'WORK_NATURE' | 'KPI_CRITERIA' | 'KPI_CONFIG'
   properties?: any;
   status: string;
   order?: number | null;
@@ -133,8 +137,68 @@ export interface KpiCriterionA {
   code: string;
   name: string;
   maxScore: number;
-  description: string;
+  description?: string;
+  desc?: string;
   selfScore?: number;
   approvedScore?: number;
   note?: string;
+}
+
+export interface KpiRankingTier {
+  id: string;
+  name: string; // e.g. "Hoàn thành xuất sắc nhiệm vụ", "Hoàn thành tốt nhiệm vụ", etc.
+  minScore: number;
+  maxScore: number;
+  badgeColor: 'emerald' | 'blue' | 'amber' | 'rose' | 'purple' | 'slate';
+  requireNoPenalties?: boolean;
+  minAScore?: number;
+  minBScore?: number;
+  description?: string;
+  order: number;
+}
+
+export interface KpiScoreAllocation {
+  maxA: number; // default: 30
+  maxB: number; // default: 60
+  maxB1: number; // default: 45
+  maxB2: number; // default: 15
+  maxC: number; // default: 10
+  maxC1: number; // default: 6
+  maxC2: number; // default: 4
+  maxD: number; // default: 10
+  targetTotalKpi: number; // default: 100
+}
+
+export interface KpiFormulaConfig {
+  type: 'STANDARD' | 'WEIGHTED' | 'CUSTOM';
+  expression: string; // "A + B + C - D"
+  weightA?: number; // 30%
+  weightB?: number; // 60%
+  weightC?: number; // 10%
+  capMin: number; // 0
+  capMax: number; // 100
+  description: string;
+}
+
+export interface KpiPenaltyRule {
+  group: string;
+  defaultScore: number;
+  level: string;
+  desc: string;
+}
+
+export interface KpiConfig {
+  id?: number;
+  code: string;
+  name: string;
+  department: string;
+  applyMonth: string;
+  scoreAllocation: KpiScoreAllocation;
+  criteriaA: KpiCriterionA[];
+  naturePoints: Record<string, number>;
+  penaltyRules: KpiPenaltyRule[];
+  formula: KpiFormulaConfig;
+  rankingTiers: KpiRankingTier[];
+  status: 'Đang áp dụng' | 'Dự thảo';
+  updatedAt?: string;
 }

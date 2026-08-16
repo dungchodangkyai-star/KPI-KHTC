@@ -15,4 +15,25 @@
   .custom-scrollbar:hover::-webkit-scrollbar-thumb {
     background-color: #94a3b8;
   }
+
+  .font-document {
+    font-family: "Noto Serif", "Times New Roman", Times, "Liberation Serif", serif !important;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+}
+
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .font-document {
+    font-family: "Times New Roman", "Noto Serif", Times, "Liberation Serif", serif !important;
+  }
 }
