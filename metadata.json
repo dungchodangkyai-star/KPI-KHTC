@@ -1,0 +1,6 @@
+{
+  "name": "PMO1 Task & KPI Management",
+  "description": "Project Management Office 1 task tracking, overtime registration, leader approvals, and KPI calculation system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
