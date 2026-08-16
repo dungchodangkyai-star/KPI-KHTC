@@ -13,6 +13,9 @@ export const users = pgTable('users', {
   role: text('role').notNull().default('STAFF'), // STAFF, LEADER, ADMIN
   status: text('status').notNull().default('Đang làm'),
   permissions: text('permissions'),
+  password: text('password'), // salt$hash format
+  mustChangePassword: boolean('must_change_password').default(true),
+  lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

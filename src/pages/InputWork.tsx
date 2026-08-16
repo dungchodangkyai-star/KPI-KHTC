@@ -12,16 +12,25 @@ import { useNavigate } from 'react-router-dom';
 import { 
   STANDARD_MONTHS, 
   WORK_NATURE_COEFS, 
-  formatDateInput
+  formatDateInput,
+  getActiveLoggedInUser
 } from '../utils';
 import { User as UserType } from '../types';
 
 export default function InputWork() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserType[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | 'custom'>('custom');
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
 
   // Dynamic catalog state
   const [taskGroups, setTaskGroups] = useState<string[]>([]);
@@ -123,12 +132,15 @@ export default function InputWork() {
         const d = await usersRes.json();
         if (d.success && d.data?.length > 0) {
           setUsers(d.data);
-          const defaultUser = d.data.find((u: any) => u.name?.includes('Sơn')) || d.data[0];
-          setFormData(prev => ({ 
-             ...prev, 
-             userId: defaultUser.id, 
-             userName: defaultUser.name 
-           }));
+          const active = getActiveLoggedInUser(d.data);
+          setCurrentUser(active);
+          if (active) {
+            setFormData(prev => ({ 
+              ...prev, 
+              userId: active.id, 
+              userName: active.name 
+            }));
+          }
         }
 
         const c = await catRes.json();
@@ -190,7 +202,23 @@ export default function InputWork() {
       }
     };
     fetchUsersAndCatalog();
-  }, []);
+
+    const handleUserChange = () => {
+      if (users.length > 0) {
+        const active = getActiveLoggedInUser(users);
+        setCurrentUser(active);
+        if (active) {
+          setFormData(prev => ({
+            ...prev,
+            userId: active.id,
+            userName: active.name
+          }));
+        }
+      }
+    };
+    window.addEventListener('kpi_user_changed', handleUserChange);
+    return () => window.removeEventListener('kpi_user_changed', handleUserChange);
+  }, [users.length]);
 
   const handleProposeSubmit = async () => {
     try {
@@ -445,8 +473,8 @@ export default function InputWork() {
     const today = new Date().toISOString().split('T')[0];
     setFormData({
       month: '08-2026',
-      userId: users[0]?.id || 1,
-      userName: users[0]?.name || '',
+      userId: currentUser?.id || users[0]?.id || 1,
+      userName: currentUser?.name || users[0]?.name || '',
       taskGroup: 'Kế hoạch vốn',
       taskName: '',
       taskCode: '',
@@ -605,20 +633,17 @@ export default function InputWork() {
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
                 <User className="w-3.5 h-3.5 text-[#1F4E78]" />
-                <span>Nhân viên thực hiện <span className="text-red-500">*</span></span>
+                <span>Cá nhân đăng ký việc <span className="text-red-500">*</span></span>
               </label>
-              <select 
-                value={formData.userId}
-                onChange={(e) => {
-                  const u = users.find(x => x.id === parseInt(e.target.value));
-                  setFormData({ ...formData, userId: parseInt(e.target.value), userName: u ? u.name : '' });
-                }}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-[#1F4E78]"
-              >
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.position || 'Chuyên viên'})</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2.5 p-2 bg-blue-50/70 border border-blue-200 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+                  {getInitials(currentUser?.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-black text-[#1F4E78] truncate">{currentUser?.name || 'Đang xác thực...'}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Tài khoản cá nhân</div>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -629,8 +654,8 @@ export default function InputWork() {
               <input 
                 type="text" 
                 readOnly 
-                value={users.find(u => u.id === formData.userId)?.position || 'Chuyên viên'} 
-                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 cursor-not-allowed"
+                value={currentUser?.position || 'Chuyên viên'} 
+                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 cursor-not-allowed"
               />
             </div>
 
@@ -641,7 +666,7 @@ export default function InputWork() {
               <input 
                 type="text" 
                 readOnly 
-                value={users.find(u => u.id === formData.userId)?.email || ''} 
+                value={currentUser?.email || ''} 
                 className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 cursor-not-allowed text-ellipsis overflow-hidden"
               />
             </div>

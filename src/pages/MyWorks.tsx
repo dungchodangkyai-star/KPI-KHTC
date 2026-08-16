@@ -4,7 +4,8 @@ import {
   AlertCircle, ExternalLink, Edit3, Trash2, Plus, ArrowUpDown, 
   RefreshCw, Check, X, FileText, Download, Eye, AlertTriangle,
   Award, Layers, User, ChevronDown, CheckSquare, Square,
-  Building, Hash, FileSpreadsheet, Sparkles, HelpCircle
+  Building, Hash, FileSpreadsheet, Sparkles, HelpCircle, ShieldCheck,
+  Send, MessageSquare, ArrowRight, UserCheck
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { 
@@ -15,18 +16,21 @@ import {
   formatDate,
   formatDateInput,
   formatMonth,
-  isSoftDeleted
+  isSoftDeleted,
+  getActiveLoggedInUser
 } from '../utils';
 import { Work, User as UserType } from '../types';
 
 export default function MyWorks() {
   const [works, setWorks] = useState<Work[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
-  const [selectedUserId, setSelectedUserId] = useState<number | 'all'>('all');
   const [selectedGroup, setSelectedGroup] = useState('all');
   const [filterApproval, setFilterApproval] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSource, setFilterSource] = useState<'all' | 'assigned' | 'self'>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -39,17 +43,31 @@ export default function MyWorks() {
   const [deletingWork, setDeletingWork] = useState<Work | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isAccepting, setIsAccepting] = useState<number | null>(null);
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
 
   const fetchWorks = async () => {
     setIsLoading(true);
     try {
-      const [resW, resU] = await Promise.all([
+      const [resW, resU, resA] = await Promise.all([
         fetch('/api/works'),
-        fetch('/api/users')
+        fetch('/api/users'),
+        fetch('/api/assignments')
       ]);
-      const [dW, dU] = await Promise.all([resW.json(), resU.json()]);
+      const [dW, dU, dA] = await Promise.all([resW.json(), resU.json(), resA.json()]);
       if (dW.success) setWorks(dW.data || []);
-      if (dU.success) setUsers(dU.data || []);
+      if (dA.success) setAssignments(dA.data || []);
+      if (dU.success && dU.data?.length > 0) {
+        setUsers(dU.data);
+        const active = getActiveLoggedInUser(dU.data);
+        setCurrentUser(active);
+      }
     } catch (e) {
       console.error("Fetch works error:", e);
     } finally {
@@ -59,18 +77,86 @@ export default function MyWorks() {
 
   useEffect(() => {
     fetchWorks();
-  }, []);
 
-  // Filtered Works List
+    const handleUserChange = () => {
+      if (users.length > 0) {
+        const active = getActiveLoggedInUser(users);
+        setCurrentUser(active);
+      }
+    };
+    window.addEventListener('kpi_user_changed', handleUserChange);
+    return () => window.removeEventListener('kpi_user_changed', handleUserChange);
+  }, [users.length]);
+
+  const handleAcceptAssignment = async (assignId: number) => {
+    setIsAccepting(assignId);
+    try {
+      const res = await fetch(`/api/assignments/${assignId}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser?.id })
+      });
+      const d = await res.json();
+      if (d.success) {
+        alert("Đã tiếp nhận nhiệm vụ thành công! Nhiệm vụ đã được chuyển vào danh sách công việc cá nhân của bạn để triển khai và tính điểm KPI.");
+        fetchWorks();
+      } else {
+        alert("Lỗi: " + (d.error || "Không thể tiếp nhận nhiệm vụ"));
+      }
+    } catch (e) {
+      alert("Lỗi kết nối máy chủ");
+    } finally {
+      setIsAccepting(null);
+    }
+  };
+
+  const handleDeclineAssignment = async (assignId: number) => {
+    const reason = prompt("Nhập lý do từ chối hoặc đề xuất điều chỉnh nhiệm vụ giao:");
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert("Vui lòng nêu rõ lý do để Lãnh đạo nắm được thông tin 2 chiều.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/assignments/${assignId}/decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ declineReason: reason.trim(), userId: currentUser?.id })
+      });
+      const d = await res.json();
+      if (d.success) {
+        alert("Đã gửi phản hồi từ chối nhiệm vụ đến Lãnh đạo giao việc.");
+        fetchWorks();
+      } else {
+        alert("Lỗi: " + (d.error || "Không thể gửi phản hồi"));
+      }
+    } catch (e) {
+      alert("Lỗi kết nối máy chủ");
+    }
+  };
+
+  // Pending assignments for the current logged-in user
+  const myPendingAssignments = assignments.filter(a => 
+    currentUser && 
+    a.receiverId === currentUser.id && 
+    (!a.receiveStatus || a.receiveStatus.includes('Chưa') || a.receiveStatus.includes('Chờ'))
+  );
+
+  // Filtered Works List - STRICTLY FOR THE LOGGED-IN USER ONLY
   const filteredWorks = works.filter(w => {
     if (isSoftDeleted(w)) return false;
     
+    // User filter: strictly current logged in user
+    if (currentUser && w.userId !== currentUser.id) return false;
+
     // Month filter
     if (selectedMonth !== 'Tất cả' && formatMonth(w.month) !== selectedMonth) return false;
     
-    // User filter
-    if (selectedUserId !== 'all' && w.userId !== selectedUserId) return false;
-    
+    // Source filter (all / assigned / self)
+    if (filterSource === 'assigned' && !w.assignmentId && w.source !== 'Giao việc') return false;
+    if (filterSource === 'self' && (w.assignmentId || w.source === 'Giao việc')) return false;
+
     // Group filter
     if (selectedGroup !== 'all' && w.taskGroup !== selectedGroup) return false;
     
@@ -97,12 +183,11 @@ export default function MyWorks() {
       const kw = searchKeyword.toLowerCase();
       const matchName = (w.taskName || '').toLowerCase().includes(kw);
       const matchCode = (w.taskCode || '').toLowerCase().includes(kw);
-      const matchUser = (w.user?.name || '').toLowerCase().includes(kw);
       const matchGroup = (w.taskGroup || '').toLowerCase().includes(kw);
       const matchDetail = (w.detail || '').toLowerCase().includes(kw);
       const matchProject = (w.project || '').toLowerCase().includes(kw);
       const matchRelated = (w.relatedUnit || '').toLowerCase().includes(kw);
-      if (!matchName && !matchCode && !matchUser && !matchGroup && !matchDetail && !matchProject && !matchRelated) {
+      if (!matchName && !matchCode && !matchGroup && !matchDetail && !matchProject && !matchRelated) {
         return false;
       }
     }
@@ -336,6 +421,104 @@ export default function MyWorks() {
         </div>
       </div>
 
+      {/* Top Alert Banner for Pending Assignments */}
+      {myPendingAssignments.length > 0 && (
+        <div className="mb-6 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-orange-500/10 border-2 border-amber-400/80 rounded-2xl p-5 shadow-md">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-sm shrink-0 animate-bounce">
+                <Send className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-amber-500 text-white font-black text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Thông báo khẩn
+                  </span>
+                  <h3 className="font-black text-amber-950 text-base">
+                    Bạn có {myPendingAssignments.length} nhiệm vụ được Lãnh đạo giao cần tiếp nhận
+                  </h3>
+                </div>
+                <p className="text-xs text-amber-900 mt-1 font-medium">
+                  Vui lòng kiểm tra nội dung phân công, hạn hoàn thành và nhấn nút <b>"Tiếp nhận việc"</b> để tự động đồng bộ vào danh sách công việc và tính điểm KPI.
+                </p>
+              </div>
+            </div>
+            <div className="text-xs font-black text-amber-800 bg-white/80 px-3 py-1.5 rounded-xl border border-amber-200 shadow-xs">
+              {myPendingAssignments.length} việc đang chờ phản hồi
+            </div>
+          </div>
+
+          {/* Pending Tasks Cards Grid */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {myPendingAssignments.map((a: any) => (
+              <div key={a.id} className="bg-white border border-amber-200/90 rounded-xl p-3.5 shadow-sm hover:shadow transition space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {a.taskCode && (
+                      <span className="bg-[#1F4E78] text-white text-[10px] font-black px-1.5 py-0.5 rounded">
+                        {a.taskCode}
+                      </span>
+                    )}
+                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {a.taskGroup}
+                    </span>
+                    <span className="text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                      {a.priority || 'Bình thường'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    Chờ nhận
+                  </span>
+                </div>
+
+                <div className="font-black text-slate-900 text-sm">{a.taskName}</div>
+                {a.detail && (
+                  <div className="text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-1.5 rounded">
+                    {a.detail}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600 pt-1 border-t border-slate-100">
+                  <div>
+                    <span className="text-slate-400">Hạn chót:</span>{' '}
+                    <b className="text-slate-800">{a.deadline ? formatDate(a.deadline) : '-'}</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Điểm dự kiến:</span>{' '}
+                    <b className="text-[#1F4E78]">{a.expectedConvertedScore || 10} đ</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Sản phẩm yêu cầu:</span>{' '}
+                    <b className="text-slate-800">{a.productRequired || 'Báo cáo / Hồ sơ'}</b>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Thời gian ước tính:</span>{' '}
+                    <b className="text-slate-800">{a.hours || 8}h ({a.days || 1} ngày)</b>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => handleDeclineAssignment(a.id)}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition"
+                  >
+                    Từ chối / Đề xuất
+                  </button>
+                  <button
+                    onClick={() => handleAcceptAssignment(a.id)}
+                    disabled={isAccepting === a.id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs shadow-sm transition active:scale-95 disabled:opacity-50"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>{isAccepting === a.id ? 'Đang nhận...' : 'Tiếp nhận việc ngay'}</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* KPI & Summary Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between">
@@ -408,19 +591,22 @@ export default function MyWorks() {
             </div>
           </div>
 
-          {/* User Selector */}
+          {/* Personal User Identity */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Nhân sự thực hiện</label>
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-              className="w-full bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
-            >
-              <option value="all">Tất cả nhân sự</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.position || 'Chuyên viên'})</option>
-              ))}
-            </select>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Cá nhân thực hiện</label>
+            <div className="flex items-center gap-2.5 bg-blue-50/80 border border-blue-200/90 px-3 py-1.5 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-[11px] font-black shrink-0 shadow-xs">
+                {getInitials(currentUser?.name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-black text-[#1F4E78] truncate" title={currentUser?.name}>
+                  {currentUser?.name || 'Đang xác thực...'}
+                </div>
+                <div className="text-[10px] text-slate-500 font-medium truncate">
+                  {currentUser?.position || 'Chuyên viên'}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Group Selector */}
@@ -471,9 +657,46 @@ export default function MyWorks() {
           </div>
         </div>
 
-        {/* Search input and active filter badges */}
+        {/* Search input and source tabs */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-100">
-          <div className="relative w-full sm:w-96">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            {/* Quick Source Tabs */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => setFilterSource('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  filterSource === 'all' 
+                    ? 'bg-white text-[#1F4E78] shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Tất cả nguồn ({works.filter(w => !isSoftDeleted(w) && (!currentUser || w.userId === currentUser.id)).length})
+              </button>
+              <button
+                onClick={() => setFilterSource('assigned')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  filterSource === 'assigned' 
+                    ? 'bg-white text-indigo-700 shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Send className="w-3 h-3" />
+                <span>Việc được giao ({works.filter(w => !isSoftDeleted(w) && (!currentUser || w.userId === currentUser.id) && (w.assignmentId || w.source === 'Giao việc')).length})</span>
+              </button>
+              <button
+                onClick={() => setFilterSource('self')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  filterSource === 'self' 
+                    ? 'bg-white text-[#1F4E78] shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Việc tự lập ({works.filter(w => !isSoftDeleted(w) && (!currentUser || w.userId === currentUser.id) && !w.assignmentId && w.source !== 'Giao việc').length})
+              </button>
+            </div>
+          </div>
+
+          <div className="relative w-full sm:w-80">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input 
               type="text"
@@ -482,15 +705,6 @@ export default function MyWorks() {
               placeholder="Tìm theo tên nhiệm vụ, mã việc, dự án, nội dung..."
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#1F4E78]"
             />
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium self-start sm:self-auto">
-            <span>Hiển thị <b>{filteredWorks.length}</b> / {works.length} công việc</span>
-            {selectedIds.length > 0 && (
-              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold">
-                Đã chọn {selectedIds.length} việc
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -511,14 +725,13 @@ export default function MyWorks() {
                   </button>
                 </th>
                 <th className="py-3 px-3 text-center w-12">STT</th>
-                <th className="py-3 px-3 min-w-[140px]">Nhân sự</th>
                 <th className="py-3 px-3 text-center min-w-[80px]">Tháng</th>
-                <th className="py-3 px-3 min-w-[240px]">Mã việc & Tên nhiệm vụ</th>
-                <th className="py-3 px-3 min-w-[160px]">Nội dung & Minh chứng</th>
+                <th className="py-3 px-3 min-w-[280px]">Mã việc & Tên nhiệm vụ</th>
+                <th className="py-3 px-3 min-w-[170px]">Nội dung & Minh chứng</th>
                 <th className="py-3 px-3 text-center min-w-[130px]">Thời gian</th>
                 <th className="py-3 px-3 text-center min-w-[110px]">Sản phẩm</th>
                 <th className="py-3 px-3 text-center min-w-[110px]">Tính chất & Điểm</th>
-                <th className="py-3 px-3 text-center min-w-[100px]">Tiến độ</th>
+                <th className="py-3 px-3 text-center min-w-[120px]">Tiến độ & Trạng thái</th>
                 <th className="py-3 px-3 text-center min-w-[120px]">Lãnh đạo duyệt</th>
                 <th className="py-3 px-3 text-center min-w-[100px]">Thao tác</th>
               </tr>
@@ -527,6 +740,8 @@ export default function MyWorks() {
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
               {filteredWorks.map((w, idx) => {
                 const isSelected = selectedIds.includes(w.id);
+                // Sanitize task code from showing email address
+                const cleanCode = w.taskCode && !w.taskCode.includes('@') && !w.taskCode.toLowerCase().includes('.com') ? w.taskCode : null;
                 return (
                   <tr key={w.id} className={`hover:bg-blue-50/40 transition-colors ${isSelected ? 'bg-blue-50/60' : ''}`}>
                     {/* Checkbox */}
@@ -542,25 +757,29 @@ export default function MyWorks() {
                     {/* STT */}
                     <td className="py-3 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
 
-                    {/* Nhân sự */}
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-slate-900 leading-snug">{w.user?.name || w.userId}</div>
-                      <div className="text-[10px] text-slate-500">{w.user?.position || 'Chuyên viên'}</div>
-                    </td>
-
                     {/* Tháng */}
                     <td className="py-3 px-3 text-center">
                       <span className="px-2 py-0.5 bg-slate-100 text-[#1F4E78] font-black rounded-lg text-[11px]">
-                        {w.month}
+                        {formatMonth(w.month)}
                       </span>
                     </td>
 
                     {/* Tên việc & Nhóm việc */}
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                        {w.taskCode && (
+                        {cleanCode && (
                           <span className="px-1.5 py-0.5 bg-[#1F4E78] text-white font-black rounded text-[10px] tracking-wide">
-                            {w.taskCode}
+                            {cleanCode}
+                          </span>
+                        )}
+                        {(w.assignmentId || w.source === 'Giao việc') ? (
+                          <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded text-[10px] flex items-center gap-1">
+                            <Send className="w-2.5 h-2.5" />
+                            <span>Lãnh đạo giao</span>
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 font-medium rounded text-[10px]">
+                            Tự lập
                           </span>
                         )}
                         <span className="text-[11px] font-semibold text-slate-500">

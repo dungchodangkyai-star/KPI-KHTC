@@ -4,8 +4,8 @@ import { Radio, Users, Clock, Shield, Monitor } from 'lucide-react';
 export default function AdminOnline() {
   const dummySessions = [
     { id: 1, user: 'Nguyễn Văn A', email: 'nva@example.com', role: 'STAFF', ip: '192.168.1.105', device: 'Windows / Chrome', loginTime: '08:30:15', lastActive: 'Vừa xong', status: 'Online' },
-    { id: 2, user: 'Khuất Văn Sơn', email: 'sonkv@example.com', role: 'LEADER', ip: '192.168.1.20', device: 'MacOS / Safari', loginTime: '07:45:00', lastActive: '5 phút trước', status: 'Idle' },
-    { id: 3, user: 'Admin', email: 'admin@example.com', role: 'ADMIN', ip: '113.190.23.45', device: 'Windows / Edge', loginTime: '09:15:22', lastActive: 'Vừa xong', status: 'Online' },
+    { id: 2, user: 'Khuất Văn Sơn', email: 'khvanson@gmail.com', role: 'ADMIN', ip: '192.168.1.20', device: 'MacOS / Safari', loginTime: '07:45:00', lastActive: '5 phút trước', status: 'Online' },
+    { id: 3, user: 'Đặng Văn Định', email: 'dinhdv@gmail.com', role: 'LEADER', ip: '113.190.23.45', device: 'Windows / Edge', loginTime: '09:15:22', lastActive: 'Vừa xong', status: 'Online' },
   ];
 
   return (

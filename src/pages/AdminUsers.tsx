@@ -100,9 +100,25 @@ export default function AdminUsers() {
     }
   };
 
-  const handleResetPassword = async (id: number) => {
-    if (!confirm('Đặt lại mật khẩu cho tài khoản này về mặc định (123456)?')) return;
-    alert('Đã đặt lại mật khẩu thành 123456');
+  const handleResetPassword = async (user: any) => {
+    if (!confirm(`Đặt lại mật khẩu cho tài khoản "${user.name}" (${user.email}) về mặc định (123456@)?\nNgười dùng sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập kế tiếp.`)) return;
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Đã đặt lại mật khẩu cho ${user.name} về mặc định (123456@).`);
+        fetchUsers();
+      } else {
+        alert('Lỗi đặt lại mật khẩu: ' + (data.message || data.error));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Lỗi kết nối khi đặt lại mật khẩu.');
+    }
   };
 
   const EXPORT_COLUMNS = [
@@ -414,50 +430,90 @@ export default function AdminUsers() {
                   </tr>
                 )}
                 
-                {users.map((user: any) => (
-                  <tr key={user.id} className={`hover:bg-slate-50 transition-colors ${isEditing === user.id ? 'hidden' : ''}`}>
-                    <td className="p-4">
-                      <div className="font-bold text-slate-800">{user.name}</div>
-                      <div className="text-xs text-slate-500 mb-1">{user.email}</div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
-                        {user.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {user.phone}</span>}
-                        {user.zalo && <span className="flex items-center gap-1"><Smartphone className="w-3 h-3" /> Zalo: {user.zalo}</span>}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="text-sm font-medium text-slate-800">{user.position || '-'}</div>
-                      <div className="text-xs text-slate-500">{user.group || '-'}</div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-bold text-blue-800 text-xs bg-blue-50 inline-block px-2 py-1 rounded mb-1">{user.role}</div>
-                      {user.permissions && user.permissions !== '[]' && (
-                        <div className="text-[11px] text-slate-500 max-w-[200px] truncate" title={user.permissions}>
-                          {JSON.parse(user.permissions).includes('full_access') ? '⭐ Toàn quyền' : `+ ${JSON.parse(user.permissions).length} quyền`}
+                {users.map((user: any) => {
+                  const isMainAdmin = user.email?.toLowerCase() === 'khvanson@gmail.com';
+                  return (
+                    <tr key={user.id} className={`hover:bg-slate-50 transition-colors ${isEditing === user.id ? 'hidden' : ''}`}>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">{user.name}</span>
+                          {isMainAdmin && (
+                            <span className="text-[10px] font-black bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded border border-purple-200">
+                              Admin gốc
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className={`px-2 py-1 text-xs font-bold rounded-full ${
-                        user.status === 'Đang làm' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {user.status}
-                      </span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => handleResetPassword(user.id)} title="Đặt lại mật khẩu" className="p-1.5 text-orange-600 hover:bg-orange-50 rounded">
-                          <Key className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleEdit(user)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(user.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        <div className="text-xs text-slate-500 mb-1">{user.email}</div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                          {user.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {user.phone}</span>}
+                          {user.zalo && <span className="flex items-center gap-1"><Smartphone className="w-3 h-3" /> Zalo: {user.zalo}</span>}
+                        </div>
+                        {user.lastLoginAt && (
+                          <div className="text-[10px] text-slate-400 mt-1">
+                            Đăng nhập gần nhất: {new Date(user.lastLoginAt).toLocaleString('vi-VN')}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <div className="text-sm font-medium text-slate-800">{user.position || '-'}</div>
+                        <div className="text-xs text-slate-500">{user.group || '-'}</div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-bold text-blue-800 text-xs bg-blue-50 inline-block px-2 py-1 rounded mb-1">{user.role}</div>
+                        {user.permissions && user.permissions !== '[]' && (
+                          <div className="text-[11px] text-slate-500 max-w-[200px] truncate" title={user.permissions}>
+                            {JSON.parse(user.permissions).includes('full_access') ? '⭐ Toàn quyền' : `+ ${JSON.parse(user.permissions).length} quyền`}
+                          </div>
+                        )}
+                        <div className="mt-1">
+                          {user.mustChangePassword ? (
+                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              Mật khẩu mặc định (123456@)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                              Đã đổi mật khẩu riêng
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2 py-1 text-xs font-bold rounded-full ${
+                          user.status === 'Đang làm' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {user.status}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <button 
+                            onClick={() => handleResetPassword(user)} 
+                            title="Đặt lại mật khẩu về 123456@" 
+                            className="p-2 text-amber-700 hover:bg-amber-50 border border-amber-200 rounded-lg transition"
+                          >
+                            <Key className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleEdit(user)} 
+                            title="Sửa thông tin & Phân quyền" 
+                            className="p-2 text-blue-600 hover:bg-blue-50 border border-blue-200 rounded-lg transition"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          {!isMainAdmin && (
+                            <button 
+                              onClick={() => handleDelete(user.id)} 
+                              title="Xóa tài khoản" 
+                              className="p-2 text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {users.length === 0 && !isEditing && (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-slate-500">Chưa có dữ liệu nhân sự.</td>

@@ -5,13 +5,21 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser } from '../utils';
 
 export default function OtRegister() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
 
   const [formData, setFormData] = useState({
     month: '08-2026',
@@ -37,14 +45,30 @@ export default function OtRegister() {
         const data = await res.json();
         if (data.success && data.data?.length > 0) {
           setUsers(data.data);
-          setFormData(prev => ({ ...prev, userId: data.data[0].id }));
+          const active = getActiveLoggedInUser(data.data);
+          setCurrentUser(active);
+          if (active) {
+            setFormData(prev => ({ ...prev, userId: active.id }));
+          }
         }
       } catch (e) {
         console.error(e);
       }
     };
     fetchUsers();
-  }, []);
+
+    const handleUserChange = () => {
+      if (users.length > 0) {
+        const active = getActiveLoggedInUser(users);
+        setCurrentUser(active);
+        if (active) {
+          setFormData(prev => ({ ...prev, userId: active.id }));
+        }
+      }
+    };
+    window.addEventListener('kpi_user_changed', handleUserChange);
+    return () => window.removeEventListener('kpi_user_changed', handleUserChange);
+  }, [users.length]);
 
   // Calculate hours automatically
   const calculateHours = (start: string, end: string, breakMins: number) => {
@@ -236,15 +260,15 @@ export default function OtRegister() {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Người làm thêm <span className="text-red-500">*</span></label>
-            <select 
-              value={formData.userId}
-              onChange={(e) => setFormData({ ...formData, userId: parseInt(e.target.value) })}
-              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-[#1F4E78]"
-            >
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.position || 'CV'})</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2.5 p-2 bg-blue-50/80 border border-blue-200 rounded-xl">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+                {getInitials(currentUser?.name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-black text-[#1F4E78] truncate">{currentUser?.name || 'Đang tải...'}</div>
+                <div className="text-[10px] text-slate-500 font-medium">{currentUser?.position || 'Chuyên viên'}</div>
+              </div>
+            </div>
           </div>
 
           <div>
