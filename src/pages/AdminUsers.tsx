@@ -3,6 +3,7 @@ import { Users, Plus, Edit2, Trash2, Check, X, Shield, Key, Download, Upload, Fi
 import * as XLSX from 'xlsx';
 import { exportStyledExcel, downloadStyledTemplate } from '../excelUtils';
 import { User as UserType } from '../types';
+import { cleanPosition } from '../utils';
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -455,7 +456,7 @@ export default function AdminUsers() {
                         )}
                       </td>
                       <td className="p-4">
-                        <div className="text-sm font-medium text-slate-800">{user.position || '-'}</div>
+                        <div className="text-sm font-medium text-slate-800">{cleanPosition(user.position)}</div>
                         <div className="text-xs text-slate-500">{user.group || '-'}</div>
                       </td>
                       <td className="p-4">

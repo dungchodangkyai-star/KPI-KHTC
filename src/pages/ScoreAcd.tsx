@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { KPI_A_CRITERIA, STANDARD_MONTHS, safeFetchJson } from '../utils';
+import { KPI_A_CRITERIA, STANDARD_MONTHS, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { 
   Award, Save, RefreshCw, CheckCircle, AlertTriangle, User, Calendar, 
   FileText, ShieldCheck, CheckSquare, Info, Plus, Trash2, ArrowRight, 
@@ -196,7 +196,8 @@ export default function ScoreAcd() {
       setScoresA(prev => ({ ...prev, [code]: { ...prev[code], approved: '' } }));
       return;
     }
-    let val = parseFloat(valStr);
+    const normalized = valStr.replace(',', '.');
+    let val = parseFloat(normalized);
     if (isNaN(val)) return;
     if (val < 0) val = 0;
     if (val > maxScore) val = maxScore;
@@ -499,7 +500,7 @@ export default function ScoreAcd() {
               >
                 {users.map((u, idx) => (
                   <option key={u.id} value={u.id}>
-                    {idx + 1}. {u.name} ({u.position || 'Nhân viên'})
+                    {idx + 1}. {u.name} ({cleanPosition(u.position)})
                   </option>
                 ))}
               </select>
@@ -541,13 +542,13 @@ export default function ScoreAcd() {
                 <div className="font-bold text-slate-900 text-sm">
                   {targetUserObj.name}{' '}
                   <span className="font-normal text-slate-500 text-xs">
-                    ({targetUserObj.position || 'Nhân viên'} - {targetUserObj.role})
+                    ({cleanPosition(targetUserObj.position)})
                   </span>
                 </div>
                 <div className="text-slate-500 flex items-center gap-2 mt-0.5">
                   <span>Việc được duyệt: <strong className="text-emerald-700">{kpiData?.summary?.approvedWorks || 0}</strong></span>
                   <span>•</span>
-                  <span>Điểm quy đổi (B): <strong className="text-blue-700">{kpiData?.summary?.bTotal || 0}đ</strong></span>
+                  <span>Điểm quy đổi (B): <strong className="text-blue-700">{formatScore(kpiData?.summary?.bTotal)}đ</strong></span>
                   <span>•</span>
                   <span>Trạng thái A: <strong className={kpiData?.detailsA?.statusA === 'Đã tự chấm' ? 'text-emerald-700' : 'text-amber-700'}>{kpiData?.detailsA?.statusA || 'Chưa tự chấm'}</strong></span>
                 </div>
@@ -556,16 +557,16 @@ export default function ScoreAcd() {
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-1 rounded-lg font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                A (Duyệt): {calculatedApprovedA}/30đ
+                A (Duyệt): {formatScore(calculatedApprovedA)}/30đ
               </span>
               <span className="px-2.5 py-1 rounded-lg font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                C (C1+C2): +{totalC}/10đ
+                C (C1+C2): +{formatScore(totalC)}/10đ
               </span>
               <span className={`px-2.5 py-1 rounded-lg font-bold border ${totalOfficialD > 0 ? 'bg-rose-50 text-rose-800 border-rose-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-                D (Phạt): -{totalOfficialD}đ
+                D (Phạt): -{formatScore(totalOfficialD)}đ
               </span>
               <span className="px-3 py-1 rounded-lg font-black bg-[#1F4E78] text-white">
-                Tổng KPI: {calculatedTotalKpi}đ ({calculatedRank})
+                Tổng KPI: {formatScore(calculatedTotalKpi)}đ ({calculatedRank})
               </span>
             </div>
           </div>
@@ -610,7 +611,7 @@ export default function ScoreAcd() {
                   Nhân viên tự chấm:{' '}
                   <strong className="text-slate-800">
                     {kpiData?.detailsA?.selfTotal !== null && kpiData?.detailsA?.selfTotal !== undefined 
-                      ? `${kpiData.detailsA.selfTotal} / 30 điểm` 
+                      ? `${formatScore(kpiData.detailsA.selfTotal)} / 30 điểm` 
                       : 'Chưa tự chấm'}
                   </strong>
                   {kpiData?.detailsA?.noteA && (
@@ -638,7 +639,7 @@ export default function ScoreAcd() {
                 </button>
                 <div className="h-6 w-px bg-slate-300"></div>
                 <span className="text-sm font-black text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                  Tổng duyệt A: {calculatedApprovedA} / 30đ
+                  Tổng duyệt A: {formatScore(calculatedApprovedA)} / 30đ
                 </span>
               </div>
             </div>
@@ -669,7 +670,7 @@ export default function ScoreAcd() {
                         <td className="p-3 text-center">
                           {selfVal !== null && selfVal !== undefined ? (
                             <span className="font-bold text-[#1F4E78] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                              {selfVal}
+                              {formatScore(selfVal)}
                             </span>
                           ) : (
                             <span className="text-xs text-amber-600 italic">Chưa chấm</span>
@@ -736,7 +737,7 @@ export default function ScoreAcd() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-600">Tổng điểm thưởng C:</span>
                 <span className="text-base font-black text-[#1F4E78] bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
-                  +{totalC} / 10.0 điểm
+                  +{formatScore(totalC)} / 10.0 điểm
                 </span>
               </div>
             </div>
@@ -751,7 +752,7 @@ export default function ScoreAcd() {
                       <span className="font-bold text-sm text-slate-800">Điểm C1 (Tự động từ tính chất):</span>
                     </div>
                     <span className="font-black text-blue-700 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 text-sm">
-                      {autoC1} / 6.0 điểm
+                      {formatScore(autoC1)} / 6.0 điểm
                     </span>
                   </div>
 
@@ -763,13 +764,13 @@ export default function ScoreAcd() {
                     <div>
                       Điểm tính chất cá nhân:{' '}
                       <strong className="text-[#1F4E78]">
-                        {kpiData?.detailsC?.personalNatureTotal ?? 0}đ
+                        {formatScore(kpiData?.detailsC?.personalNatureTotal)}đ
                       </strong>
                     </div>
                     <div>
                       Điểm tính chất BQ phòng:{' '}
                       <strong className="text-slate-800">
-                        {kpiData?.detailsC?.avgDeptNature ?? 0}đ
+                        {formatScore(kpiData?.detailsC?.avgDeptNature)}đ
                       </strong>
                     </div>
                   </div>
@@ -896,7 +897,7 @@ export default function ScoreAcd() {
                 <div className="flex items-center gap-2 bg-rose-50 px-3 py-1 rounded-xl border border-rose-200">
                   <span className="text-xs font-bold text-rose-800">Trừ chính thức:</span>
                   <span className="text-base font-black text-rose-700">
-                    - {totalOfficialD} điểm
+                    - {formatScore(totalOfficialD)} điểm
                   </span>
                 </div>
               </div>
@@ -907,21 +908,21 @@ export default function ScoreAcd() {
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <div className="text-xs text-slate-500">Hệ thống tự động ghi nhận:</div>
                 <div className="text-lg font-black text-slate-800">
-                  - {totalAutoD} điểm <span className="text-xs font-normal text-slate-500">({penaltyItems.length} vi phạm)</span>
+                  - {formatScore(totalAutoD)} điểm <span className="text-xs font-normal text-slate-500">({penaltyItems.length} vi phạm)</span>
                 </div>
               </div>
 
               <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200">
                 <div className="text-xs text-emerald-800 font-semibold">Lãnh đạo đã duyệt miễn/giảm:</div>
                 <div className="text-lg font-black text-emerald-700">
-                  + {totalExemptedD} điểm <span className="text-xs font-normal text-emerald-600">({penaltyItems.filter(it => it.decision === 'Miễn phạt').length} việc miễn, {penaltyItems.filter(it => it.decision === 'Giảm phạt').length} việc giảm)</span>
+                  + {formatScore(totalExemptedD)} điểm <span className="text-xs font-normal text-emerald-600">({penaltyItems.filter(it => it.decision === 'Miễn phạt').length} việc miễn, {penaltyItems.filter(it => it.decision === 'Giảm phạt').length} việc giảm)</span>
                 </div>
               </div>
 
               <div className="bg-rose-50/70 p-3 rounded-xl border border-rose-200">
                 <div className="text-xs text-rose-800 font-semibold">Điểm phạt thực tế trừ vào KPI:</div>
                 <div className="text-lg font-black text-rose-700">
-                  - {totalOfficialD} điểm
+                  - {formatScore(totalOfficialD)} điểm
                 </div>
               </div>
             </div>
@@ -1038,7 +1039,7 @@ export default function ScoreAcd() {
                           </div>
 
                           <div className="text-xs text-slate-600 flex items-center gap-2">
-                            <span>Hệ thống tự ghi nhận: trừ <strong className="text-rose-700">{item.autoD} điểm</strong></span>
+                            <span>Hệ thống tự ghi nhận: trừ <strong className="text-rose-700">{formatScore(item.autoD)} điểm</strong></span>
                             {item.date && <span>• Thời điểm: {new Date(item.date).toLocaleDateString('vi-VN')}</span>}
                           </div>
                         </div>
@@ -1163,10 +1164,10 @@ export default function ScoreAcd() {
               </div>
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="text-sm text-slate-700 font-bold">
-                  A ({calculatedApprovedA}đ) + B ({bTotal}đ) + C ({totalC}đ) - D ({totalOfficialD}đ) =
+                  A ({formatScore(calculatedApprovedA)}đ) + B ({formatScore(bTotal)}đ) + C ({formatScore(totalC)}đ) - D ({formatScore(totalOfficialD)}đ) =
                 </span>
                 <span className="text-2xl sm:text-3xl font-black text-[#1F4E78]">
-                  {calculatedTotalKpi} / 100 điểm
+                  {formatScore(calculatedTotalKpi)} / 100 điểm
                 </span>
                 <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase ${
                   calculatedTotalKpi >= 95 

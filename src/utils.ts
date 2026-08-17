@@ -1,6 +1,57 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+/**
+ * Formats a score or number in Vietnamese format:
+ * - Rounds floating point precision (e.g. 40.980000000000004 -> 40.98 -> '40,98')
+ * - Max decimals (default 2), trims trailing zeros if integer (e.g. 60 -> '60', 26.5 -> '26,5', 14.48 -> '14,48')
+ * - Uses comma ',' as decimal separator according to Vietnamese standards
+ */
+export const formatScore = (val: any, fallback = '0', maxDecimals = 2): string => {
+  if (val === null || val === undefined || val === '') return fallback;
+  const num = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.'));
+  if (isNaN(num)) return fallback;
+  
+  // Round to maxDecimals to avoid floating point math errors
+  const factor = Math.pow(10, maxDecimals);
+  const rounded = Math.round((num + Number.EPSILON) * factor) / factor;
+  
+  // Convert to string and replace '.' with ','
+  return String(rounded).replace('.', ',');
+};
+
+export const formatScoreWithUnit = (val: any, unit = 'đ', fallback = '-', maxDecimals = 2): string => {
+  if (val === null || val === undefined || val === '') return fallback;
+  const str = formatScore(val, fallback, maxDecimals);
+  if (str === fallback) return fallback;
+  return `${str}${unit}`;
+};
+
+export const formatPercent = (val: any, fallback = '0%', maxDecimals = 2): string => {
+  if (val === null || val === undefined || val === '') return fallback;
+  const str = formatScore(val, '', maxDecimals);
+  if (str === '') return fallback;
+  return `${str}%`;
+};
+
+/**
+ * Normalizes user position title:
+ * - Strips any administrative role suffixes (e.g. '/ Quản trị', '/ Admin', '- Quản trị')
+ * - Ensures position only contains purely the official job title (e.g. 'Phó Trưởng phòng', 'Trưởng phòng', 'Kế toán trưởng', 'Chuyên viên')
+ */
+export const cleanPosition = (pos: string | null | undefined): string => {
+  if (!pos) return 'Chuyên viên';
+  const cleaned = String(pos)
+    .replace(/\s*[\/\-|,]\s*Quản trị viên/gi, '')
+    .replace(/\s*[\/\-|,]\s*Quản trị/gi, '')
+    .replace(/\s*[\/\-|,]\s*Administrator/gi, '')
+    .replace(/\s*[\/\-|,]\s*Admin/gi, '')
+    .replace(/\s*\(\s*Quản trị\s*\)/gi, '')
+    .replace(/\s*\(\s*Admin\s*\)/gi, '')
+    .trim();
+  return cleaned || 'Chuyên viên';
+};
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -568,12 +619,14 @@ export const getActiveLoggedInUser = (userList: any[] = []): any => {
 /**
  * Set the currently logged-in user into localStorage
  */
-export const setActiveLoggedInUser = (user: any) => {
+export const setActiveLoggedInUser = (user: any, dispatchEvent = true) => {
   if (!user) return;
   try {
     localStorage.setItem('kpi_logged_in_user', JSON.stringify(user));
     localStorage.setItem('kpi_current_user_id', String(user.id));
-    window.dispatchEvent(new Event('kpi_user_changed'));
+    if (dispatchEvent) {
+      window.dispatchEvent(new Event('kpi_user_changed'));
+    }
   } catch (e) {
     console.error("Error setting logged in user:", e);
   }

@@ -4,7 +4,7 @@ import {
   Calendar, User, ChevronRight, FileText, ExternalLink, Edit3, 
   Check, X, AlertTriangle, Briefcase, Plus, Send, Info, Eye
 } from 'lucide-react';
-import { STANDARD_MONTHS } from '../utils';
+import { STANDARD_MONTHS, formatScore } from '../utils';
 
 interface MetricCardProps {
   id: string;
@@ -1009,7 +1009,7 @@ export default function Monitor() {
                           <div className="font-bold text-slate-800">
                             {w.endDate ? new Date(w.endDate).toLocaleDateString('vi-VN') : '-'}
                           </div>
-                          <div className="text-xs text-slate-500">Giờ: {w.hours || 8}h | Điểm: {w.convertedScore || w.baseScore || '-'}</div>
+                          <div className="text-xs text-slate-500">Giờ: {w.hours || 8}h | Điểm: {formatScore(w.convertedScore || w.baseScore)}</div>
                         </td>
                         <td className="p-3.5 text-slate-700">
                           <span className="font-medium text-xs px-2 py-1 bg-slate-100 rounded-md inline-block">

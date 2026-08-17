@@ -17,7 +17,8 @@ import {
   formatDateInput,
   formatMonth,
   isSoftDeleted,
-  getActiveLoggedInUser
+  getActiveLoggedInUser,
+  formatScore
 } from '../utils';
 import { Work, User as UserType } from '../types';
 
@@ -565,7 +566,7 @@ export default function MyWorks() {
             <span>Điểm quy đổi (QĐ)</span>
             <Award className="w-4 h-4 text-amber-300" />
           </span>
-          <div className="text-2xl font-black text-white mt-1">{Math.round(totalConvertedScore * 10) / 10}</div>
+          <div className="text-2xl font-black text-white mt-1">{formatScore(totalConvertedScore)}</div>
           <span className="text-[10px] text-blue-200 font-bold">Từ các việc đã duyệt</span>
         </div>
       </div>
@@ -848,10 +849,10 @@ export default function MyWorks() {
                     {/* Tính chất & Điểm */}
                     <td className="py-3 px-3 text-center">
                       <div className="inline-block px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-bold text-[10px] mb-0.5">
-                        {w.proposedNature || 'Trung bình'} (K={w.coef || '0.8'})
+                        {w.proposedNature || 'Trung bình'} (K={formatScore(w.coef)})
                       </div>
                       <div className="text-xs font-black text-[#1F4E78]">
-                        QĐ: {w.convertedScore || '8'} <span className="text-[10px] font-normal text-slate-400">(Đc: {w.baseScore || '10'})</span>
+                        QĐ: {formatScore(w.convertedScore)} <span className="text-[10px] font-normal text-slate-400">(Đc: {formatScore(w.baseScore)})</span>
                       </div>
                     </td>
 
@@ -1016,17 +1017,17 @@ export default function MyWorks() {
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Tính chất (K)</span>
                   <div className="font-bold text-slate-900 mt-1">{viewingWork.proposedNature || 'Trung bình'}</div>
-                  <div className="text-[10px] text-slate-500">Hệ số: {viewingWork.coef || '0.8'}</div>
+                  <div className="text-[10px] text-slate-500">Hệ số: {formatScore(viewingWork.coef)}</div>
                 </div>
 
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Điểm chuẩn (Đc)</span>
-                  <div className="font-bold text-slate-900 text-base mt-0.5">{viewingWork.baseScore || '10'}</div>
+                  <div className="font-bold text-slate-900 text-base mt-0.5">{formatScore(viewingWork.baseScore)}</div>
                 </div>
 
                 <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl">
                   <span className="text-[10px] font-bold text-emerald-700 uppercase">Điểm quy đổi (QĐ)</span>
-                  <div className="font-black text-emerald-800 text-lg mt-0.5">{viewingWork.convertedScore || '8'}</div>
+                  <div className="font-black text-emerald-800 text-lg mt-0.5">{formatScore(viewingWork.convertedScore)}</div>
                 </div>
               </div>
 

@@ -13,7 +13,9 @@ import {
   formatDateInput, 
   formatMonth,
   isSoftDeleted,
-  getActiveLoggedInUser 
+  getActiveLoggedInUser,
+  formatScore,
+  cleanPosition
 } from '../utils';
 import { Work, User as UserType, Assignment } from '../types';
 
@@ -199,7 +201,7 @@ export default function ApproveWork() {
       "STT": idx + 1,
       "Tháng": w.month,
       "Nhân viên": w.user?.name || '-',
-      "Chức danh": w.user?.position || 'Chuyên viên',
+      "Chức danh": cleanPosition(w.user?.position),
       "Nguồn việc": w.source === 'Giao việc' ? 'Được giao việc' : 'Tự đăng ký',
       "Mã việc": w.taskCode || '-',
       "Tên công việc": w.taskName || '-',
@@ -499,7 +501,7 @@ export default function ApproveWork() {
                         )}
                       </td>
                       <td className="py-3 px-3 text-center font-black text-[#1F4E78]">
-                        {w.convertedScore || '0'}
+                        {formatScore(w.convertedScore)}
                       </td>
                       <td className="py-3 px-3">
                         {w.evidence ? (
@@ -597,7 +599,7 @@ export default function ApproveWork() {
                 <div><span className="font-bold">Nhân viên:</span> {reviewingWork.user?.name}</div>
                 <div><span className="font-bold">Tháng:</span> {reviewingWork.month}</div>
                 <div><span className="font-bold">Tiến độ nộp:</span> {reviewingWork.status}</div>
-                <div><span className="font-bold">Tính chất:</span> {reviewingWork.proposedNature} (Hệ số {reviewingWork.coef})</div>
+                <div><span className="font-bold">Tính chất:</span> {reviewingWork.proposedNature} (Hệ số {formatScore(reviewingWork.coef)})</div>
               </div>
 
               {reviewingWork.detail && (

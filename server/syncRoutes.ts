@@ -15,7 +15,7 @@ export const OFFICIAL_USERS = [
     email: 'khvanson@gmail.com',
     phone: '0906234585',
     zalo: '0906234585',
-    position: 'Phó Trưởng phòng / Quản trị',
+    position: 'Phó Trưởng phòng',
     group: 'Ban Lãnh đạo',
     role: 'ADMIN',
     status: 'Đang làm',
