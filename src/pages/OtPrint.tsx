@@ -177,9 +177,9 @@ export default function OtPrint() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans">
+    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans print:max-w-none print:m-0 print:p-0 print:space-y-0 print:pb-0">
       {/* Top Header & Action Controls (Hidden when printing) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/ot-my')}
@@ -216,7 +216,7 @@ export default function OtPrint() {
       </div>
 
       {/* Filters (Hidden when printing) */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex flex-wrap items-center gap-3">
           {/* Month */}
           <div className="flex items-center gap-2">

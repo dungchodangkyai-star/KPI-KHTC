@@ -29,33 +29,33 @@ const MetricCard = ({
   warning = false,
   success = false 
 }: MetricCardProps) => {
-  let borderClass = 'border-[#e2e8f0]';
+  let borderClass = 'border-slate-300';
   let badgeColor = colorClass;
-  let bgHover = 'hover:border-slate-300';
+  let bgHover = 'hover:border-slate-400';
 
   if (isActive) {
-    borderClass = 'border-[#1F4E78] ring-2 ring-[#1F4E78]/20 bg-blue-50/40';
+    borderClass = 'border-[#1F4E78] ring-2 ring-[#1F4E78]/30 bg-blue-50/80 shadow-md';
   } else if (danger && value > 0) {
-    borderClass = 'border-l-4 border-l-red-500 border-slate-200';
-    badgeColor = 'text-red-600';
+    borderClass = 'border-l-4 border-l-red-600 border-slate-300 bg-red-50/20';
+    badgeColor = 'text-red-700';
   } else if (warning && value > 0) {
-    borderClass = 'border-l-4 border-l-amber-500 border-slate-200';
-    badgeColor = 'text-amber-600';
+    borderClass = 'border-l-4 border-l-amber-600 border-slate-300 bg-amber-50/20';
+    badgeColor = 'text-amber-800';
   } else if (success && value > 0) {
-    borderClass = 'border-l-4 border-l-emerald-500 border-slate-200';
-    badgeColor = 'text-emerald-700';
+    borderClass = 'border-l-4 border-l-emerald-600 border-slate-300 bg-emerald-50/20';
+    badgeColor = 'text-emerald-800';
   }
 
   return (
     <div 
       id={id}
       onClick={onClickDetail}
-      className={`bg-white border p-4 rounded-xl flex flex-col justify-between min-h-[135px] shadow-sm transition-all duration-200 cursor-pointer ${borderClass} ${bgHover} hover:shadow-md`}
+      className={`bg-white border p-4 rounded-xl flex flex-col justify-between min-h-[135px] shadow-2xs transition-all duration-200 cursor-pointer ${borderClass} ${bgHover} hover:shadow-sm`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-semibold text-slate-700 leading-snug">{title}</span>
+        <span className="text-[13px] font-extrabold text-slate-900 leading-snug">{title}</span>
         {isActive && (
-          <span className="inline-block w-2 h-2 rounded-full bg-[#1F4E78] shrink-0 mt-1"></span>
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1F4E78] shrink-0 mt-0.5"></span>
         )}
       </div>
       <div className="flex items-baseline justify-between mt-2">
@@ -68,10 +68,10 @@ const MetricCard = ({
             e.stopPropagation();
             onClickDetail();
           }}
-          className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+          className={`px-3 py-1 text-xs font-black rounded-lg transition-colors flex items-center gap-1 ${
             isActive 
-              ? 'bg-[#1F4E78] text-white' 
-              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              ? 'bg-[#1F4E78] text-white shadow-2xs' 
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
           }`}
         >
           <span>Xem</span>
@@ -473,27 +473,30 @@ export default function Monitor() {
   return (
     <div className="max-w-[1400px] mx-auto flex flex-col gap-6 h-full pb-12 px-2 sm:px-4">
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-300 p-5 rounded-2xl bg-white shadow-sm">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight flex items-center gap-2">
-            <Briefcase className="w-7 h-7 text-[#1F4E78]" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
+            <Briefcase className="w-3.5 h-3.5" />
+            <span>GIÁM SÁT TIẾN ĐỘ & ĐIỀU HÀNH</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight">
             Theo dõi công việc
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm font-medium text-slate-600 mt-1">
             Hệ thống giám sát điều hành công việc, tiến độ thực hiện và làm thêm ngoài giờ toàn phòng.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* 12 Months Standard Dropdown */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300 shadow-sm">
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs">
             <Calendar className="w-4 h-4 text-[#1F4E78]" />
-            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Tháng:</label>
+            <label className="text-xs font-black text-slate-700 uppercase tracking-wider">Tháng:</label>
             <select 
               id="select-month-dropdown"
               value={selectedMonth} 
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-transparent text-sm font-bold text-[#1F4E78] outline-none cursor-pointer pr-2"
+              className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-sm font-black text-[#1F4E78] outline-none cursor-pointer shadow-2xs"
             >
               <option value="Tất cả">Tất cả các tháng</option>
               {STANDARD_MONTHS.map(m => (
@@ -503,14 +506,14 @@ export default function Monitor() {
           </div>
 
           {/* Employee Dropdown */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300 shadow-sm">
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs">
             <User className="w-4 h-4 text-[#1F4E78]" />
-            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Nhân sự:</label>
+            <label className="text-xs font-black text-slate-700 uppercase tracking-wider">Nhân sự:</label>
             <select 
               id="select-employee-dropdown"
               value={selectedEmployee}
               onChange={(e) => setSelectedEmployee(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-800 outline-none cursor-pointer max-w-[180px] truncate"
+              className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-sm font-black text-slate-900 outline-none cursor-pointer max-w-[180px] truncate shadow-2xs"
             >
               <option value="Tất cả">Tất cả nhân sự ({users.length})</option>
               {users.map(u => (
@@ -523,25 +526,25 @@ export default function Monitor() {
             id="btn-refresh-monitor"
             onClick={fetchData}
             disabled={isLoading}
-            className="flex items-center gap-2 bg-[#1F4E78] hover:bg-[#15385b] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95"
+            className="flex items-center gap-2 bg-[#1F4E78] hover:bg-[#173a5a] text-white px-4 py-2.5 rounded-xl text-sm font-black shadow-sm transition-all active:scale-95 border border-blue-900"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>Cập nhật báo cáo</span>
+            <span>Cập nhật</span>
           </button>
         </div>
       </div>
 
       {/* SECTION 1: 13 Metric Cards - Báo cáo điều hành công việc */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-[#1F4E78]"></span>
             <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight">
               Báo cáo điều hành công việc
             </h3>
           </div>
-          <span className="text-xs font-medium text-slate-500">
-            Tháng: <b className="text-slate-800">{selectedMonth}</b> | Nhân sự: <b className="text-slate-800">{selectedEmployee}</b>
+          <span className="text-xs font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+            Tháng: <b className="text-[#1F4E78]">{selectedMonth}</b> | Nhân sự: <b className="text-[#1F4E78]">{selectedEmployee}</b>
           </span>
         </div>
 
@@ -651,15 +654,15 @@ export default function Monitor() {
       </div>
 
       {/* SECTION 2: 6 Metric Cards - Theo dõi làm thêm ngoài giờ */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-amber-600"></span>
             <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight">
               Theo dõi làm thêm ngoài giờ
             </h3>
           </div>
-          <span className="text-xs text-slate-500 italic">
+          <span className="text-xs font-bold text-slate-600 italic bg-amber-50 px-3 py-1 rounded-lg border border-amber-200">
             Dữ liệu đọc trực tiếp từ hồ sơ đăng ký làm thêm thực tế
           </span>
         </div>
@@ -692,7 +695,7 @@ export default function Monitor() {
             id="card-ot-approved"
             title="Làm thêm đã duyệt" 
             value={otStats.otApproved} 
-            success={otStats.otApproved > 0}
+            success={otStats.otApproved > 0} 
             isActive={monitorType === 'OT_APPROVED'}
             onClickDetail={() => handleCardClick('OT_APPROVED')} 
           />
@@ -719,20 +722,20 @@ export default function Monitor() {
       <div 
         ref={detailRef} 
         id="detail-table-section"
-        className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[450px]"
+        className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[450px]"
       >
         {/* Table Header Controls */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-4 sm:p-5 border-b border-slate-300 bg-gradient-to-r from-slate-100 to-blue-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-black uppercase bg-[#1F4E78] text-white">
+              <span className="px-3 py-1 rounded-full text-xs font-black uppercase bg-[#1F4E78] text-white shadow-2xs">
                 Chi tiết
               </span>
               <h3 className="font-black text-slate-900 text-base sm:text-lg">
                 {getMonitorTypeTitle(monitorType)}
               </h3>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs font-medium text-slate-600 mt-1">
               Đang hiển thị {
                 isOtCategory 
                   ? `${displayedOvertimes.length} bản ghi làm thêm` 
@@ -744,7 +747,7 @@ export default function Monitor() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="relative w-full md:w-72">
+            <div className="relative w-full md:w-80">
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input 
                 id="input-table-search"
@@ -752,7 +755,7 @@ export default function Monitor() {
                 placeholder="Tìm tên việc, nhân sự, nội dung..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#1F4E78] focus:border-[#1F4E78] outline-none shadow-sm"
+                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#1F4E78] focus:border-[#1F4E78] outline-none shadow-2xs"
               />
             </div>
           </div>

@@ -123,9 +123,9 @@ export default function PrintPersonalKpi() {
   <style>
     @page Section1 {
       size: 21.0cm 29.7cm;
-      margin: 2.0cm 1.5cm 1.5cm 2.0cm;
-      mso-header-margin: 35.4pt;
-      mso-footer-margin: 35.4pt;
+      margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+      mso-header-margin: 30pt;
+      mso-footer-margin: 30pt;
       mso-paper-source: 0;
     }
     div.Section1 { page: Section1; }
@@ -133,7 +133,7 @@ export default function PrintPersonalKpi() {
       font-family: "Times New Roman", Times, serif !important;
       color: #000000;
       line-height: 1.35;
-      font-size: 13pt;
+      font-size: 11.5pt;
     }
     table {
       border-collapse: collapse;
@@ -182,9 +182,9 @@ export default function PrintPersonalKpi() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans">
+    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans print:max-w-none print:m-0 print:p-0 print:space-y-0 print:pb-0">
       {/* Top Header & Controls (Hidden when printing) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/kpi')}
@@ -196,7 +196,7 @@ export default function PrintPersonalKpi() {
           <div>
             <h1 className="text-2xl font-black text-[#0f2440]">In phiếu kết quả KPI cá nhân</h1>
             <p className="text-xs text-slate-500">
-              Định dạng chuẩn khổ A4 dọc, phông chữ hành chính chuẩn và căn lề sẵn sàng in hoặc xuất Word
+              Định dạng chuẩn 01 trang A4 dọc, phông chữ hành chính chuẩn, sẵn sàng in hoặc xuất Word
             </p>
           </div>
         </div>
@@ -221,7 +221,7 @@ export default function PrintPersonalKpi() {
       </div>
 
       {/* Filter Bar (Hidden when printing - strictly Month filter only) */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex items-center gap-3">
           <div className="p-1.5 bg-blue-50 rounded-lg text-[#1F4E78]">
             <Calendar className="w-5 h-5" />
@@ -253,55 +253,55 @@ export default function PrintPersonalKpi() {
         </div>
       </div>
 
-      {/* PRINT AREA CONTAINER - Standard A4 styling */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-12 print:border-none print:shadow-none print:p-0 print:m-0">
+      {/* PRINT AREA CONTAINER - Balanced 1-page A4 styling */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 print:border-none print:shadow-none print:p-0 print:m-0">
         <div
           id="kpi-print-document"
-          className="font-document max-w-[780px] mx-auto text-[13pt] leading-[1.35] text-black bg-white"
+          className="font-document max-w-[800px] mx-auto text-[12pt] leading-[1.35] text-black bg-white print:max-w-none print:w-full"
           style={{ fontFamily: '"Noto Serif", "Times New Roman", Times, "Liberation Serif", serif' }}
         >
           {/* Header 2 Columns */}
-          <table className="w-full border-none mb-4" style={{ borderCollapse: 'collapse', border: 'none', width: '100%' }}>
+          <table className="w-full border-none" style={{ borderCollapse: 'collapse', border: 'none', width: '100%', marginBottom: '16px' }}>
             <tbody>
               <tr style={{ border: 'none' }}>
                 <td className="w-1/2 text-center align-top p-0" style={{ border: 'none', textAlign: 'center', verticalAlign: 'top', width: '50%' }}>
-                  <div style={{ fontSize: '11pt', fontWeight: 'bold' }}>{normalizeNFC('UBND TỈNH ĐẮK LẮK')}</div>
-                  <div style={{ fontSize: '11pt', fontWeight: 'bold' }}>{normalizeNFC('BAN QLDA ĐẦU TƯ XDCT')}</div>
-                  <div style={{ fontSize: '11pt', fontWeight: 'bold' }}>{normalizeNFC('GIAO THÔNG VÀ NÔNG NGHIỆP PTNT')}</div>
-                  <div style={{ width: '90px', borderBottom: '1px solid black', margin: '4px auto 0 auto' }}></div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('UBND TỈNH ĐẮK LẮK')}</div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('BAN QLDA ĐẦU TƯ XDCT')}</div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('GIAO THÔNG VÀ NÔNG NGHIỆP PTNT')}</div>
+                  <div style={{ width: '85px', borderBottom: '1px solid black', margin: '4px auto 0 auto' }}></div>
                 </td>
                 <td className="w-1/2 text-center align-top p-0" style={{ border: 'none', textAlign: 'center', verticalAlign: 'top', width: '50%' }}>
-                  <div style={{ fontSize: '11pt', fontWeight: 'bold', textTransform: 'uppercase' }}>{normalizeNFC('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM')}</div>
-                  <div style={{ fontSize: '12pt', fontWeight: 'bold' }}>{normalizeNFC('Độc lập - Tự do - Hạnh phúc')}</div>
-                  <div style={{ width: '140px', borderBottom: '1px solid black', margin: '4px auto 0 auto' }}></div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>{normalizeNFC('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM')}</div>
+                  <div style={{ fontSize: '11pt', fontWeight: 'bold' }}>{normalizeNFC('Độc lập - Tự do - Hạnh phúc')}</div>
+                  <div style={{ width: '130px', borderBottom: '1px solid black', margin: '4px auto 0 auto' }}></div>
                 </td>
               </tr>
             </tbody>
           </table>
 
           {/* Document Title */}
-          <div style={{ textAlign: 'center', margin: '24px 0 16px 0' }}>
-            <h1 style={{ fontSize: '15pt', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, letterSpacing: '0.2px' }}>
+          <div style={{ textAlign: 'center', margin: '18px 0 16px 0' }}>
+            <h1 style={{ fontSize: '14.5pt', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, letterSpacing: '0.2px' }}>
               {normalizeNFC('PHIẾU TỔNG HỢP KẾT QUẢ KPI THÁNG')}
             </h1>
-            <div style={{ fontSize: '12pt', fontStyle: 'italic', marginTop: '4px' }}>
+            <div style={{ fontSize: '11.5pt', fontStyle: 'italic', marginTop: '4px' }}>
               {normalizeNFC(`Tháng đánh giá: ${selectedMonth}`)}
             </div>
           </div>
 
           {/* Employee Information */}
-          <div style={{ fontSize: '12pt', marginBottom: '16px', lineHeight: '1.5' }}>
-            <div style={{ display: 'flex', marginBottom: '4px' }}>
+          <div style={{ fontSize: '11.5pt', marginBottom: '16px', lineHeight: '1.5' }}>
+            <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Họ và tên nhân sự:')}</span>
-              <span style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '12.5pt' }}>
+              <span style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '12pt' }}>
                 {normalizeNFC(u?.name || '................................................')}
               </span>
             </div>
-            <div style={{ display: 'flex', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Chức vụ / Vị trí:')}</span>
               <span>{normalizeNFC(u?.position || 'Chuyên viên')}</span>
             </div>
-            <div style={{ display: 'flex', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Phòng chuyên môn:')}</span>
               <span>{normalizeNFC('Phòng Kế hoạch - Tài chính')}</span>
             </div>
@@ -310,132 +310,138 @@ export default function PrintPersonalKpi() {
           {/* MAIN EVALUATION TABLE */}
           <table
             className="border-table"
-            style={{ width: '100%', fontSize: '11.5pt', margin: '14px 0', borderCollapse: 'collapse', border: '1px solid black' }}
+            style={{ width: '100%', fontSize: '10.5pt', margin: '14px 0', borderCollapse: 'collapse', border: '1px solid black' }}
           >
             <thead>
               <tr style={{ backgroundColor: '#f2f2f2' }}>
-                <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '36px', fontWeight: 'bold' }}>{normalizeNFC('TT')}</th>
+                <th style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', width: '35px', fontWeight: 'bold' }}>{normalizeNFC('TT')}</th>
                 <th style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{normalizeNFC('Nội dung đánh giá')}</th>
-                <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '68px', fontWeight: 'bold' }}>{normalizeNFC('Điểm tối đa')}</th>
-                <th style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', width: '130px', fontWeight: 'bold' }}>
-                  {normalizeNFC('Cá nhân tự chấm / ghi nhận')}
+                <th style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', width: '60px', fontWeight: 'bold' }}>
+                  <div>{normalizeNFC('Điểm')}</div>
+                  <div>{normalizeNFC('tối đa')}</div>
                 </th>
-                <th style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', width: '115px', fontWeight: 'bold' }}>
-                  {normalizeNFC('Lãnh đạo phòng đánh giá')}
+                <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '100px', fontWeight: 'bold' }}>
+                  <div>{normalizeNFC('Cá nhân')}</div>
+                  <div>{normalizeNFC('tự chấm')}</div>
                 </th>
-                <th style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', width: '105px', fontWeight: 'bold' }}>
-                  {normalizeNFC('Giám đốc Ban đánh giá')}
+                <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '110px', fontWeight: 'bold' }}>
+                  <div>{normalizeNFC('Lãnh đạo phòng')}</div>
+                  <div>{normalizeNFC('đánh giá')}</div>
+                </th>
+                <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '95px', fontWeight: 'bold' }}>
+                  <div>{normalizeNFC('Giám đốc Ban')}</div>
+                  <div>{normalizeNFC('đánh giá')}</div>
                 </th>
               </tr>
             </thead>
             <tbody>
               {/* Row A */}
               <tr>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>1</td>
-                <td style={{ padding: '6px 8px', border: '1px solid black' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>1</td>
+                <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm A - Chấp hành nội quy, quy chế')}</div>
-                  <div style={{ fontSize: '10pt', color: '#444', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
                     {normalizeNFC('(Giờ giấc, kỷ luật, phối hợp, ứng dụng công nghệ)')}
                   </div>
                 </td>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>30</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#0f2440' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>30</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#0f2440' }}>
                   {selfA !== null ? `${selfA}` : normalizeNFC('Chưa tự chấm')}
                 </td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#1F4E78' }}>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#1F4E78' }}>
                   {approvedA !== null ? `${approvedA}` : normalizeNFC('Chưa duyệt')}
                 </td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
               {/* Row B */}
               <tr>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>2</td>
-                <td style={{ padding: '6px 8px', border: '1px solid black' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>2</td>
+                <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm B - Thực hiện nhiệm vụ thường xuyên')}</div>
-                  <div style={{ fontSize: '10pt', color: '#444', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
                     {normalizeNFC(`(B1: ${scoreB1}đ + B2: ${scoreB2}đ; ${sum?.approvedWorks || 0} việc đã duyệt)`)}
                   </div>
                 </td>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>60</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>60</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
               {/* Row C */}
               <tr>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>3</td>
-                <td style={{ padding: '6px 8px', border: '1px solid black' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>3</td>
+                <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm C - Thưởng/tính chất công việc/việc khó')}</div>
-                  <div style={{ fontSize: '10pt', color: '#444', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
                     {normalizeNFC(`(C1 tự động: ${scoreC1}đ; C2 lãnh đạo chấm: ${scoreC2}đ)`)}
                   </div>
                 </td>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>10</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>10</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
               {/* Row D */}
               <tr>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>4</td>
-                <td style={{ padding: '6px 8px', border: '1px solid black' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>4</td>
+                <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm D - Điểm phạt vi phạm')}</div>
-                  <div style={{ fontSize: '10pt', color: '#444', fontStyle: 'italic' }}>
+                  <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
                     {normalizeNFC('(Chậm tiến độ, không hoàn thành, không đạt yêu cầu)')}
                   </div>
                 </td>
-                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontStyle: 'italic' }}>{normalizeNFC('Trừ')}</td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
+                <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontStyle: 'italic' }}>{normalizeNFC('Trừ')}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
                   {scoreD > 0 ? `-${scoreD}` : '0'}
                 </td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
                   {scoreD > 0 ? `-${scoreD}` : '0'}
                 </td>
-                <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
               {/* Total Row */}
               <tr style={{ backgroundColor: '#fafafa' }}>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }} colSpan={2}>
-                  <span style={{ textTransform: 'uppercase', fontSize: '12pt', fontWeight: 'bold' }}>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }} colSpan={2}>
+                  <span style={{ textTransform: 'uppercase', fontSize: '11pt', fontWeight: 'bold' }}>
                     {normalizeNFC('Tổng điểm KPI: A + B + C - D')}
                   </span>
                 </td>
-                <td style={{ padding: '8px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '12pt' }}>100</td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '12.5pt', color: '#0f2440' }}>
+                <td style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11pt' }}>100</td>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#0f2440' }}>
                   {totalSelf !== null ? totalSelf : '-'}
                 </td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '12.5pt', color: '#1F4E78' }}>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#1F4E78' }}>
                   {totalApproved}
                 </td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
               {/* Rank Row */}
               <tr style={{ backgroundColor: '#fafafa' }}>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }} colSpan={2}>
-                  <span style={{ textTransform: 'uppercase', fontSize: '12pt', fontWeight: 'bold' }}>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }} colSpan={2}>
+                  <span style={{ textTransform: 'uppercase', fontSize: '11pt', fontWeight: 'bold' }}>
                     {normalizeNFC('Xếp loại KPI tháng')}
                   </span>
                 </td>
-                <td style={{ padding: '8px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}></td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11pt' }}>
+                <td style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}></td>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '10.5pt' }}>
                   {getRank(totalSelf)}
                 </td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11pt' }}>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '10.5pt' }}>
                   {getRank(totalApproved)}
                 </td>
-                <td style={{ padding: '8px 6px', border: '1px solid black', textAlign: 'center' }}></td>
+                <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
             </tbody>
           </table>
 
           {/* Notes on Grading Standards */}
-          <div style={{ fontSize: '10.5pt', lineHeight: '1.5', margin: '14px 0' }}>
-            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{normalizeNFC('Ghi chú tóm tắt căn cứ đánh giá:')}</div>
+          <div style={{ fontSize: '10pt', lineHeight: '1.4', margin: '12px 0 16px 0' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>{normalizeNFC('Ghi chú tóm tắt căn cứ đánh giá:')}</div>
             <div>
               {normalizeNFC('1. Điểm A (30đ): Chấp hành nội quy, kỷ luật lao động và phối hợp công tác; điểm chính thức áp dụng theo kết quả phê duyệt của lãnh đạo phòng.')}
             </div>
@@ -451,8 +457,8 @@ export default function PrintPersonalKpi() {
           </div>
 
           {/* Signatures Section */}
-          <div style={{ marginTop: '28px', marginBottom: '16px' }}>
-            <div style={{ textAlign: 'right', fontStyle: 'italic', fontSize: '11.5pt', marginBottom: '16px' }}>
+          <div className="signature-block avoid-page-break" style={{ marginTop: '16px', marginBottom: '0' }}>
+            <div style={{ textAlign: 'right', fontStyle: 'italic', fontSize: '11pt', marginBottom: '12px' }}>
               {normalizeNFC('Đắk Lắk, ngày ...... tháng ...... năm ......')}
             </div>
 
@@ -461,18 +467,18 @@ export default function PrintPersonalKpi() {
                 <tr style={{ border: 'none' }}>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('NGƯỜI TỰ ĐÁNH GIÁ')}</div>
-                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '60px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11.5pt' }}>{normalizeNFC(u?.name || '')}</div>
+                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '11pt' }}>{normalizeNFC(u?.name || '')}</div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('LÃNH ĐẠO PHÒNG')}</div>
-                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '60px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11.5pt' }}>{normalizeNFC('Khuất Văn Sơn')}</div>
+                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
+                    <div style={{ minHeight: '1.4em' }}></div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('GIÁM ĐỐC BAN')}</div>
-                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '60px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11.5pt' }}></div>
+                    <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
+                    <div style={{ minHeight: '1.4em' }}></div>
                   </td>
                 </tr>
               </tbody>

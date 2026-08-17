@@ -305,37 +305,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   return (
-    <div className="flex h-screen w-full bg-[#f3f7fb] font-sans text-slate-800 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-[280px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col h-full shadow-[2px_0_8px_-4px_rgba(0,0,0,0.1)] z-20">
+    <div className="flex h-screen w-full bg-[#edf2f7] font-sans text-slate-900 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block app-layout-root">
+      {/* Sidebar - strictly hidden when printing */}
+      <aside className="w-[285px] flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print">
+        {/* Sidebar Header Brand */}
+        <div className="p-4 bg-gradient-to-br from-[#1F4E78] to-[#173a5a] text-white flex items-center gap-3 border-b border-[#173a5a] shadow-xs">
+          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-base text-white shrink-0 shadow-inner">
+            KPI
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="font-black text-sm tracking-tight text-white truncate">PHÒNG KẾ HOẠCH - TC</span>
+            <span className="text-[11px] text-blue-200 font-semibold truncate">Hệ thống điều hành & KPI</span>
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="p-4 pt-6">
-            <div className="flex items-center justify-between px-2 mb-4">
-              <h2 className="text-[#1F4E78] font-black text-sm uppercase tracking-wide">CHỨC NĂNG HỆ THỐNG</h2>
+          <div className="p-3.5">
+            <div className="flex items-center justify-between px-2 mb-3.5">
+              <span className="text-slate-600 font-extrabold text-[11px] uppercase tracking-wider">DANH MỤC CHỨC NĂNG</span>
               {isAdmin && (
-                <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded border border-purple-200">
+                <span className="text-[10px] bg-purple-100 text-purple-900 font-extrabold px-2 py-0.5 rounded-md border border-purple-300">
                   Toàn quyền
                 </span>
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-5">
               {authorizedNavGroups.map((group, idx) => (
                 <div key={idx} className="space-y-1">
-                  <div className="flex items-center justify-between px-2 mb-2 cursor-pointer group">
+                  <div className="flex items-center justify-between px-2 mb-1.5 cursor-pointer group">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-xs font-bold text-[#1F4E78] uppercase tracking-wider">{group.title}</h3>
+                      <h3 className="text-[11px] font-black text-[#1F4E78] uppercase tracking-wider">{group.title}</h3>
                       {group.isPersonal ? (
-                        <span className="text-[9px] font-black bg-blue-100/80 text-[#1F4E78] px-1.5 py-0.5 rounded-md border border-blue-200">
+                        <span className="text-[9px] font-extrabold bg-blue-100 text-[#1F4E78] px-1.5 py-0.5 rounded border border-blue-300">
                           Cá nhân
                         </span>
                       ) : (
-                        <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md border border-amber-200">
-                          Uỷ quyền
+                        <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
+                          Quản lý
                         </span>
                       )}
                     </div>
-                    <span className="text-blue-400 group-hover:text-blue-600 transition-colors text-xs">⌃</span>
                   </div>
                   <div className="space-y-1">
                     {group.items.map((item: any) => {
@@ -360,13 +370,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           className={cn(
                             "flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border relative",
                             isActive 
-                              ? "bg-gradient-to-r from-[#1F4E78] to-[#2F75B5] text-white border-transparent shadow-md shadow-blue-900/20" 
-                              : "bg-transparent text-slate-700 border-transparent hover:bg-slate-50 hover:border-slate-200"
+                              ? "bg-gradient-to-r from-[#1F4E78] to-[#2B6CB0] text-white border-blue-800 shadow-md shadow-blue-950/20" 
+                              : "bg-transparent text-slate-800 border-transparent hover:bg-slate-100/90 hover:border-slate-200 hover:text-[#1F4E78]"
                           )}
                         >
                           <div className={cn(
-                            "mt-0.5 p-1 rounded-md flex items-center justify-center shrink-0 transition-colors relative",
-                            isActive ? "bg-white/20 text-white" : "bg-blue-50 text-[#1F4E78]"
+                            "mt-0.5 p-1 rounded-lg flex items-center justify-center shrink-0 transition-colors relative",
+                            isActive ? "bg-white/20 text-white" : "bg-blue-50 text-[#1F4E78] border border-blue-200"
                           )}>
                             <item.icon className="w-4 h-4" />
                             {hasAlert && (
@@ -375,7 +385,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           </div>
                           <div className="flex flex-col flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1">
-                              <span className="text-[13px] font-bold leading-tight truncate">{item.name}</span>
+                              <span className={cn(
+                                "text-[13px] font-bold leading-tight truncate",
+                                isActive ? "text-white" : "text-slate-900"
+                              )}>{item.name}</span>
                               {hasAlert && (
                                 <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse shrink-0">
                                   {badgeText}
@@ -384,7 +397,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             </div>
                             <span className={cn(
                               "text-[10px] leading-tight mt-0.5 truncate",
-                              isActive ? "text-blue-100" : "text-slate-500"
+                              isActive ? "text-blue-100 font-medium" : "text-slate-500"
                             )}>
                               {item.desc}
                             </span>
@@ -398,28 +411,37 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="p-4 border-t border-slate-100 text-center">
-          <p className="text-[10px] text-slate-400">© 2026 Hệ thống quản lý KPI.</p>
-          <p className="text-[10px] text-slate-400">Tác giả: Khuất Văn Sơn ({ADMIN_EMAIL})</p>
+        <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-center">
+          <p className="text-[10px] font-semibold text-slate-600">© 2026 Quản lý công việc & KPI Đắk Lắk</p>
+          <p className="text-[10px] text-slate-500">Tác giả: Khuất Văn Sơn ({ADMIN_EMAIL})</p>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Top Header */}
-        <header className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-10">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-bold text-slate-500 tracking-wide uppercase">Ban Quản lý dự án đầu tư xây dựng công trình giao thông và nông nghiệp phát triển nông thôn tỉnh Đắk Lắk</span>
-            <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5">HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI</span>
-            <span className="text-[13px] font-bold text-slate-500 mt-0.5">Phòng Kế hoạch - Tài chính</span>
+      <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
+        {/* Top Header - strictly hidden when printing */}
+        <header className="flex-shrink-0 bg-white border-b border-slate-300 px-6 py-3 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#1F4E78] via-[#2F75B5] to-[#4A90E2]" />
+          
+          <div className="flex flex-col pt-0.5">
+            <span className="text-[11px] font-extrabold text-slate-600 tracking-wide uppercase">
+              Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk
+            </span>
+            <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5">
+              HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI
+            </span>
+            <span className="text-xs font-bold text-[#1F4E78] mt-0.5 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+              Phòng Kế hoạch - Tài chính
+            </span>
           </div>
           
-          <div className="relative flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-200">
+          <div className="relative flex items-center gap-3 bg-slate-100/90 p-2 rounded-2xl border border-slate-300 shadow-xs">
             {/* Notification Bell */}
             <div className="relative">
               <button
                 onClick={() => setShowNotificationMenu(!showNotificationMenu)}
-                className="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl relative text-slate-600 hover:text-[#1F4E78] transition"
+                className="p-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs"
                 title="Thông báo & Nhắc việc"
               >
                 <Bell className="w-4 h-4" />
@@ -432,22 +454,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
               {/* Notification Menu Dropdown */}
               {showNotificationMenu && (
-                <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 z-50 animate-fadeIn text-xs">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-300 p-3 z-50 animate-fadeIn text-xs">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-2">
                     <span className="font-bold text-[#1F4E78] uppercase">Thông báo & Nhắc việc</span>
-                    <span className="text-[10px] text-slate-400">{notifications.length} tin</span>
+                    <span className="text-[10px] text-slate-500 font-bold">{notifications.length} tin</span>
                   </div>
 
                   {pendingAssignmentsCount > 0 && (
-                    <div className="mb-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2">
+                    <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div>
                         <div className="font-black text-[11px]">Bạn có {pendingAssignmentsCount} nhiệm vụ mới!</div>
-                        <div className="text-[10px] text-amber-700 mt-0.5">Lãnh đạo vừa giao nhiệm vụ mới. Vui lòng vào tab "Công việc của tôi" để tiếp nhận.</div>
+                        <div className="text-[10px] text-amber-800 mt-0.5">Lãnh đạo vừa giao nhiệm vụ mới. Vui lòng vào tab "Công việc của tôi" để tiếp nhận.</div>
                         <Link
                           to="/my-works"
                           onClick={() => setShowNotificationMenu(false)}
-                          className="inline-block mt-1.5 text-[10px] font-bold text-amber-800 underline hover:text-amber-950"
+                          className="inline-block mt-1.5 text-[10px] font-bold text-amber-900 underline hover:text-amber-950"
                         >
                           Xem và nhận việc ngay →
                         </Link>
@@ -457,13 +479,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
                   <div className="max-h-60 overflow-y-auto space-y-1.5 custom-scrollbar">
                     {notifications.length === 0 ? (
-                      <div className="text-center py-4 text-slate-400">Không có thông báo nào</div>
+                      <div className="text-center py-4 text-slate-500 font-medium">Không có thông báo nào</div>
                     ) : (
                       notifications.slice(0, 10).map((n: any, idx: number) => (
-                        <div key={idx} className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition border border-slate-100">
-                          <div className="font-bold text-slate-800 text-[11px]">{n.title || n.action}</div>
-                          <div className="text-[10px] text-slate-600 mt-0.5 leading-snug">{n.message || n.detail}</div>
-                          <div className="text-[9px] text-slate-400 mt-1">{formatDate(n.createdAt)}</div>
+                        <div key={idx} className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition border border-slate-200">
+                          <div className="font-bold text-slate-900 text-[11px]">{n.title || n.action}</div>
+                          <div className="text-[10px] text-slate-700 mt-0.5 leading-snug">{n.message || n.detail}</div>
+                          <div className="text-[9px] text-slate-500 mt-1 font-semibold">{formatDate(n.createdAt)}</div>
                         </div>
                       ))
                     )}
@@ -474,27 +496,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div 
               onClick={() => setShowSwitchMenu(!showSwitchMenu)}
-              className="flex items-center gap-3 pl-2 cursor-pointer group hover:bg-slate-100/60 p-1 rounded-xl transition"
+              className="flex items-center gap-3 pl-2 cursor-pointer group hover:bg-white p-1 rounded-xl transition border border-transparent hover:border-slate-300 shadow-2xs"
               title="Nhấn để xem / chuyển tài khoản"
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] shadow-sm flex items-center justify-center text-white font-black text-sm">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] shadow-sm flex items-center justify-center text-white font-black text-sm border border-blue-900">
                 {getInitials(currentUser?.name)}
               </div>
               <div className="flex flex-col justify-center">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-[#0f2440] text-[15px] leading-none group-hover:text-[#1F4E78] transition-colors">
+                  <span className="font-bold text-slate-900 text-[15px] leading-none group-hover:text-[#1F4E78] transition-colors">
                     {currentUser?.name || 'Đang tải...'}
                   </span>
                   <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
-                    isAdmin ? 'bg-purple-100 text-purple-800 border-purple-200' :
-                    currentUser?.role === 'LEADER' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                    'bg-slate-100 text-slate-700 border-slate-200'
+                    isAdmin ? 'bg-purple-100 text-purple-900 border-purple-300' :
+                    currentUser?.role === 'LEADER' ? 'bg-blue-100 text-blue-900 border-blue-300' :
+                    'bg-slate-200 text-slate-800 border-slate-300'
                   }`}>
                     {isAdmin ? 'Quản trị' : currentUser?.role === 'LEADER' ? 'Lãnh đạo' : 'Chuyên viên'}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-800" />
                 </div>
-                <span className="text-xs text-slate-500 mt-1 leading-none">
+                <span className="text-xs text-slate-600 font-medium mt-1 leading-none">
                   {currentUser?.email || 'Chưa đăng nhập'}
                 </span>
               </div>
@@ -502,8 +524,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Switch User Dropdown */}
             {showSwitchMenu && userList.length > 0 && (
-              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95">
-                <div className="text-xs font-bold text-slate-400 px-3 py-1.5 uppercase">Chuyển đổi tài khoản</div>
+              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-300 p-2 z-50 animate-in fade-in zoom-in-95">
+                <div className="text-xs font-black text-slate-500 px-3 py-1.5 uppercase tracking-wider">Chuyển đổi tài khoản</div>
                 <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1">
                   {userList.map(u => (
                     <button
@@ -512,13 +534,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       className={cn(
                         "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition",
                         currentUser?.id === u.id 
-                          ? "bg-blue-50 text-[#1F4E78] font-bold" 
-                          : "hover:bg-slate-50 text-slate-700"
+                          ? "bg-blue-50 text-[#1F4E78] font-bold border border-blue-200" 
+                          : "hover:bg-slate-100 text-slate-800"
                       )}
                     >
                       <div>
-                        <div className="font-bold text-[13px]">{u.name}</div>
-                        <div className="text-[11px] text-slate-400">{u.position || u.role} ({u.email})</div>
+                        <div className="font-bold text-[13px] text-slate-900">{u.name}</div>
+                        <div className="text-[11px] text-slate-600 font-medium">{u.position || u.role} ({u.email})</div>
                       </div>
                       {currentUser?.id === u.id && (
                         <UserCheck className="w-4 h-4 text-[#1F4E78]" />
@@ -529,7 +551,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            <div className="h-8 w-px bg-slate-200 mx-1"></div>
+            <div className="h-8 w-px bg-slate-300 mx-1"></div>
             <div className="flex items-center gap-2 pr-1">
               <button 
                 onClick={() => {
@@ -540,15 +562,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   setConfirmPasswordInput('');
                   setShowChangeModal(true);
                 }}
-                className="px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-white border border-slate-300 text-slate-800 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-2xs"
                 title="Đổi mật mã truy cập"
               >
-                <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                <KeyRound className="w-3.5 h-3.5 text-slate-600" />
                 <span>Đổi mã</span>
               </button>
               <button 
                 onClick={handleLogout}
-                className="px-3 py-1.5 bg-red-600 text-white hover:bg-red-700 rounded-lg text-xs font-bold shadow-sm transition-colors inline-flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-red-600 text-white hover:bg-red-700 rounded-lg text-xs font-bold shadow-xs transition-colors inline-flex items-center gap-1.5"
                 title="Đăng xuất khỏi hệ thống"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -559,8 +581,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-auto p-4 md:p-6 custom-scrollbar">
-          <div className="max-w-[1400px] mx-auto">
+        <div className="flex-1 overflow-auto p-4 md:p-6 custom-scrollbar print:overflow-visible print:p-0 print:m-0 print:h-auto print:max-w-none app-content-container">
+          <div className="max-w-[1400px] mx-auto print:max-w-none print:m-0 print:p-0 print:w-full">
             {children}
           </div>
         </div>
@@ -568,7 +590,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mandatory Password Change Barrier or On-Demand Change Password Dialog */}
       {(currentUser?.mustChangePassword || showChangeModal) && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 print:hidden no-print">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 md:p-8 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 text-[#1F4E78] mb-3">
               <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center">

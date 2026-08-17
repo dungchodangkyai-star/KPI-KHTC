@@ -6,14 +6,14 @@
     height: 6px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+    background: #e2e8f0;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
+    background-color: #94a3b8;
     border-radius: 20px;
   }
   .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-    background-color: #94a3b8;
+    background-color: #64748b;
   }
 
   .font-document {
@@ -25,15 +25,109 @@
   }
 }
 
+/* Subtle elevation for cards and high contrast */
+.app-card {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.08);
+}
+
+.app-card-elevated {
+  background-color: #ffffff;
+  border: 1px solid #94a3b8;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -2px rgba(15, 23, 42, 0.08);
+}
+
+/* ==========================================================================
+   COMPREHENSIVE PRINT SYSTEM STYLES
+   Ensures clean administrative print output for all KPI and OT reports
+   ========================================================================== */
 @media print {
-  body {
-    background-color: #ffffff !important;
-    color: #000000 !important;
+  /* Page margins & layout */
+  @page {
+    size: auto;
+    margin: 10mm 12mm 12mm 12mm;
   }
-  .no-print {
+
+  /* Force hide all sidebar navigation, top header, toolbars, buttons, dialogs */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .print\:hidden,
+  .print-hidden,
+  button:not(.allow-print),
+  input[type="checkbox"],
+  .custom-scrollbar::-webkit-scrollbar {
     display: none !important;
+    visibility: hidden !important;
   }
+
+  /* Reset document and viewport wrappers so paper paginates smoothly */
+  html,
+  body,
+  #root,
+  .app-layout-root,
+  main,
+  .app-content-container {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Print document papers full-width and unconstrained */
+  #department-kpi-print-area,
+  #kpi-print-document,
+  #ot-print-document,
+  #ot-summary-document,
+  .print-document-paper {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    display: block !important;
+  }
+
+  /* Table formatting for standard Vietnamese administrative documents */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  table, th, td {
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  tr, td, th {
+    page-break-inside: avoid;
+  }
+
+  .signature-block,
+  .avoid-page-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
   .font-document {
     font-family: "Times New Roman", "Noto Serif", Times, "Liberation Serif", serif !important;
   }
 }
+
+
