@@ -476,6 +476,29 @@ export const isPersonalRoute = (path: string): boolean => {
 };
 
 /**
+ * Checks if a user holds a position of Deputy Head (Phó phòng) or above
+ */
+export const isLeadershipRole = (userOrPosition: any): boolean => {
+  if (!userOrPosition) return false;
+  const pos = typeof userOrPosition === 'string' ? userOrPosition : (userOrPosition.position || '');
+  const grp = typeof userOrPosition === 'object' ? (userOrPosition.group || '') : '';
+  const role = typeof userOrPosition === 'object' ? (userOrPosition.role || '') : '';
+  
+  const norm = `${pos} ${grp}`.toLowerCase();
+  return (
+    norm.includes('trưởng phòng') ||
+    norm.includes('phó phòng') ||
+    norm.includes('phó trưởng phòng') ||
+    norm.includes('lãnh đạo') ||
+    norm.includes('trưởng đơn vị') ||
+    norm.includes('giám đốc') ||
+    norm.includes('phó giám đốc') ||
+    role === 'ADMIN' ||
+    role === 'LEADER'
+  );
+};
+
+/**
  * Map route to required permission
  */
 export const ROUTE_PERMISSION_MAP: Record<string, string> = {
@@ -486,6 +509,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string> = {
   '/score-acd': 'evaluate_kpi',
   '/monitor': 'view_department_works',
   '/': 'view_department_dashboard',
+  '/department-kpi': 'view_department_kpi',
   '/stats': 'view_export_stats',
   '/print-department': 'print_department_kpi',
   '/ot-summary': 'view_department_ot',

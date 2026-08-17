@@ -61,6 +61,7 @@ const allNavGroups = [
     title: 'BÁO CÁO & TỔNG HỢP',
     isPersonal: false,
     items: [
+      { name: 'Tổng hợp KPI', href: '/department-kpi', icon: Award, desc: 'Bảng tổng hợp & tra cứu KPI phòng' },
       { name: 'Dashboard tổng quan', href: '/', icon: LayoutDashboard, desc: 'Tổng quan tiến độ & KPI toàn phòng' },
       { name: 'Thống kê - Báo cáo', href: '/stats', icon: BarChart3, desc: 'Báo cáo số liệu điều hành' },
       { name: 'In báo cáo phòng', href: '/print-department', icon: Printer, desc: 'Báo cáo tổng hợp KPI phòng' },

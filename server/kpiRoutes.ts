@@ -474,12 +474,14 @@ kpiRouter.post('/recalculate-all', async (req, res) => {
     const { month } = req.body;
     const targetMonth = month || '08-2026';
 
-    const allUsers = await db.query.users.findMany({
-      where: (u, { eq }) => eq(u.status, 'Hoạt động')
+    const allUsers = await db.query.users.findMany();
+    const activeUsers = allUsers.filter(u => {
+      const st = String(u.status || '').toLowerCase();
+      return !st.includes('nghỉ') && !st.includes('khoá') && !st.includes('xóa');
     });
 
     const results = [];
-    for (const u of allUsers) {
+    for (const u of activeUsers) {
       const resKpi = await calculateAndSaveUserKpi(u, targetMonth);
       results.push({ name: u.name, ...resKpi });
     }
@@ -492,6 +494,272 @@ kpiRouter.post('/recalculate-all', async (req, res) => {
     });
   } catch (error) {
     console.error("Error recalculating all KPI:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 10. DEPARTMENT KPI SUMMARY (Bảng tổng hợp KPI phòng & Thống kê công việc phòng)
+kpiRouter.get('/department-summary', async (req, res) => {
+  try {
+    const { month } = req.query;
+    const targetMonth = String(month || '08-2026');
+
+    const allUsers = await db.query.users.findMany({
+      orderBy: (u, { asc }) => [asc(u.id)]
+    });
+
+    const validUsers = allUsers.filter(u => {
+      const st = String(u.status || '').toLowerCase();
+      return !st.includes('nghỉ') && !st.includes('khoá') && !st.includes('xóa');
+    });
+
+    const allWorksInMonth = await db.query.works.findMany({
+      where: (w, { eq }) => eq(w.month, targetMonth),
+      with: { user: true }
+    });
+
+    const validWorksInMonth = allWorksInMonth.filter(w => {
+      const ds = String(w.dataStatus || '').toLowerCase();
+      return !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi');
+    });
+
+    const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
+    const deptConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
+    const activeEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+    const avgShare = activeEmployeeIds.length > 0 ? (100 / activeEmployeeIds.length) : 0;
+
+    const naturePointMap: Record<string, number> = {
+      'Đặc biệt phức tạp': 3,
+      'Rất phức tạp': 2,
+      'Phức tạp': 1,
+      'Trung bình': 0,
+      'Đơn giản': 0
+    };
+
+    let deptNatureTotal = 0;
+    const natureCountMap: Record<string, number> = {
+      'Đặc biệt phức tạp': 0,
+      'Rất phức tạp': 0,
+      'Phức tạp': 0,
+      'Trung bình': 0,
+      'Đơn giản': 0
+    };
+
+    deptApprovedWorks.forEach(w => {
+      const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      deptNatureTotal += pt;
+      if (natureCountMap[nat] !== undefined) {
+        natureCountMap[nat] += 1;
+      } else {
+        natureCountMap[nat] = 1;
+      }
+    });
+
+    const avgDeptNature = activeEmployeeIds.length > 0 ? (deptNatureTotal / activeEmployeeIds.length) : 0;
+
+    // Fetch all KPI results for this month
+    const allKpiResultsInMonth = await db.query.kpiResults.findMany({
+      where: (r, { eq }) => eq(r.month, targetMonth)
+    });
+    const kpiMapByUserId = new Map<number, any>();
+    const kpiMapByUserName = new Map<string, any>();
+    allKpiResultsInMonth.forEach(r => {
+      if (r.userId) kpiMapByUserId.set(r.userId, r);
+      if (r.kpiId) {
+        const parts = r.kpiId.split('♦');
+        if (parts.length > 1) kpiMapByUserName.set(parts[1].trim(), r);
+      }
+    });
+
+    const kpiConfig = await getEffectiveKpiConfig();
+    const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+
+    // Helper: is leadership position (from Deputy Head / Phó phòng / Phó Trưởng phòng and above)
+    const checkIsLeaderOrAbove = (u: any) => {
+      const pos = String(u.position || '').toLowerCase();
+      const grp = String(u.group || '').toLowerCase();
+      const role = String(u.role || '').toUpperCase();
+      return (
+        pos.includes('trưởng phòng') ||
+        pos.includes('phó phòng') ||
+        pos.includes('phó trưởng phòng') ||
+        pos.includes('lãnh đạo') ||
+        pos.includes('trưởng đơn vị') ||
+        pos.includes('giám đốc') ||
+        pos.includes('phó giám đốc') ||
+        grp.includes('lãnh đạo') ||
+        role === 'ADMIN' ||
+        role === 'LEADER'
+      );
+    };
+
+    // Calculate details for each user
+    const userKpiSummaries = validUsers.map(u => {
+      const userWorks = validWorksInMonth.filter(w => w.userId === u.id);
+      const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
+      const userCompletedWorks = userWorks.filter(w => w.status === 'Hoàn thành');
+      const userPendingWorks = userWorks.filter(w => w.leaderApproval === 'Chưa duyệt' || !w.leaderApproval);
+      const userDelayedWorks = userWorks.filter(w => w.status === 'Chậm' || w.status === 'Quá hạn');
+
+      const userConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
+      const userHours = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.hours || '0') || 0), 0);
+      const userShare = deptConvertedScore > 0 ? (userConvertedScore / deptConvertedScore * 100) : 0;
+
+      // Nature points for user
+      let personalNatureTotal = 0;
+      userApprovedWorks.forEach(w => {
+        const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+        const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+        personalNatureTotal += pt;
+      });
+
+      const autoC1 = avgDeptNature > 0 ? Math.round(Math.min(alloc.maxC1 || 6, (personalNatureTotal * (alloc.maxC1 || 6)) / avgDeptNature)) : 0;
+
+      const b1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+      const b2 = (userApprovedWorks.length > 0 && avgShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userShare / avgShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+      const bTotal = Math.round(Math.min(alloc.maxB || 60, b1 + b2) * 100) / 100;
+
+      // KPI Record from DB if available
+      const kpiRecord = kpiMapByUserId.get(u.id) || kpiMapByUserName.get(u.name);
+      const rawDetailsA = (kpiRecord?.detailsA as any) || null;
+      const rawDetailsC = (kpiRecord?.detailsC as any) || null;
+      const rawDetailsD = (kpiRecord?.detailsD as any) || null;
+
+      // Score A: If self-scored in detailsA, use it; otherwise default to standard max score (30)
+      const explicitSelfA = rawDetailsA?.selfTotal !== null && rawDetailsA?.selfTotal !== undefined ? parseFloat(rawDetailsA.selfTotal) : null;
+      const selfA = explicitSelfA !== null ? explicitSelfA : (alloc.maxA || 30);
+      
+      const approvedA = rawDetailsA?.approvedTotal !== null && rawDetailsA?.approvedTotal !== undefined 
+        ? parseFloat(rawDetailsA.approvedTotal) 
+        : (kpiRecord?.aScore ? parseFloat(kpiRecord.aScore) : null);
+
+      // Score C
+      const c2 = rawDetailsC?.c2 !== null && rawDetailsC?.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
+      const cTotal = Math.min(alloc.maxC || 10, autoC1 + c2);
+
+      // Score D
+      const dItems = rawDetailsD?.items || [];
+      const totalOfficialD = dItems.reduce((s: number, item: any) => {
+        const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
+        return s + (isNaN(val) ? 0 : val);
+      }, 0);
+      const dTotal = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+
+      // Self total and ranking: Máy tự động tính tổng hợp theo đúng nguyên tắc quy ước mức độ hoàn thành
+      const selfKpiTotal = calculateTotalKpi(selfA, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
+      const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: selfA, scoreB: bTotal, scoreD: dTotal });
+      const selfRank = evalSelf.rank;
+
+      // Approved total and ranking
+      let approvedKpiTotal: number | null = null;
+      let approvedRank = 'Chờ duyệt';
+      if (approvedA !== null) {
+        approvedKpiTotal = calculateTotalKpi(approvedA, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
+        const evalApproved = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dTotal });
+        approvedRank = evalApproved.rank;
+      }
+
+      const isLeaderOrAbove = checkIsLeaderOrAbove(u);
+
+      // CONSTRAINT: Vị trí từ phó phòng trở lên chỉ có tự xếp loại còn lãnh đạo xếp sẽ bỏ trống
+      const leaderRankDisplay = isLeaderOrAbove ? '' : approvedRank;
+
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        position: u.position || 'Chuyên viên',
+        group: u.group || 'Phòng KHTC',
+        role: u.role || 'STAFF',
+        isLeaderOrAbove,
+        statusA: rawDetailsA?.statusA || (explicitSelfA !== null ? 'Đã tự chấm' : 'Tự động tính chuẩn (30đ)'),
+        scores: {
+          selfA,
+          explicitSelfA,
+          approvedA,
+          b1,
+          b2,
+          bTotal,
+          c1: autoC1,
+          c2,
+          cTotal,
+          dTotal,
+          selfKpiTotal,
+          approvedKpiTotal
+        },
+        selfRank,
+        approvedRank,
+        leaderRankDisplay, // Empty string for Deputy Head and above
+        taskCounts: {
+          total: userWorks.length,
+          approved: userApprovedWorks.length,
+          completed: userCompletedWorks.length,
+          pending: userPendingWorks.length,
+          delayed: userDelayedWorks.length,
+          convertedScore: Math.round(userConvertedScore * 100) / 100,
+          hours: Math.round(userHours * 10) / 10,
+          personalShare: Math.round(userShare * 10) / 10
+        }
+      };
+    });
+
+    // Task group summary
+    const taskGroupMap: Record<string, { total: number; approved: number; completed: number; score: number }> = {};
+    validWorksInMonth.forEach(w => {
+      const g = w.taskGroup || 'Khác';
+      if (!taskGroupMap[g]) {
+        taskGroupMap[g] = { total: 0, approved: 0, completed: 0, score: 0 };
+      }
+      taskGroupMap[g].total += 1;
+      if (w.leaderApproval === 'Duyệt') {
+        taskGroupMap[g].approved += 1;
+        taskGroupMap[g].score += parseFloat(w.convertedScore || '0') || 0;
+      }
+      if (w.status === 'Hoàn thành') {
+        taskGroupMap[g].completed += 1;
+      }
+    });
+
+    // Rank count breakdown based on self-evaluation and approved evaluation
+    const rankCounts = {
+      excellent: userKpiSummaries.filter(u => u.selfRank.includes('xuất sắc') || u.approvedRank.includes('xuất sắc')).length,
+      good: userKpiSummaries.filter(u => (!u.selfRank.includes('xuất sắc') && u.selfRank.includes('tốt')) || (!u.approvedRank.includes('xuất sắc') && u.approvedRank.includes('tốt'))).length,
+      standard: userKpiSummaries.filter(u => (u.selfRank === 'Hoàn thành nhiệm vụ' || u.selfRank === 'Hoàn thành') || (u.approvedRank === 'Hoàn thành nhiệm vụ' || u.approvedRank === 'Hoàn thành')).length,
+      fail: userKpiSummaries.filter(u => u.selfRank.includes('Không hoàn thành') || u.approvedRank.includes('Không hoàn thành')).length,
+      pending: userKpiSummaries.filter(u => u.scores.approvedA === null && !u.isLeaderOrAbove).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        month: targetMonth,
+        department: 'Phòng Kế hoạch - Tài chính',
+        stats: {
+          totalUsers: validUsers.length,
+          evaluatedSelfUsers: userKpiSummaries.filter(u => u.scores.selfA !== null).length,
+          approvedUsers: userKpiSummaries.filter(u => u.scores.approvedA !== null).length,
+          leaderCount: userKpiSummaries.filter(u => u.isLeaderOrAbove).length,
+          staffCount: userKpiSummaries.filter(u => !u.isLeaderOrAbove).length,
+          totalWorks: validWorksInMonth.length,
+          approvedWorks: deptApprovedWorks.length,
+          completedWorks: validWorksInMonth.filter(w => w.status === 'Hoàn thành').length,
+          pendingWorks: validWorksInMonth.filter(w => w.leaderApproval === 'Chưa duyệt' || !w.leaderApproval).length,
+          delayedWorks: validWorksInMonth.filter(w => w.status === 'Chậm' || w.status === 'Quá hạn').length,
+          deptConvertedScore: Math.round(deptConvertedScore * 100) / 100,
+          deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
+          avgDeptNature: Math.round(avgDeptNature * 100) / 100,
+          activeEmployeesCount: activeEmployeeIds.length,
+          rankCounts
+        },
+        taskGroupSummary: taskGroupMap,
+        natureDistribution: natureCountMap,
+        users: userKpiSummaries
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching department KPI summary:", error);
     res.status(500).json({ error: String(error) });
   }
 });
