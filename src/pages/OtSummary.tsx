@@ -347,7 +347,7 @@ export default function OtSummary() {
                   {normalizeNFC('Số lượt ĐK')}
                 </th>
                 <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '80px', fontWeight: 'bold' }}>
-                  {normalizeNFC('Số ngày OT')}
+                  {normalizeNFC('Số ngày ĐK')}
                 </th>
                 <th style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', width: '80px', fontWeight: 'bold' }}>
                   {normalizeNFC('Tổng giờ ĐK')}

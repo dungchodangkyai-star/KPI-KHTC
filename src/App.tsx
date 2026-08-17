@@ -22,6 +22,7 @@ import AssignTask from './pages/AssignTask';
 import ApproveWork from './pages/ApproveWork';
 import OtApprove from './pages/OtApprove';
 import Stats from './pages/Stats';
+import DepartmentKpiSummary from './pages/DepartmentKpiSummary';
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -66,7 +67,9 @@ export default function App() {
         <Route path="/approve-ot" element={<ProtectedRoute><OtApprove /></ProtectedRoute>} />
         <Route path="/ot-approve" element={<ProtectedRoute><OtApprove /></ProtectedRoute>} />
         <Route path="/stats" element={<ProtectedRoute><Stats /></ProtectedRoute>} />
-        <Route path="/print-department" element={<ProtectedRoute><Placeholder title="In báo cáo phòng" /></ProtectedRoute>} />
+        <Route path="/department-kpi" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
+        <Route path="/kpi-summary" element={<Navigate to="/department-kpi" replace />} />
+        <Route path="/print-department" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
         
         {/* Admin Routes */}
         <Route path="/ot-summary" element={<ProtectedRoute><OtSummary /></ProtectedRoute>} />
