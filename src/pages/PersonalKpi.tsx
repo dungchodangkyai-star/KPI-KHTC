@@ -146,19 +146,23 @@ export default function PersonalKpi() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12 font-sans">
       {/* Title & Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white border border-slate-300 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/80 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
+            <Award className="w-3.5 h-3.5" />
+            <span>KẾT QUẢ ĐÁNH GIÁ HIỆU QUẢ CÔNG VIỆC</span>
+          </div>
           <h1 className="text-2xl md:text-[26px] font-black text-[#0f2440] tracking-tight">
             Báo cáo KPI cá nhân {selectedMonth}
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm font-medium text-slate-600 mt-1">
             Bảng theo dõi và chi tiết căn cứ tính điểm hiệu quả công việc của cá nhân theo tháng
           </p>
         </div>
 
         <button
           onClick={() => navigate('/print-personal')}
-          className="bg-[#1F4E78] hover:bg-[#173a5a] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition cursor-pointer"
+          className="bg-[#1F4E78] hover:bg-[#173a5a] text-white px-5 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 shadow-sm transition cursor-pointer border border-blue-900"
         >
           <FileText className="w-4 h-4" />
           In phiếu KPI cá nhân
@@ -166,43 +170,43 @@ export default function PersonalKpi() {
       </div>
 
       {/* Filter Bar (Only Month Filter) & User Banner */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-50 rounded-lg text-[#1F4E78]">
+          <div className="p-2.5 bg-blue-100 rounded-xl text-[#1F4E78] border border-blue-200 shadow-2xs">
             <Calendar className="w-5 h-5" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-bold text-slate-700">Tháng đánh giá:</label>
+            <label className="text-xs font-black uppercase text-slate-700">Tháng đánh giá:</label>
             <select
               value={selectedMonth}
               onChange={e => handleMonthChange(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-[#1F4E78] pr-8"
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black text-[#1F4E78] focus:outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
             >
               {STANDARD_MONTHS.map(m => (
                 <option key={m} value={m}>
-                  {m}
+                  Tháng {m}
                 </option>
               ))}
             </select>
           </div>
           <button
             onClick={() => currentUser && loadKpiDetail(selectedMonth, currentUser.id)}
-            className="bg-[#1F4E78] hover:bg-[#173a5a] text-white px-4 py-1.5 rounded-lg text-sm font-bold transition shadow-sm cursor-pointer"
+            className="bg-[#1F4E78] hover:bg-[#173a5a] text-white px-4 py-1.5 rounded-xl text-xs font-black transition shadow-2xs cursor-pointer border border-blue-900"
           >
             Xem
           </button>
         </div>
 
         {/* User Identity Display */}
-        <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
-          <div className="w-9 h-9 rounded-full bg-[#1F4E78] text-white font-black text-sm flex items-center justify-center">
+        <div className="flex items-center gap-3 bg-blue-50/80 px-4 py-2 rounded-xl border border-blue-300 shadow-2xs">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white font-black text-sm flex items-center justify-center shadow-2xs">
             {u?.name ? u.name.split(' ').slice(-1)[0][0] : 'U'}
           </div>
           <div>
-            <div className="text-sm font-bold text-[#0f2440]">
+            <div className="text-sm font-black text-[#0f2440]">
               {u?.name || 'Đang tải...'}
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs font-bold text-slate-600">
               {u?.position || 'Chuyên viên'} • Phòng Kế hoạch - Tài chính
             </div>
           </div>

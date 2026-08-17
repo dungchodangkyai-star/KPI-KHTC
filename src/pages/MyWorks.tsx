@@ -380,16 +380,16 @@ export default function MyWorks() {
   return (
     <div className="max-w-[1400px] mx-auto pb-16 px-2 sm:px-4">
       {/* Top Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-6">
+      <div className="bg-white border border-slate-300 p-5 rounded-2xl shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-medium uppercase tracking-wider font-bold">Bảng theo dõi công việc cá nhân & tính điểm KPI</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/80 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
+            <Briefcase className="w-3.5 h-3.5" />
+            <span>SỔ TAY CÔNG VIỆC CÁ NHÂN</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight flex items-center gap-2.5 mt-1.5">
-            <Briefcase className="w-7 h-7 text-[#1F4E78]" />
-            <span>Công việc của tôi</span>
+          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight">
+            Công việc của tôi
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm font-medium text-slate-600 mt-1">
             Tra cứu toàn bộ công việc đã đăng ký, cập nhật tiến độ, minh chứng và theo dõi kết quả duyệt của Lãnh đạo phòng.
           </p>
         </div>
@@ -397,7 +397,7 @@ export default function MyWorks() {
         <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={fetchWorks}
-            className="p-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl shadow-xs transition-colors"
+            className="p-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 rounded-xl shadow-2xs transition-colors"
             title="Tải lại dữ liệu mới nhất"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -405,7 +405,7 @@ export default function MyWorks() {
 
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs shadow-xs transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-black rounded-xl text-xs shadow-2xs transition-colors"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
             <span>Xuất Excel / CSV</span>
@@ -413,7 +413,7 @@ export default function MyWorks() {
 
           <Link
             to="/input"
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95 border border-blue-900"
           >
             <Plus className="w-4 h-4" />
             <span>Thêm công việc mới</span>
@@ -423,27 +423,27 @@ export default function MyWorks() {
 
       {/* Top Alert Banner for Pending Assignments */}
       {myPendingAssignments.length > 0 && (
-        <div className="mb-6 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-orange-500/10 border-2 border-amber-400/80 rounded-2xl p-5 shadow-md">
+        <div className="mb-6 bg-amber-50 border-2 border-amber-400 rounded-2xl p-5 shadow-sm">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-sm shrink-0 animate-bounce">
+              <div className="p-2.5 bg-amber-600 text-white rounded-xl shadow-2xs shrink-0 animate-bounce">
                 <Send className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="bg-amber-500 text-white font-black text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  <span className="bg-amber-600 text-white font-black text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
                     Thông báo khẩn
                   </span>
                   <h3 className="font-black text-amber-950 text-base">
                     Bạn có {myPendingAssignments.length} nhiệm vụ được Lãnh đạo giao cần tiếp nhận
                   </h3>
                 </div>
-                <p className="text-xs text-amber-900 mt-1 font-medium">
+                <p className="text-xs text-amber-900 mt-1 font-bold">
                   Vui lòng kiểm tra nội dung phân công, hạn hoàn thành và nhấn nút <b>"Tiếp nhận việc"</b> để tự động đồng bộ vào danh sách công việc và tính điểm KPI.
                 </p>
               </div>
             </div>
-            <div className="text-xs font-black text-amber-800 bg-white/80 px-3 py-1.5 rounded-xl border border-amber-200 shadow-xs">
+            <div className="text-xs font-black text-amber-900 bg-white px-3 py-1.5 rounded-xl border border-amber-300 shadow-2xs">
               {myPendingAssignments.length} việc đang chờ phản hồi
             </div>
           </div>
@@ -451,7 +451,7 @@ export default function MyWorks() {
           {/* Pending Tasks Cards Grid */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             {myPendingAssignments.map((a: any) => (
-              <div key={a.id} className="bg-white border border-amber-200/90 rounded-xl p-3.5 shadow-sm hover:shadow transition space-y-2">
+              <div key={a.id} className="bg-white border border-amber-300 rounded-xl p-3.5 shadow-2xs hover:shadow transition space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {a.taskCode && (
@@ -459,55 +459,55 @@ export default function MyWorks() {
                         {a.taskCode}
                       </span>
                     )}
-                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                    <span className="text-[11px] font-black text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
                       {a.taskGroup}
                     </span>
-                    <span className="text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] font-black bg-rose-50 text-rose-800 border border-rose-200 px-1.5 py-0.5 rounded">
                       {a.priority || 'Bình thường'}
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                  <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
                     Chờ nhận
                   </span>
                 </div>
 
                 <div className="font-black text-slate-900 text-sm">{a.taskName}</div>
                 {a.detail && (
-                  <div className="text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-1.5 rounded">
+                  <div className="text-[11px] text-slate-700 font-medium bg-slate-50 p-2 rounded-lg border border-slate-200">
                     {a.detail}
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600 pt-1 border-t border-slate-100">
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-700 pt-1 border-t border-slate-200">
                   <div>
-                    <span className="text-slate-400">Hạn chót:</span>{' '}
-                    <b className="text-slate-800">{a.deadline ? formatDate(a.deadline) : '-'}</b>
+                    <span className="text-slate-500 font-bold">Hạn chót:</span>{' '}
+                    <b className="text-slate-900">{a.deadline ? formatDate(a.deadline) : '-'}</b>
                   </div>
                   <div>
-                    <span className="text-slate-400">Điểm dự kiến:</span>{' '}
-                    <b className="text-[#1F4E78]">{a.expectedConvertedScore || 10} đ</b>
+                    <span className="text-slate-500 font-bold">Điểm dự kiến:</span>{' '}
+                    <b className="text-[#1F4E78] font-black">{a.expectedConvertedScore || 10} đ</b>
                   </div>
                   <div>
-                    <span className="text-slate-400">Sản phẩm yêu cầu:</span>{' '}
-                    <b className="text-slate-800">{a.productRequired || 'Báo cáo / Hồ sơ'}</b>
+                    <span className="text-slate-500 font-bold">Sản phẩm yêu cầu:</span>{' '}
+                    <b className="text-slate-900">{a.productRequired || 'Báo cáo / Hồ sơ'}</b>
                   </div>
                   <div>
-                    <span className="text-slate-400">Thời gian ước tính:</span>{' '}
-                    <b className="text-slate-800">{a.hours || 8}h ({a.days || 1} ngày)</b>
+                    <span className="text-slate-500 font-bold">Thời gian ước tính:</span>{' '}
+                    <b className="text-slate-900">{a.hours || 8}h ({a.days || 1} ngày)</b>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
                     onClick={() => handleDeclineAssignment(a.id)}
-                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition"
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg text-xs transition border border-slate-300 shadow-2xs"
                   >
                     Từ chối / Đề xuất
                   </button>
                   <button
                     onClick={() => handleAcceptAssignment(a.id)}
                     disabled={isAccepting === a.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs shadow-sm transition active:scale-95 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs shadow-2xs transition active:scale-95 disabled:opacity-50 border border-emerald-700"
                   >
                     <UserCheck className="w-3.5 h-3.5" />
                     <span>{isAccepting === a.id ? 'Đang nhận...' : 'Tiếp nhận việc ngay'}</span>
@@ -521,62 +521,62 @@ export default function MyWorks() {
 
       {/* KPI & Summary Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-slate-500 uppercase">Tổng việc</span>
+        <div className="bg-white border border-slate-300 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <span className="text-[11px] font-black text-slate-600 uppercase">Tổng việc</span>
           <div className="text-2xl font-black text-slate-900 mt-1">{totalRegistered}</div>
-          <span className="text-[10px] text-slate-400 font-medium">Trong kỳ chọn</span>
+          <span className="text-[10px] text-slate-500 font-bold">Trong kỳ chọn</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-emerald-500">
-          <span className="text-[11px] font-bold text-emerald-700 uppercase flex items-center justify-between">
+        <div className="bg-white border border-slate-300 p-4 rounded-2xl shadow-sm flex flex-col justify-between border-l-4 border-l-emerald-600">
+          <span className="text-[11px] font-black text-emerald-800 uppercase flex items-center justify-between">
             <span>Đã duyệt</span>
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
           </span>
-          <div className="text-2xl font-black text-emerald-700 mt-1">{totalApproved}</div>
-          <span className="text-[10px] text-emerald-600 font-bold">{approvalRate}% tỷ lệ duyệt</span>
+          <div className="text-2xl font-black text-emerald-800 mt-1">{totalApproved}</div>
+          <span className="text-[10px] text-emerald-700 font-black">{approvalRate}% tỷ lệ duyệt</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500">
-          <span className="text-[11px] font-bold text-amber-700 uppercase flex items-center justify-between">
+        <div className="bg-white border border-slate-300 p-4 rounded-2xl shadow-sm flex flex-col justify-between border-l-4 border-l-amber-500">
+          <span className="text-[11px] font-black text-amber-800 uppercase flex items-center justify-between">
             <span>Chờ duyệt</span>
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <Clock className="w-4 h-4 text-amber-600" />
           </span>
-          <div className="text-2xl font-black text-amber-700 mt-1">{totalPending}</div>
-          <span className="text-[10px] text-amber-600 font-medium">Đang chờ lãnh đạo</span>
+          <div className="text-2xl font-black text-amber-800 mt-1">{totalPending}</div>
+          <span className="text-[10px] text-amber-700 font-bold">Đang chờ lãnh đạo</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-rose-500">
-          <span className="text-[11px] font-bold text-rose-700 uppercase flex items-center justify-between">
+        <div className="bg-white border border-slate-300 p-4 rounded-2xl shadow-sm flex flex-col justify-between border-l-4 border-l-rose-600">
+          <span className="text-[11px] font-black text-rose-800 uppercase flex items-center justify-between">
             <span>Bổ sung / Từ chối</span>
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+            <AlertCircle className="w-4 h-4 text-rose-600" />
           </span>
-          <div className="text-2xl font-black text-rose-700 mt-1">{totalSupplement + totalRejected}</div>
-          <span className="text-[10px] text-rose-600 font-medium">BS: {totalSupplement} | Từ chối: {totalRejected}</span>
+          <div className="text-2xl font-black text-rose-800 mt-1">{totalSupplement + totalRejected}</div>
+          <span className="text-[10px] text-rose-700 font-bold">BS: {totalSupplement} | Từ chối: {totalRejected}</span>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-slate-500 uppercase">Tổng giờ làm</span>
-          <div className="text-2xl font-black text-slate-800 mt-1">{totalHours}h</div>
-          <span className="text-[10px] text-slate-400 font-medium">{Math.round(totalHours / 8)} ngày công</span>
+        <div className="bg-white border border-slate-300 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <span className="text-[11px] font-black text-slate-600 uppercase">Tổng giờ làm</span>
+          <div className="text-2xl font-black text-slate-900 mt-1">{totalHours}h</div>
+          <span className="text-[10px] text-slate-500 font-bold">{Math.round(totalHours / 8)} ngày công</span>
         </div>
 
-        <div className="bg-gradient-to-br from-[#1F4E78] to-[#2F75B5] text-white p-4 rounded-2xl shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-blue-100 uppercase flex items-center justify-between">
+        <div className="bg-gradient-to-br from-[#1F4E78] to-[#15385b] text-white p-4 rounded-2xl shadow-sm flex flex-col justify-between border border-blue-900">
+          <span className="text-[11px] font-black text-blue-100 uppercase flex items-center justify-between">
             <span>Điểm quy đổi (QĐ)</span>
             <Award className="w-4 h-4 text-amber-300" />
           </span>
           <div className="text-2xl font-black text-white mt-1">{Math.round(totalConvertedScore * 10) / 10}</div>
-          <span className="text-[10px] text-blue-100 font-medium">Từ các việc đã duyệt</span>
+          <span className="text-[10px] text-blue-200 font-bold">Từ các việc đã duyệt</span>
         </div>
       </div>
 
       {/* Advanced Filter Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs mb-6 space-y-3">
+      <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-sm mb-6 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
           {/* Month Selector */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Tháng công tác</label>
-            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+            <label className="block text-[11px] font-black text-slate-700 uppercase mb-1">Tháng công tác</label>
+            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs">
               <Calendar className="w-3.5 h-3.5 text-[#1F4E78] shrink-0" />
               <select
                 value={selectedMonth}
@@ -593,16 +593,16 @@ export default function MyWorks() {
 
           {/* Personal User Identity */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Cá nhân thực hiện</label>
-            <div className="flex items-center gap-2.5 bg-blue-50/80 border border-blue-200/90 px-3 py-1.5 rounded-xl">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-[11px] font-black shrink-0 shadow-xs">
+            <label className="block text-[11px] font-black text-slate-700 uppercase mb-1">Cá nhân thực hiện</label>
+            <div className="flex items-center gap-2.5 bg-blue-50/80 border border-blue-300 px-3 py-1.5 rounded-xl shadow-2xs">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-[11px] font-black shrink-0 shadow-2xs">
                 {getInitials(currentUser?.name)}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-black text-[#1F4E78] truncate" title={currentUser?.name}>
                   {currentUser?.name || 'Đang xác thực...'}
                 </div>
-                <div className="text-[10px] text-slate-500 font-medium truncate">
+                <div className="text-[10px] text-slate-600 font-bold truncate">
                   {currentUser?.position || 'Chuyên viên'}
                 </div>
               </div>
@@ -611,11 +611,11 @@ export default function MyWorks() {
 
           {/* Group Selector */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Nhóm công việc</label>
+            <label className="block text-[11px] font-black text-slate-700 uppercase mb-1">Nhóm công việc</label>
             <select
               value={selectedGroup}
               onChange={(e) => setSelectedGroup(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="w-full bg-slate-50 border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="all">Tất cả nhóm việc</option>
               {DEFAULT_TASK_GROUPS.map(g => (
@@ -626,11 +626,11 @@ export default function MyWorks() {
 
           {/* Approval Status Selector */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Trạng thái duyệt</label>
+            <label className="block text-[11px] font-black text-slate-700 uppercase mb-1">Trạng thái duyệt</label>
             <select
               value={filterApproval}
               onChange={(e) => setFilterApproval(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="w-full bg-slate-50 border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="all">Tất cả trạng thái duyệt</option>
               <option value="Đã duyệt">Đã duyệt (Duyệt)</option>
@@ -642,11 +642,11 @@ export default function MyWorks() {
 
           {/* Work Progress Status Selector */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Tiến độ công việc</label>
+            <label className="block text-[11px] font-black text-slate-700 uppercase mb-1">Tiến độ công việc</label>
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="w-full bg-slate-50 border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="all">Tất cả tiến độ</option>
               <option value="Đang xử lý">Đang xử lý</option>
@@ -658,26 +658,26 @@ export default function MyWorks() {
         </div>
 
         {/* Search input and source tabs */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-100">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-200">
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             {/* Quick Source Tabs */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-300 shadow-2xs">
               <button
                 onClick={() => setFilterSource('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
                   filterSource === 'all' 
-                    ? 'bg-white text-[#1F4E78] shadow-xs' 
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#1F4E78] text-white shadow-2xs' 
+                    : 'text-slate-700 hover:text-slate-900'
                 }`}
               >
                 Tất cả nguồn ({works.filter(w => !isSoftDeleted(w) && (!currentUser || w.userId === currentUser.id)).length})
               </button>
               <button
                 onClick={() => setFilterSource('assigned')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
                   filterSource === 'assigned' 
-                    ? 'bg-white text-indigo-700 shadow-xs' 
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-indigo-700 text-white shadow-2xs' 
+                    : 'text-slate-700 hover:text-slate-900'
                 }`}
               >
                 <Send className="w-3 h-3" />
@@ -685,10 +685,10 @@ export default function MyWorks() {
               </button>
               <button
                 onClick={() => setFilterSource('self')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
                   filterSource === 'self' 
-                    ? 'bg-white text-[#1F4E78] shadow-xs' 
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#1F4E78] text-white shadow-2xs' 
+                    : 'text-slate-700 hover:text-slate-900'
                 }`}
               >
                 Việc tự lập ({works.filter(w => !isSoftDeleted(w) && (!currentUser || w.userId === currentUser.id) && !w.assignmentId && w.source !== 'Giao việc').length})
@@ -697,47 +697,47 @@ export default function MyWorks() {
           </div>
 
           <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input 
               type="text"
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
               placeholder="Tìm theo tên nhiệm vụ, mã việc, dự án, nội dung..."
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#1F4E78]"
+              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
             />
           </div>
         </div>
       </div>
 
       {/* Main Data Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+              <tr className="bg-[#1F4E78] text-white border-b-2 border-slate-300 uppercase tracking-wider font-black">
                 <th className="py-3 px-3 text-center w-10">
-                  <button onClick={toggleSelectAll} className="p-0.5 hover:text-slate-900">
+                  <button onClick={toggleSelectAll} className="p-0.5 hover:text-slate-200">
                     {selectedIds.length === filteredWorks.length && filteredWorks.length > 0 ? (
-                      <CheckSquare className="w-4 h-4 text-[#1F4E78]" />
+                      <CheckSquare className="w-4 h-4 text-white" />
                     ) : (
-                      <Square className="w-4 h-4 text-slate-400" />
+                      <Square className="w-4 h-4 text-blue-200" />
                     )}
                   </button>
                 </th>
-                <th className="py-3 px-3 text-center w-12">STT</th>
-                <th className="py-3 px-3 text-center min-w-[80px]">Tháng</th>
-                <th className="py-3 px-3 min-w-[280px]">Mã việc & Tên nhiệm vụ</th>
-                <th className="py-3 px-3 min-w-[170px]">Nội dung & Minh chứng</th>
-                <th className="py-3 px-3 text-center min-w-[130px]">Thời gian</th>
-                <th className="py-3 px-3 text-center min-w-[110px]">Sản phẩm</th>
-                <th className="py-3 px-3 text-center min-w-[110px]">Tính chất & Điểm</th>
-                <th className="py-3 px-3 text-center min-w-[120px]">Tiến độ & Trạng thái</th>
-                <th className="py-3 px-3 text-center min-w-[120px]">Lãnh đạo duyệt</th>
-                <th className="py-3 px-3 text-center min-w-[100px]">Thao tác</th>
+                <th className="py-3 px-3 text-center w-12 border-l border-blue-900">STT</th>
+                <th className="py-3 px-3 text-center min-w-[80px] border-l border-blue-900">Tháng</th>
+                <th className="py-3 px-3 min-w-[280px] border-l border-blue-900">Mã việc & Tên nhiệm vụ</th>
+                <th className="py-3 px-3 min-w-[170px] border-l border-blue-900">Nội dung & Minh chứng</th>
+                <th className="py-3 px-3 text-center min-w-[130px] border-l border-blue-900">Thời gian</th>
+                <th className="py-3 px-3 text-center min-w-[110px] border-l border-blue-900">Sản phẩm</th>
+                <th className="py-3 px-3 text-center min-w-[110px] border-l border-blue-900">Tính chất & Điểm</th>
+                <th className="py-3 px-3 text-center min-w-[120px] border-l border-blue-900">Tiến độ & Trạng thái</th>
+                <th className="py-3 px-3 text-center min-w-[120px] border-l border-blue-900">Lãnh đạo duyệt</th>
+                <th className="py-3 px-3 text-center min-w-[100px] border-l border-blue-900">Thao tác</th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+            <tbody className="divide-y divide-slate-300 font-medium text-slate-800">
               {filteredWorks.map((w, idx) => {
                 const isSelected = selectedIds.includes(w.id);
                 // Sanitize task code from showing email address

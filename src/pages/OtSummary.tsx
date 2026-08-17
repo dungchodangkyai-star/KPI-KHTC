@@ -193,9 +193,9 @@ export default function OtSummary() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans">
+    <div className="max-w-5xl mx-auto space-y-6 pb-16 font-sans print:max-w-none print:m-0 print:p-0 print:space-y-0 print:pb-0">
       {/* Header & Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(-1)}
@@ -232,7 +232,7 @@ export default function OtSummary() {
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <label className="text-xs font-bold text-slate-600">Tháng:</label>

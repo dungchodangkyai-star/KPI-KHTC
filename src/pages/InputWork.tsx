@@ -72,6 +72,8 @@ export default function InputWork() {
     editNote: ''
   });
 
+  const currentGroupTasks = taskDict[formData.taskGroup] || [];
+
   // Calculate status factor for Converted Score
   const getStatusFactor = (st: string) => {
     switch (st) {
@@ -530,31 +532,28 @@ export default function InputWork() {
           }, 1200);
         }
       } else {
-        alert("Lỗi khi lưu công việc: " + (data.error || "Không xác định"));
+        alert("Lỗi khi lưu: " + (data.error || "Không xác định"));
       }
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi kết nối tới máy chủ khi lưu công việc");
+    } catch (err: any) {
+      alert("Lỗi kết nối máy chủ: " + err.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const currentGroupTasks = taskDict[formData.taskGroup] || [];
-
   return (
-    <div className="max-w-[1100px] mx-auto pb-16 px-2 sm:px-4">
+    <div>
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-6">
+      <div className="bg-white border border-slate-300 p-5 rounded-2xl shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-medium uppercase tracking-wider font-bold">Phòng Kế hoạch - Tài chính</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/80 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>ĐĂNG KÝ KẾ HOẠCH & TIẾN ĐỘ</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight flex items-center gap-2.5 mt-1.5">
-            <PlusCircle className="w-7 h-7 text-[#1F4E78]" />
-            <span>Nhập kế hoạch & Công việc thực hiện</span>
+          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight">
+            Nhập kế hoạch & Công việc thực hiện
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm font-medium text-slate-600 mt-1">
             Đăng ký chi tiết công việc, thời gian, tính chất nhiệm vụ và minh chứng đầu ra để tính điểm KPI chuẩn.
           </p>
         </div>
@@ -563,21 +562,21 @@ export default function InputWork() {
           <button
             type="button"
             onClick={handleDownloadTemplate}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors shadow-2xs"
             title="Tải file mẫu"
           >
             <FileDown className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Tải mẫu</span>
           </button>
-          <label className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl cursor-pointer transition-colors" title="Nhập từ Excel">
+          <label className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-blue-900 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-xl cursor-pointer transition-colors shadow-2xs" title="Nhập từ Excel">
             <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Import</span>
+            <span className="hidden sm:inline">Import Excel</span>
             <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
           </label>
           <button 
             type="button"
             onClick={resetForm}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-xs transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Làm mới biểu mẫu</span>
@@ -585,20 +584,20 @@ export default function InputWork() {
           <button 
             type="button"
             onClick={() => navigate('/my-works')}
-            className="flex items-center gap-1 text-xs font-bold text-[#1F4E78] hover:text-[#15385b] bg-blue-50/80 border border-blue-200 px-3.5 py-2 rounded-xl transition-colors"
+            className="flex items-center gap-1 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] px-3.5 py-2 rounded-xl transition-colors shadow-2xs border border-blue-900"
           >
             <BookmarkPlus className="w-3.5 h-3.5" />
-            <span>Xem công việc của tôi</span>
+            <span>Công việc của tôi</span>
           </button>
         </div>
       </div>
 
       {successMessage && (
-        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-2xl flex items-center gap-3 font-bold text-sm shadow-xs animate-in fade-in">
-          <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-300 text-emerald-950 rounded-2xl flex items-center gap-3 font-bold text-sm shadow-2xs animate-in fade-in">
+          <CheckCircle2 className="w-6 h-6 text-emerald-700 shrink-0" />
           <div className="flex-1">
-            <div className="font-black text-emerald-800">Thành công!</div>
-            <div className="text-xs text-emerald-700 font-medium">{successMessage}</div>
+            <div className="font-black text-emerald-900">Thành công!</div>
+            <div className="text-xs text-emerald-800 font-medium">{successMessage}</div>
           </div>
         </div>
       )}
@@ -607,22 +606,22 @@ export default function InputWork() {
       <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-6">
         
         {/* SECTION 1: KỲ & NHÂN SỰ */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>1. Kỳ báo cáo & Nhân sự thực hiện</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5 text-[#1F4E78]" />
                 <span>Tháng thực hiện <span className="text-red-500">*</span></span>
               </label>
               <select 
                 value={formData.month}
                 onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               >
                 {STANDARD_MONTHS.map(m => (
                   <option key={m} value={m}>Tháng {m}</option>
@@ -631,23 +630,23 @@ export default function InputWork() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                 <User className="w-3.5 h-3.5 text-[#1F4E78]" />
                 <span>Cá nhân đăng ký việc <span className="text-red-500">*</span></span>
               </label>
-              <div className="flex items-center gap-2.5 p-2 bg-blue-50/70 border border-blue-200 rounded-xl">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+              <div className="flex items-center gap-2.5 p-2 bg-blue-50/70 border border-blue-300 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-2xs">
                   {getInitials(currentUser?.name)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-black text-[#1F4E78] truncate">{currentUser?.name || 'Đang xác thực...'}</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Tài khoản cá nhân</div>
+                  <div className="text-[10px] text-slate-600 font-bold">Tài khoản cá nhân</div>
                 </div>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                 <Briefcase className="w-3.5 h-3.5 text-[#1F4E78]" />
                 <span>Chức danh / Vị trí</span>
               </label>
@@ -655,27 +654,27 @@ export default function InputWork() {
                 type="text" 
                 readOnly 
                 value={currentUser?.position || 'Chuyên viên'} 
-                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 cursor-not-allowed"
+                className="w-full p-2.5 bg-slate-100 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 cursor-not-allowed"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                 <span>Email công vụ</span>
               </label>
               <input 
                 type="text" 
                 readOnly 
                 value={currentUser?.email || ''} 
-                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 cursor-not-allowed text-ellipsis overflow-hidden"
+                className="w-full p-2.5 bg-slate-100 border border-slate-300 rounded-xl text-sm font-bold text-slate-700 cursor-not-allowed text-ellipsis overflow-hidden"
               />
             </div>
           </div>
         </div>
 
         {/* SECTION 2: DANH MỤC & NHIỆM VỤ */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>2. Danh mục nhóm & Tên nhiệm vụ (Tự động nạp Điểm chuẩn & Tính chất)</span>
           </h3>
@@ -683,14 +682,14 @@ export default function InputWork() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5 text-[#1F4E78]" />
                   <span>Nhóm công việc <span className="text-red-500">*</span></span>
                 </label>
                 <select 
                   value={formData.taskGroup}
                   onChange={(e) => handleGroupChange(e.target.value)}
-                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
                 >
                   {taskGroups.map(g => (
                     <option key={g} value={g}>{g}</option>
@@ -699,19 +698,19 @@ export default function InputWork() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
                     <span>Chọn nhiệm vụ mẫu theo danh mục</span>
                   </span>
-                  <button type="button" onClick={() => setShowProposeModal(true)} className="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer">
+                  <button type="button" onClick={() => setShowProposeModal(true)} className="text-[11px] text-blue-700 hover:text-blue-900 font-black underline cursor-pointer">
                     + Đề xuất nhiệm vụ mới
                   </button>
                 </label>
                 <select 
                   value={selectedTaskIndex}
                   onChange={(e) => handleTaskSelect(e.target.value === 'custom' ? 'custom' : parseInt(e.target.value))}
-                  className="w-full p-2.5 bg-blue-50/50 border border-blue-200 rounded-xl text-sm font-semibold text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                  className="w-full p-2.5 bg-blue-50/70 border border-blue-300 rounded-xl text-sm font-black text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
                 >
                   <option value="custom">-- Nhập nhiệm vụ tự do / tùy chỉnh --</option>
                   {currentGroupTasks.map((t, idx) => (
@@ -725,7 +724,7 @@ export default function InputWork() {
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="sm:col-span-3">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
                   Tên nhiệm vụ / Công việc thực hiện <span className="text-red-500">*</span>
                 </label>
                 <input 
@@ -734,12 +733,12 @@ export default function InputWork() {
                   value={formData.taskName}
                   onChange={(e) => setFormData({ ...formData, taskName: e.target.value })}
                   placeholder="VD: Lập báo cáo quyết toán A-B dự án đường tránh..."
-                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1">
                   <Hash className="w-3.5 h-3.5 text-[#1F4E78]" />
                   <span>Mã việc (Task Code)</span>
                 </label>
@@ -748,13 +747,13 @@ export default function InputWork() {
                   value={formData.taskCode}
                   onChange={(e) => setFormData({ ...formData, taskCode: e.target.value })}
                   placeholder="VD: KH01, B2.2, QT01..."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-700 outline-none uppercase"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-slate-800 outline-none uppercase shadow-2xs"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-black text-slate-800 mb-1.5">
                 Nội dung thực hiện chi tiết
               </label>
               <textarea 
@@ -762,106 +761,106 @@ export default function InputWork() {
                 value={formData.detail}
                 onChange={(e) => setFormData({ ...formData, detail: e.target.value })}
                 placeholder="Mô tả cụ thể phạm vi công việc, tài liệu đối chiếu, các bước đã thực hiện hoặc yêu cầu chỉ đạo..."
-                className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 font-medium outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               />
             </div>
           </div>
         </div>
 
         {/* SECTION 3: THỜI GIAN & TIẾN ĐỘ THỰC HIỆN */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>3. Thời gian & Tiến độ thực hiện</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Ngày bắt đầu</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Ngày bắt đầu</label>
               <input 
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => handleDateChange('startDate', e.target.value)}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Giờ bắt đầu</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Giờ bắt đầu</label>
               <input 
                 type="text"
                 value={formData.startTime}
                 onChange={(e) => handleDateChange('startTime', e.target.value)}
                 placeholder="07:30"
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Ngày kết thúc dự kiến</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Ngày kết thúc dự kiến</label>
               <input 
                 type="date"
                 value={formData.endDate}
                 onChange={(e) => handleDateChange('endDate', e.target.value)}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Giờ kết thúc</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Giờ kết thúc</label>
               <input 
                 type="text"
                 value={formData.endTime}
                 onChange={(e) => handleDateChange('endTime', e.target.value)}
                 placeholder="17:00"
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none shadow-2xs"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-300 rounded-xl shadow-2xs">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Ngày hoàn thành thực tế</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Ngày hoàn thành thực tế</label>
               <input 
                 type="date"
                 value={formData.actualEndDate}
                 onChange={(e) => handleActualEndDateChange(e.target.value)}
-                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm outline-none"
+                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm outline-none font-medium"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Số ngày công tác</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Số ngày công tác</label>
               <input 
                 type="number"
                 min="1"
                 value={formData.days}
                 onChange={(e) => setFormData({ ...formData, days: parseInt(e.target.value || '1') })}
-                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-center text-slate-800 outline-none"
+                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm font-black text-center text-slate-900 outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Tổng số giờ (h)</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Tổng số giờ (h)</label>
               <input 
                 type="number"
                 step="0.5"
                 value={formData.hours}
                 onChange={(e) => setFormData({ ...formData, hours: e.target.value })}
-                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-center text-slate-800 outline-none"
+                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-sm font-black text-center text-slate-900 outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Trạng thái tiến độ</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Trạng thái tiến độ</label>
               <select 
                 value={formData.status}
                 onChange={(e) => handleStatusChange(e.target.value)}
-                className={`w-full p-2 border rounded-xl text-sm font-black outline-none ${
-                  formData.status === 'Hoàn thành' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' :
-                  formData.status === 'Chậm' ? 'bg-rose-50 border-rose-300 text-rose-800' :
-                  formData.status === 'Không hoàn thành' ? 'bg-red-50 border-red-300 text-red-800' :
-                  'bg-blue-50 border-blue-300 text-blue-800'
+                className={`w-full p-2 border rounded-xl text-sm font-black outline-none shadow-2xs ${
+                  formData.status === 'Hoàn thành' ? 'bg-emerald-50 border-emerald-400 text-emerald-900' :
+                  formData.status === 'Chậm' ? 'bg-rose-50 border-rose-400 text-rose-900' :
+                  formData.status === 'Không hoàn thành' ? 'bg-red-50 border-red-400 text-red-900' :
+                  'bg-blue-50 border-blue-400 text-blue-900'
                 }`}
               >
                 <option value="Đang xử lý">Đang xử lý (HS 0.7)</option>
@@ -874,19 +873,19 @@ export default function InputWork() {
         </div>
 
         {/* SECTION 4: TÍNH CHẤT & ĐIỂM KPI */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>4. Tính chất công việc & Công thức quy đổi điểm KPI</span>
           </h3>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gradient-to-br from-slate-50 to-blue-50/30 border border-slate-200 rounded-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-300 rounded-2xl shadow-2xs">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Tính chất NV đề xuất</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Tính chất NV đề xuất</label>
               <select 
                 value={formData.proposedNature}
                 onChange={(e) => handleNatureChange(e.target.value)}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-800 outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-900 outline-none shadow-2xs"
               >
                 <option value="Đơn giản">Đơn giản (K = 0.6)</option>
                 <option value="Trung bình">Trung bình (K = 0.8)</option>
@@ -897,44 +896,44 @@ export default function InputWork() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Hệ số tính chất (K)</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Hệ số tính chất (K)</label>
               <input 
-                type="text"
-                readOnly
-                value={formData.coef}
-                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-black text-slate-700 text-center cursor-not-allowed"
+                type="text" 
+                readOnly 
+                value={formData.coef} 
+                className="w-full p-2.5 bg-slate-100 border border-slate-300 rounded-xl text-sm font-black text-slate-800 text-center cursor-not-allowed"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Điểm chuẩn (Đc)</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Điểm chuẩn (Đc)</label>
               <input 
-                type="text"
-                readOnly
-                value={formData.baseScore}
-                className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-black text-slate-700 text-center cursor-not-allowed"
+                type="text" 
+                readOnly 
+                value={formData.baseScore} 
+                className="w-full p-2.5 bg-slate-100 border border-slate-300 rounded-xl text-sm font-black text-slate-800 text-center cursor-not-allowed"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-black text-slate-800 mb-1.5">
                 Điểm quy đổi (QĐ)
               </label>
               <div className="relative">
                 <input 
-                  type="text"
-                  readOnly
-                  value={formData.convertedScore}
-                  className="w-full p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-base font-black text-emerald-800 text-center cursor-not-allowed shadow-xs"
+                  type="text" 
+                  readOnly 
+                  value={formData.convertedScore} 
+                  className="w-full p-2.5 bg-emerald-100 border border-emerald-400 rounded-xl text-base font-black text-emerald-950 text-center cursor-not-allowed shadow-2xs"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-800">
                   điểm
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 text-xs text-slate-500 flex items-center gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+          <div className="mt-3 text-xs text-slate-700 flex items-center gap-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-300 font-medium">
             <Info className="w-4 h-4 text-[#1F4E78] shrink-0" />
             <span>
               Công thức: <b>Điểm quy đổi (QĐ) = Điểm chuẩn ({formData.baseScore}) × Hệ số tính chất ({formData.coef}) × Hệ số tiến độ ({getStatusFactor(formData.status)}) = {formData.convertedScore} điểm</b>.
@@ -943,19 +942,19 @@ export default function InputWork() {
         </div>
 
         {/* SECTION 5: SẢN PHẨM & DỰ ÁN */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>5. Sản phẩm đầu ra, Dự án & Đơn vị phối hợp</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Loại sản phẩm</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Loại sản phẩm</label>
               <select 
                 value={formData.productType}
                 onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold outline-none shadow-2xs"
               >
                 {productTypes.map(p => (
                   <option key={p} value={p}>{p}</option>
@@ -964,76 +963,76 @@ export default function InputWork() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Số lượng sản phẩm</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Số lượng sản phẩm</label>
               <input 
                 type="number"
                 min="1"
                 value={formData.productQty}
                 onChange={(e) => setFormData({ ...formData, productQty: parseInt(e.target.value || '1') })}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-center outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-center outline-none shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Đơn vị tính</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Đơn vị tính</label>
               <input 
                 type="text"
                 value={formData.unit}
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                 placeholder="Báo cáo, Tờ trình, Hồ sơ, Bộ..."
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold outline-none shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Đơn vị liên quan / Phối hợp</label>
+              <label className="block text-xs font-black text-slate-800 mb-1.5">Đơn vị liên quan / Phối hợp</label>
               <input 
                 type="text"
                 value={formData.relatedUnit}
                 onChange={(e) => setFormData({ ...formData, relatedUnit: e.target.value })}
                 placeholder="Kho bạc, Sở KHĐT, Nhà thầu..."
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm outline-none"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none shadow-2xs"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">Dự án / Công trình / Gói thầu liên quan</label>
+            <label className="block text-xs font-black text-slate-800 mb-1.5">Dự án / Công trình / Gói thầu liên quan</label>
             <input 
               type="text"
               value={formData.project}
               onChange={(e) => setFormData({ ...formData, project: e.target.value })}
               placeholder="VD: Dự án Đường tránh Đông TP. Buôn Ma Thuột, Dự án Cải tạo Tỉnh lộ 1..."
-              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#1F4E78]"
+              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
             />
           </div>
         </div>
 
         {/* SECTION 6: MINH CHỨNG & GIẢI TRÌNH */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-100 flex items-center gap-2">
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm">
+          <h3 className="text-xs font-black text-[#1F4E78] uppercase tracking-wider mb-4 pb-2.5 border-b border-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
             <span>6. Minh chứng kết quả & Giải trình tiến độ</span>
           </h3>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center justify-between">
                 <span>Đường dẫn tài liệu minh chứng (Link Google Drive / PDF / Văn bản ban hành)</span>
-                <span className="text-slate-400 font-normal text-[11px]">Bắt buộc khi báo cáo Hoàn thành để Lãnh đạo duyệt</span>
+                <span className="text-slate-500 font-bold text-[11px]">Bắt buộc khi báo cáo Hoàn thành để Lãnh đạo duyệt</span>
               </label>
               <input 
                 type="text"
                 value={formData.evidence}
                 onChange={(e) => setFormData({ ...formData, evidence: e.target.value })}
                 placeholder="https://drive.google.com/file/d/... hoặc Số CV/QĐ ban hành"
-                className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm text-blue-600 font-medium outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm text-blue-700 font-bold outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
                   Lý do chậm tiến độ / Ghi chú phát sinh
                 </label>
                 <input 
@@ -1041,18 +1040,18 @@ export default function InputWork() {
                   value={formData.lateReason}
                   onChange={(e) => setFormData({ ...formData, lateReason: e.target.value })}
                   placeholder="Nêu rõ lý do khách quan/chủ quan nếu công việc bị kéo dài..."
-                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm outline-none"
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium outline-none shadow-2xs"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-black text-slate-800 mb-1.5">
                   Đề xuất miễn phạt nếu chậm
                 </label>
                 <select 
                   value={formData.penaltyExemption}
                   onChange={(e) => setFormData({ ...formData, penaltyExemption: e.target.value })}
-                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none"
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-800 outline-none shadow-2xs"
                 >
                   <option value="Không">Không miễn phạt</option>
                   <option value="Có">Có đề xuất miễn phạt (Chờ duyệt)</option>
@@ -1063,16 +1062,16 @@ export default function InputWork() {
         </div>
 
         {/* BOTTOM ACTION BAR */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
-          <div className="text-xs text-slate-500 font-medium">
-            Công việc sẽ được ghi nhận vào kế hoạch tháng <b>{formData.month}</b> cho chuyên viên <b>{formData.userName || 'được chọn'}</b>.
+        <div className="bg-white border border-slate-300 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+          <div className="text-xs text-slate-700 font-medium">
+            Công việc sẽ được ghi nhận vào kế hoạch tháng <b className="text-[#1F4E78]">{formData.month}</b> cho chuyên viên <b className="text-[#1F4E78]">{formData.userName || 'được chọn'}</b>.
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <button 
               type="button"
               onClick={() => navigate('/my-works')}
-              className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+              className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 border border-slate-300 hover:bg-slate-200 text-slate-800 font-black rounded-xl text-xs transition-colors shadow-2xs"
             >
               Hủy bỏ
             </button>
@@ -1081,7 +1080,7 @@ export default function InputWork() {
               type="button"
               disabled={isSubmitting}
               onClick={(e) => handleSubmit(e, true)}
-              className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition-all disabled:opacity-50"
+              className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-black rounded-xl text-xs transition-all shadow-2xs disabled:opacity-50"
             >
               Lưu & Thêm việc khác
             </button>
@@ -1089,7 +1088,7 @@ export default function InputWork() {
             <button 
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95 disabled:opacity-50"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 border border-blue-900"
             >
               {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               <span>Lưu công việc & Đăng ký KPI</span>

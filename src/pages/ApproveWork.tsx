@@ -238,17 +238,17 @@ export default function ApproveWork() {
   return (
     <div className="space-y-6 pb-12">
       {/* Header Banner */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-300">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-[#1F4E78] uppercase tracking-wider">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-blue-100/80 text-[#1F4E78] uppercase tracking-wider border border-blue-200">
                 Điều hành & Phê duyệt
               </span>
-              <span className="text-xs font-semibold text-slate-500">Mã quy trình: DV-09</span>
+              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-md">Quy trình: DV-09</span>
             </div>
-            <h1 className="text-2xl font-black text-[#1F4E78] tracking-tight">Phê duyệt hồ sơ & Tiến độ công việc</h1>
-            <p className="text-xs text-slate-600 max-w-4xl mt-1 leading-relaxed">
+            <h1 className="text-2xl font-black text-[#0f2440] tracking-tight">Phê duyệt hồ sơ & Tiến độ công việc</h1>
+            <p className="text-sm font-medium text-slate-600 max-w-4xl mt-1 leading-relaxed">
               Lãnh đạo phòng xem xét kết quả thực hiện, thẩm định minh chứng sản phẩm, phê duyệt và chấm điểm KPI trực tiếp cho toàn bộ nhân sự trong phòng.
             </p>
           </div>
@@ -257,14 +257,14 @@ export default function ApproveWork() {
             <button 
               onClick={fetchAll} 
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors shadow-2xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span>Đồng bộ</span>
             </button>
             <button 
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-colors shadow-2xs"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Xuất Excel</span>
@@ -274,14 +274,14 @@ export default function ApproveWork() {
 
         {/* Alerts */}
         {successMsg && (
-          <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2 animate-fadeIn">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
             <span>{successMsg}</span>
           </div>
         )}
         {errorMsg && (
-          <div className="mt-4 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-800 text-xs font-bold flex items-center gap-2 animate-fadeIn">
-            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <div className="mt-4 p-3.5 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
@@ -289,53 +289,53 @@ export default function ApproveWork() {
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tổng công việc</div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-[#1F4E78] border-x border-b border-slate-300">
+          <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Tổng công việc</div>
           <div className="text-2xl font-black text-[#1F4E78] mt-1">{totalCount}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Tháng {selectedMonth}</div>
+          <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Tháng {selectedMonth}</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-amber-200 bg-gradient-to-br from-white to-amber-50/50">
-          <div className="text-[11px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-amber-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-amber-50/50">
+          <div className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1">
             <Clock className="w-3.5 h-3.5" />
             <span>Đang chờ duyệt</span>
           </div>
-          <div className="text-2xl font-black text-amber-600 mt-1">{pendingCount}</div>
-          <div className="text-[11px] text-amber-700 mt-0.5 font-medium">Cần thẩm định</div>
+          <div className="text-2xl font-black text-amber-900 mt-1">{pendingCount}</div>
+          <div className="text-[11px] text-amber-800 mt-0.5 font-bold">Cần thẩm định</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-200 bg-gradient-to-br from-white to-emerald-50/50">
-          <div className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-emerald-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-emerald-50/50">
+          <div className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Đã phê duyệt</span>
           </div>
-          <div className="text-2xl font-black text-emerald-600 mt-1">{approvedCount}</div>
-          <div className="text-[11px] text-emerald-700 mt-0.5 font-medium">Đạt chuẩn KPI</div>
+          <div className="text-2xl font-black text-emerald-900 mt-1">{approvedCount}</div>
+          <div className="text-[11px] text-emerald-800 mt-0.5 font-bold">Đạt chuẩn KPI</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-200 bg-gradient-to-br from-white to-orange-50/50">
-          <div className="text-[11px] font-bold text-orange-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-orange-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-orange-50/50">
+          <div className="text-[11px] font-black text-orange-950 uppercase tracking-wider flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" />
             <span>Cần bổ sung</span>
           </div>
-          <div className="text-2xl font-black text-orange-600 mt-1">{supplementCount}</div>
-          <div className="text-[11px] text-orange-700 mt-0.5 font-medium">Yêu cầu hoàn thiện</div>
+          <div className="text-2xl font-black text-orange-950 mt-1">{supplementCount}</div>
+          <div className="text-[11px] text-orange-800 mt-0.5 font-bold">Yêu cầu hoàn thiện</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-red-200 bg-gradient-to-br from-white to-red-50/50">
-          <div className="text-[11px] font-bold text-red-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-red-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-red-50/50">
+          <div className="text-[11px] font-black text-red-950 uppercase tracking-wider flex items-center gap-1">
             <X className="w-3.5 h-3.5" />
             <span>Không duyệt</span>
           </div>
-          <div className="text-2xl font-black text-red-600 mt-1">{rejectedCount}</div>
-          <div className="text-[11px] text-red-700 mt-0.5 font-medium">Không tính điểm</div>
+          <div className="text-2xl font-black text-red-950 mt-1">{rejectedCount}</div>
+          <div className="text-[11px] text-red-800 mt-0.5 font-bold">Không tính điểm</div>
         </div>
       </div>
 
       {/* Main Table Panel */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 overflow-hidden">
         {/* Filters and Batch Actions */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="p-4 border-b border-slate-300 bg-slate-50/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <CheckSquare className="w-4 h-4 text-[#1F4E78]" />
             <h3 className="text-sm font-black text-[#1F4E78] uppercase tracking-wide">
@@ -349,7 +349,7 @@ export default function ApproveWork() {
               <button
                 onClick={handleBatchApprove}
                 disabled={isBatchApproving}
-                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all border border-emerald-700"
               >
                 <Check className="w-4 h-4" />
                 <span>{isBatchApproving ? 'Đang duyệt...' : `Duyệt nhanh (${selectedIds.length})`}</span>
@@ -359,7 +359,7 @@ export default function ApproveWork() {
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="Tất cả">Tất cả tháng</option>
               {STANDARD_MONTHS.map(m => (
@@ -370,7 +370,7 @@ export default function ApproveWork() {
             <select
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-              className="bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none max-w-[170px]"
+              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none max-w-[170px] shadow-2xs"
             >
               <option value="all">Tất cả nhân viên</option>
               {users.map(u => (
@@ -381,7 +381,7 @@ export default function ApproveWork() {
             <select
               value={selectedApproval}
               onChange={(e) => setSelectedApproval(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="all">Tất cả trạng thái duyệt</option>
               <option value="Chưa duyệt">Chưa duyệt</option>
@@ -393,7 +393,7 @@ export default function ApproveWork() {
             <select
               value={selectedSource}
               onChange={(e) => setSelectedSource(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl px-3 py-2 outline-none"
+              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="all">Tất cả nguồn việc</option>
               <option value="assigned">Được Lãnh đạo giao</option>
@@ -406,7 +406,7 @@ export default function ApproveWork() {
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 placeholder="Tìm mã, tên việc..."
-                className="w-40 bg-white border border-slate-300 text-xs font-medium text-slate-800 rounded-xl pl-8 pr-3 py-2 outline-none"
+                className="w-40 bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl pl-8 pr-3 py-2 outline-none shadow-2xs"
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             </div>
@@ -417,7 +417,7 @@ export default function ApproveWork() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-[#1F4E78] text-white font-bold border-b border-blue-900">
+              <tr className="bg-[#1F4E78] text-white font-black text-xs uppercase tracking-wider border-b border-blue-950">
                 <th className="py-3 px-3 text-center w-10">
                   <input
                     type="checkbox"
@@ -436,7 +436,7 @@ export default function ApproveWork() {
                 <th className="py-3 px-3 text-center">Thao tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+            <tbody className="divide-y divide-slate-300 font-medium text-slate-700 bg-white">
               {filteredWorks.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center py-10 text-slate-400">
