@@ -16,7 +16,8 @@ import {
   canAccessRoute, 
   formatDate,
   DEFAULT_INITIAL_PASSWORD,
-  ADMIN_EMAIL
+  ADMIN_EMAIL,
+  cleanPosition
 } from '../../utils';
 
 const allNavGroups = [
@@ -138,7 +139,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           if (updatedFromDb) {
             const merged = { ...updatedFromDb, mustChangePassword: updatedFromDb.mustChangePassword ?? activeU.mustChangePassword };
             setCurrentUser(merged);
-            setActiveLoggedInUser(merged);
+            setActiveLoggedInUser(merged, false);
             activeU = merged;
           }
         }
@@ -540,7 +541,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     >
                       <div>
                         <div className="font-bold text-[13px] text-slate-900">{u.name}</div>
-                        <div className="text-[11px] text-slate-600 font-medium">{u.position || u.role} ({u.email})</div>
+                        <div className="text-[11px] text-slate-600 font-medium">{cleanPosition(u.position)} ({u.email})</div>
                       </div>
                       {currentUser?.id === u.id && (
                         <UserCheck className="w-4 h-4 text-[#1F4E78]" />

@@ -14,7 +14,11 @@ import {
   normalizeNFC, 
   formatDate, 
   getActiveLoggedInUser,
-  isLeadershipRole
+  isLeadershipRole,
+  formatScore,
+  formatScoreWithUnit,
+  formatPercent,
+  cleanPosition
 } from '../utils';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -216,11 +220,11 @@ export default function DepartmentKpiSummary() {
       return {
         "STT": idx + 1,
         "Họ và tên": u.name,
-        "Vị trí công tác": u.position || 'Chuyên viên',
+        "Vị trí công tác": cleanPosition(u.position),
         "Số việc thực hiện": u.taskCounts?.total || 0,
         "Số việc đã duyệt": u.taskCounts?.approved || 0,
-        "Điểm tự đánh giá": u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined ? u.scores.selfKpiTotal : 0,
-        "Điểm lãnh đạo duyệt": u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined ? u.scores.approvedKpiTotal : (u.isLeaderOrAbove ? '' : 'Chờ duyệt'),
+        "Điểm tự đánh giá": u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined ? formatScore(u.scores.selfKpiTotal) : '0',
+        "Điểm lãnh đạo duyệt": u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined ? formatScore(u.scores.approvedKpiTotal) : (u.isLeaderOrAbove ? '' : 'Chờ duyệt'),
         "Tự xếp loại": u.selfRank || 'Hoàn thành tốt nhiệm vụ',
         // CONSTRAINT: Vị trí từ phó phòng trở lên bỏ trống lãnh đạo xếp
         "Lãnh đạo xếp": u.isLeaderOrAbove ? '' : (u.leaderRankDisplay || (u.scores?.approvedKpiTotal !== null ? u.approvedRank : 'Chờ duyệt'))
@@ -241,8 +245,8 @@ export default function DepartmentKpiSummary() {
     
     // Generate clean, inline-styled rows for MS Word
     const tableRowsHtml = exportList.map((u: any, idx: number) => {
-      const selfScore = u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined ? u.scores.selfKpiTotal : '-';
-      const approvedScore = u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined ? u.scores.approvedKpiTotal : (u.isLeaderOrAbove ? '-' : 'Chờ duyệt');
+      const selfScore = u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined ? formatScore(u.scores.selfKpiTotal) : '-';
+      const approvedScore = u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined ? formatScore(u.scores.approvedKpiTotal) : (u.isLeaderOrAbove ? '-' : 'Chờ duyệt');
       const selfRank = u.selfRank || '-';
       const leaderRank = u.isLeaderOrAbove ? '' : (u.scores?.approvedKpiTotal !== null ? (u.approvedRank || '-') : 'Chờ duyệt');
 
@@ -250,7 +254,7 @@ export default function DepartmentKpiSummary() {
         <tr>
           <td style="border: 1px solid #000000; padding: 6px 4px; text-align: center;">${idx + 1}</td>
           <td style="border: 1px solid #000000; padding: 6px 6px; font-weight: bold; text-align: left;">${normalizeNFC(u.name || '')}</td>
-          <td style="border: 1px solid #000000; padding: 6px 6px; text-align: left;">${normalizeNFC(u.position || 'Chuyên viên')}</td>
+          <td style="border: 1px solid #000000; padding: 6px 6px; text-align: left;">${normalizeNFC(cleanPosition(u.position))}</td>
           <td style="border: 1px solid #000000; padding: 6px 4px; text-align: center; font-weight: bold;">${selfScore}</td>
           <td style="border: 1px solid #000000; padding: 6px 4px; text-align: center; font-weight: bold;">${approvedScore}</td>
           <td style="border: 1px solid #000000; padding: 6px 6px; text-align: center;">${normalizeNFC(selfRank)}</td>
@@ -733,13 +737,13 @@ export default function DepartmentKpiSummary() {
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl md:text-3xl font-black text-emerald-950">
-              {stats.deptConvertedScore || 0}
+              {formatScore(stats.deptConvertedScore)}
             </span>
             <span className="text-xs font-bold text-slate-500">điểm Q.Đổi</span>
           </div>
           <div className="text-xs text-slate-700 bg-slate-50 p-2 rounded-xl border border-slate-200 flex items-center justify-between">
-            <span>Tính chất (C1): <strong className="text-slate-900 font-black">+{stats.deptNatureTotal || 0}đ</strong></span>
-            <span>BQ phòng: <strong className="text-slate-900 font-black">{stats.avgDeptNature || 0}đ</strong></span>
+            <span>Tính chất (C1): <strong className="text-slate-900 font-black">+{formatScore(stats.deptNatureTotal)}đ</strong></span>
+            <span>BQ phòng: <strong className="text-slate-900 font-black">{formatScore(stats.avgDeptNature)}đ</strong></span>
           </div>
         </div>
 
@@ -970,20 +974,20 @@ export default function DepartmentKpiSummary() {
 
                         {/* Vị trí */}
                         <td className="p-3.5 text-slate-800 font-bold">
-                          {u.position || 'Chuyên viên'}
+                          {cleanPosition(u.position)}
                         </td>
 
                         {/* Điểm tự đánh giá */}
                         <td className="p-3.5 text-center">
-                          {selfScore !== null ? (
+                          {selfScore !== null && selfScore !== undefined ? (
                             <div className="inline-flex flex-col items-center">
                               <div className="inline-block px-3 py-1 rounded-lg bg-blue-100 text-blue-950 font-black text-sm border border-blue-300 shadow-2xs">
-                                {selfScore}
+                                {formatScore(selfScore)}
                                 <span className="text-[10px] font-bold text-blue-700 ml-0.5">/100</span>
                               </div>
-                              {u.statusA === 'Tự động tính chuẩn (30đ)' && (
-                                <span className="text-[10px] text-slate-600 font-semibold mt-0.5" title="Điểm chuẩn A (30đ) + Điểm B, C, D máy tự chấm">
-                                  Tự động chuẩn
+                              {u.scores?.selfA === null && (
+                                <span className="text-[10px] text-amber-800 font-semibold mt-0.5" title="Chưa thực hiện tự chấm điểm A (chưa cộng điểm A)">
+                                  Chưa chấm A
                                 </span>
                               )}
                             </div>
@@ -996,7 +1000,7 @@ export default function DepartmentKpiSummary() {
                         <td className="p-3.5 text-center">
                           {approvedScore !== null ? (
                             <div className="inline-block px-3 py-1 rounded-lg bg-emerald-100 text-emerald-950 font-black text-sm border border-emerald-300 shadow-2xs">
-                              {approvedScore}
+                              {formatScore(approvedScore)}
                               <span className="text-[10px] font-bold text-emerald-700 ml-0.5">/100</span>
                             </div>
                           ) : (
@@ -1103,7 +1107,7 @@ export default function DepartmentKpiSummary() {
                 >
                   {usersList.map((u: any) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} — {u.position || 'Chuyên viên'} {u.isLeaderOrAbove ? '(Lãnh đạo)' : ''}
+                      {u.name} — {cleanPosition(u.position)} {u.isLeaderOrAbove ? '(Lãnh đạo)' : ''}
                     </option>
                   ))}
                 </select>
@@ -1155,7 +1159,7 @@ export default function DepartmentKpiSummary() {
                     Tổng KPI ({selectedMonth})
                   </span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-slate-900">{indTotalKpi}</span>
+                    <span className="text-3xl font-black text-slate-900">{formatScore(indTotalKpi)}</span>
                     <span className="text-sm font-bold text-slate-500">/ 100</span>
                   </div>
                   <div>
@@ -1181,13 +1185,13 @@ export default function DepartmentKpiSummary() {
                   </span>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-blue-950">
-                      {indScoreAApproved !== null ? indScoreAApproved : (indScoreASelf !== null ? indScoreASelf : 0)}
+                      {formatScore(indScoreAApproved !== null ? indScoreAApproved : (indScoreASelf !== null ? indScoreASelf : 0))}
                     </span>
                     <span className="text-sm font-bold text-slate-500">/ 30</span>
                   </div>
                   <div className="text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                    Tự chấm: <strong className="text-blue-900">{indScoreASelf !== null ? `${indScoreASelf}đ` : 'Chưa chấm'}</strong> | Duyệt:{' '}
-                    <strong className="text-emerald-800">{indScoreAApproved !== null ? `${indScoreAApproved}đ` : 'Chờ duyệt'}</strong>
+                    Tự chấm: <strong className="text-blue-900">{indScoreASelf !== null ? `${formatScore(indScoreASelf)}đ` : 'Chưa chấm'}</strong> | Duyệt:{' '}
+                    <strong className="text-emerald-800">{indScoreAApproved !== null ? `${formatScore(indScoreAApproved)}đ` : 'Chờ duyệt'}</strong>
                   </div>
                 </div>
 
@@ -1197,11 +1201,11 @@ export default function DepartmentKpiSummary() {
                     Điểm B - Nhiệm vụ thường xuyên
                   </span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-indigo-950">{indScoreB}</span>
+                    <span className="text-3xl font-black text-indigo-950">{formatScore(indScoreB)}</span>
                     <span className="text-sm font-bold text-slate-500">/ 60</span>
                   </div>
                   <div className="text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                    B1 (Tiến độ): <strong className="text-slate-900">{indScoreB1}đ</strong> | B2 (Khối lượng): <strong className="text-indigo-950">{indScoreB2}đ</strong>
+                    B1 (Tiến độ): <strong className="text-slate-900">{formatScore(indScoreB1)}đ</strong> | B2 (Khối lượng): <strong className="text-indigo-950">{formatScore(indScoreB2)}đ</strong>
                   </div>
                 </div>
 
@@ -1211,11 +1215,11 @@ export default function DepartmentKpiSummary() {
                     Thưởng (C) / Phạt (D)
                   </span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-emerald-900">+{indScoreC}</span>
-                    <span className="text-2xl font-black text-rose-800 ml-2">-{indScoreD}</span>
+                    <span className="text-3xl font-black text-emerald-900">+{formatScore(indScoreC)}</span>
+                    <span className="text-2xl font-black text-rose-800 ml-2">-{formatScore(indScoreD)}</span>
                   </div>
                   <div className="text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                    C1: <strong className="text-emerald-900">+{indScoreC1}đ</strong> | C2: <strong className="text-emerald-900">+{indScoreC2}đ</strong>
+                    C1: <strong className="text-emerald-900">+{formatScore(indScoreC1)}đ</strong> | C2: <strong className="text-emerald-900">+{formatScore(indScoreC2)}đ</strong>
                   </div>
                 </div>
               </div>
@@ -1256,17 +1260,17 @@ export default function DepartmentKpiSummary() {
                         </td>
                         <td className="px-6 py-4 text-center font-black text-slate-800">30</td>
                         <td className="px-6 py-4 text-center font-black text-blue-900">
-                          {indScoreASelf !== null ? `${indScoreASelf}đ` : '30đ (Chuẩn)'}
+                          {indScoreASelf !== null ? `${formatScore(indScoreASelf)}đ` : <span className="text-amber-800 font-bold italic text-xs">Chưa tự chấm (0đ)</span>}
                         </td>
                         <td className="px-6 py-4 text-center font-black text-emerald-900">
-                          {indScoreAApproved !== null ? `${indScoreAApproved}đ` : <span className="text-amber-800 font-bold italic text-xs">Chờ duyệt</span>}
+                          {indScoreAApproved !== null ? `${formatScore(indScoreAApproved)}đ` : <span className="text-amber-800 font-bold italic text-xs">Chờ duyệt</span>}
                         </td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-700">
                           {indDetA?.statusA === 'Đã duyệt'
                             ? 'Lãnh đạo phòng đã phê duyệt'
                             : indDetA?.statusA === 'Đã tự chấm'
                             ? 'Cá nhân tự chấm, chờ duyệt'
-                            : 'Tự động tính chuẩn (30đ) theo quy định'}
+                            : 'Cá nhân chưa thực hiện tự chấm A (tính 0đ)'}
                         </td>
                       </tr>
 
@@ -1276,14 +1280,14 @@ export default function DepartmentKpiSummary() {
                         <td className="px-6 py-4">
                           <div className="font-extrabold text-slate-900">Nhiệm vụ thường xuyên (B1 + B2)</div>
                           <div className="text-xs font-medium text-slate-600 mt-0.5">
-                            B1: {indScoreB1}đ + B2: {indScoreB2}đ ({indApprovedTasks.length} việc đã duyệt)
+                            B1: {formatScore(indScoreB1)}đ + B2: {formatScore(indScoreB2)}đ ({indApprovedTasks.length} việc đã duyệt)
                           </div>
                         </td>
                         <td className="px-6 py-4 text-center font-black text-slate-800">60</td>
-                        <td className="px-6 py-4 text-center font-black text-slate-900">{indScoreB}đ</td>
-                        <td className="px-6 py-4 text-center font-black text-indigo-950">{indScoreB}đ</td>
+                        <td className="px-6 py-4 text-center font-black text-slate-900">{formatScore(indScoreB)}đ</td>
+                        <td className="px-6 py-4 text-center font-black text-indigo-950">{formatScore(indScoreB)}đ</td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-700">
-                          Tỷ trọng đóng góp: <strong className="text-slate-900">{indSum?.personalShare || 0}%</strong> (BQ phòng: {indSum?.avgShare || 0}%)
+                          Tỷ trọng đóng góp: <strong className="text-slate-900">{formatPercent(indSum?.personalShare)}</strong> (BQ phòng: {formatPercent(indSum?.avgShare)})
                         </td>
                       </tr>
 
@@ -1293,14 +1297,14 @@ export default function DepartmentKpiSummary() {
                         <td className="px-6 py-4">
                           <div className="font-extrabold text-slate-900">Điểm thưởng / Việc khó / Tính chất (C1 + C2)</div>
                           <div className="text-xs font-medium text-slate-600 mt-0.5">
-                            C1: +{indScoreC1}đ (Tính chất) | C2: +{indScoreC2}đ (Lãnh đạo thưởng)
+                            C1: +{formatScore(indScoreC1)}đ (Tính chất) | C2: +{formatScore(indScoreC2)}đ (Lãnh đạo thưởng)
                           </div>
                         </td>
                         <td className="px-6 py-4 text-center font-black text-slate-800">10</td>
-                        <td className="px-6 py-4 text-center font-black text-emerald-900">+{indScoreC}đ</td>
-                        <td className="px-6 py-4 text-center font-black text-emerald-900">+{indScoreC}đ</td>
+                        <td className="px-6 py-4 text-center font-black text-emerald-900">+{formatScore(indScoreC)}đ</td>
+                        <td className="px-6 py-4 text-center font-black text-emerald-900">+{formatScore(indScoreC)}đ</td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-700">
-                          C1: {indDetC?.personalNatureTotal ?? 0}đ tính chất việc (BQ phòng: {indDetC?.avgDeptNature ?? 0}đ)
+                          C1: {formatScore(indDetC?.personalNatureTotal)}đ tính chất việc (BQ phòng: {formatScore(indDetC?.avgDeptNature)}đ)
                         </td>
                       </tr>
 
@@ -1313,10 +1317,10 @@ export default function DepartmentKpiSummary() {
                         </td>
                         <td className="px-6 py-4 text-center font-black text-slate-700">Trừ</td>
                         <td className="px-6 py-4 text-center font-black text-rose-800">
-                          {indScoreD > 0 ? `-${indScoreD}đ` : '0đ'}
+                          {indScoreD > 0 ? `-${formatScore(indScoreD)}đ` : '0đ'}
                         </td>
                         <td className="px-6 py-4 text-center font-black text-rose-800">
-                          {indScoreD > 0 ? `-${indScoreD}đ` : '0đ'}
+                          {indScoreD > 0 ? `-${formatScore(indScoreD)}đ` : '0đ'}
                         </td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-700">
                           {indDetD?.items?.length > 0 ? `${indDetD.items.length} vi phạm ghi nhận` : 'Không có vi phạm trừ điểm'}
@@ -1333,11 +1337,11 @@ export default function DepartmentKpiSummary() {
                         </td>
                         <td className="px-6 py-4 text-center text-base font-black text-slate-800">100</td>
                         <td className="px-6 py-4 text-center text-base font-black text-blue-950">
-                          {Math.min(100, Math.max(0, (indScoreASelf !== null ? indScoreASelf : 30) + indScoreB + indScoreC - indScoreD))}đ
+                          {formatScore(Math.min(100, Math.max(0, (indScoreASelf !== null ? indScoreASelf : 0) + indScoreB + indScoreC - indScoreD)))}đ
                         </td>
                         <td className="px-6 py-4 text-center text-xl font-black text-[#1F4E78]">
-                          {indScoreAApproved !== null ? `${indTotalKpi}đ` : (
-                            <span className="text-sm font-black text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300">Chờ duyệt ({indTotalKpi}đ)</span>
+                          {indScoreAApproved !== null ? `${formatScore(indTotalKpi)}đ` : (
+                            <span className="text-sm font-black text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300">Chờ duyệt ({formatScore(indTotalKpi)}đ)</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-sm font-black text-[#1F4E78]">
@@ -1364,7 +1368,7 @@ export default function DepartmentKpiSummary() {
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-blue-700" />
                     <h3 className="font-bold text-slate-900">
-                      Chi tiết 7 tiêu chí Điểm A - Chấp hành nội quy, kỷ luật ({indScoreAApproved !== null ? indScoreAApproved : (indScoreASelf || 0)}/30đ)
+                      Chi tiết 7 tiêu chí Điểm A - Chấp hành nội quy, kỷ luật ({formatScore(indScoreAApproved !== null ? indScoreAApproved : (indScoreASelf || 0))}/30đ)
                     </h3>
                   </div>
                   <span className="text-xs font-bold text-slate-500">
@@ -1375,7 +1379,7 @@ export default function DepartmentKpiSummary() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {KPI_A_CRITERIA.map(crit => {
                     const sItem = indDetA?.scores?.[crit.code];
-                    const sSelf = sItem?.self ?? '-';
+                    const sSelf = sItem?.self ?? null;
                     const sApp = sItem?.approved ?? sSelf;
                     return (
                       <div
@@ -1391,8 +1395,8 @@ export default function DepartmentKpiSummary() {
                         <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
                           <span className="text-slate-500 text-[11px]">Tối đa: <strong>{crit.maxScore}đ</strong></span>
                           <div className="flex items-center gap-2">
-                            <span className="text-blue-800">Tự: <strong>{sSelf}đ</strong></span>
-                            <span className="text-emerald-700 font-bold">Duyệt: <strong>{sApp}đ</strong></span>
+                            <span className="text-blue-800">Tự: <strong>{formatScore(sSelf, '-')}đ</strong></span>
+                            <span className="text-emerald-700 font-bold">Duyệt: <strong>{formatScore(sApp, '-')}đ</strong></span>
                           </div>
                         </div>
                       </div>
@@ -1407,7 +1411,7 @@ export default function DepartmentKpiSummary() {
                   <div className="flex items-center gap-2">
                     <Layers className="w-5 h-5 text-indigo-700" />
                     <h3 className="font-bold text-slate-900">
-                      Chi tiết Điểm B - Danh sách {indApprovedTasks.length} nhiệm vụ được duyệt trong tháng ({indScoreB}/60đ)
+                      Chi tiết Điểm B - Danh sách {indApprovedTasks.length} nhiệm vụ được duyệt trong tháng ({formatScore(indScoreB)}/60đ)
                     </h3>
                   </div>
                 </div>
@@ -1448,14 +1452,94 @@ export default function DepartmentKpiSummary() {
                                 {t.nature || t.approvedNature || t.proposedNature || 'Trung bình'}
                               </span>
                             </td>
-                            <td className="p-3 text-center font-bold">{t.coef}</td>
-                            <td className="p-3 text-center font-bold text-slate-700">{t.baseScore}</td>
-                            <td className="p-3 text-center font-bold text-[#1F4E78]">{t.convertedScore}</td>
+                            <td className="p-3 text-center font-bold">{formatScore(t.coef)}</td>
+                            <td className="p-3 text-center font-bold text-slate-700">{formatScore(t.baseScore)}</td>
+                            <td className="p-3 text-center font-bold text-[#1F4E78]">{formatScore(t.convertedScore)}</td>
                             <td className="p-3 text-center">
                               <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px]">
                                 Đã duyệt
                               </span>
                             </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* Detail C: Bonus points */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Star className="w-5 h-5 text-amber-500" />
+                    <h3 className="font-bold text-slate-900">
+                      Chi tiết Điểm C - Điểm thưởng / Việc khó / Tính chất ({formatScore(indScoreC)}/10đ)
+                    </h3>
+                  </div>
+                </div>
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                    <div className="text-xs font-bold text-amber-800 mb-1">C1 - Thưởng tính chất công việc tự động: +{formatScore(indScoreC1)}đ</div>
+                    <div className="text-[11px] text-slate-600">
+                      Tổng điểm tính chất cá nhân: {formatScore(indDetC?.personalNatureTotal)}đ<br/>
+                      Tổng điểm tính chất bình quân phòng: {formatScore(indDetC?.avgDeptNature)}đ
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                    <div className="text-xs font-bold text-emerald-800 mb-1">C2 - Điểm thưởng lãnh đạo đánh giá: +{formatScore(indScoreC2)}đ</div>
+                    <div className="text-[11px] text-slate-600">
+                      Lý do: {indDetC?.noteC2 || 'Không có ghi chú'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detail D: Penalty points */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-rose-600" />
+                    <h3 className="font-bold text-slate-900">
+                      Chi tiết Điểm D - Điểm phạt vi phạm (-{formatScore(indScoreD)}đ)
+                    </h3>
+                  </div>
+                </div>
+                <div className="p-4 overflow-x-auto">
+                  {!indDetD?.items || indDetD.items.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400 text-xs">
+                      Không có vi phạm trừ điểm nào được ghi nhận.
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-rose-50 text-rose-900 font-bold uppercase border-b border-rose-200">
+                        <tr>
+                          <th className="p-3 text-center">STT</th>
+                          <th className="p-3">Loại vi phạm / Nội dung</th>
+                          <th className="p-3 text-center">Hệ thống ghi nhận</th>
+                          <th className="p-3 text-center">Phê duyệt (Lãnh đạo)</th>
+                          <th className="p-3 text-center">Lý do / Ghi chú</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {indDetD.items.map((item: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                            <td className="p-3">
+                              <span className="font-bold text-rose-900 block">{item.group || 'Công việc chuyên môn'}</span>
+                              <span className="text-slate-600 text-[11px]">{item.content}</span>
+                            </td>
+                            <td className="p-3 text-center text-slate-500 font-bold">-{formatScore(item.autoD)}đ</td>
+                            <td className="p-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                                item.decision === 'Miễn phạt' ? 'bg-emerald-100 text-emerald-800' :
+                                item.decision === 'Giảm phạt' ? 'bg-amber-100 text-amber-800' :
+                                'bg-rose-100 text-rose-800'
+                              }`}>
+                                {item.decision}: -{formatScore(item.officialD)}đ
+                              </span>
+                            </td>
+                            <td className="p-3 text-center text-[11px] text-slate-500">{item.note}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1518,8 +1602,8 @@ export default function DepartmentKpiSummary() {
                           <td className="p-3 text-center font-black text-indigo-900">{gStats.total} việc</td>
                           <td className="p-3 text-center font-bold text-emerald-700">{gStats.approved} việc</td>
                           <td className="p-3 text-center text-slate-700">{gStats.completed} việc</td>
-                          <td className="p-3 text-center font-black text-[#1F4E78]">{Math.round((gStats.score || 0) * 10) / 10}đ</td>
-                          <td className="p-3 text-center font-bold text-slate-700">{share}%</td>
+                          <td className="p-3 text-center font-black text-[#1F4E78]">{formatScore(gStats.score)}đ</td>
+                          <td className="p-3 text-center font-bold text-slate-700">{formatPercent(share)}</td>
                         </tr>
                       );
                     })
@@ -1539,7 +1623,7 @@ export default function DepartmentKpiSummary() {
                 </h3>
               </div>
               <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                Tổng điểm tính chất phòng: +{stats.deptNatureTotal || 0}đ
+                Tổng điểm tính chất phòng: +{formatScore(stats.deptNatureTotal)}đ
               </span>
             </div>
 
@@ -1708,7 +1792,7 @@ export default function DepartmentKpiSummary() {
                             )}
                           </div>
                           <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {u.position || 'Chuyên viên'} • {approvedScore !== null ? `${approvedScore}đ` : 'Chưa duyệt'}
+                            {cleanPosition(u.position)} • {approvedScore !== null ? `${approvedScore}đ` : 'Chưa duyệt'}
                           </div>
                         </div>
                       </div>
@@ -1790,12 +1874,12 @@ export default function DepartmentKpiSummary() {
                         <tr key={u.id || idx}>
                           <td className="border border-black p-2 text-center" style={{ border: '1px solid black', padding: '6px 4px', textAlign: 'center' }}>{idx + 1}</td>
                           <td className="border border-black p-2 font-bold" style={{ border: '1px solid black', padding: '6px 6px', textAlign: 'left' }}>{u.name}</td>
-                          <td className="border border-black p-2" style={{ border: '1px solid black', padding: '6px 6px', textAlign: 'left' }}>{u.position || 'Chuyên viên'}</td>
+                          <td className="border border-black p-2" style={{ border: '1px solid black', padding: '6px 6px', textAlign: 'left' }}>{cleanPosition(u.position)}</td>
                           <td className="border border-black p-2 text-center font-bold" style={{ border: '1px solid black', padding: '6px 4px', textAlign: 'center' }}>
-                            {selfScore !== null ? selfScore : '-'}
+                            {selfScore !== null ? formatScore(selfScore) : '-'}
                           </td>
                           <td className="border border-black p-2 text-center font-bold" style={{ border: '1px solid black', padding: '6px 4px', textAlign: 'center' }}>
-                            {approvedScore !== null ? approvedScore : '-'}
+                            {approvedScore !== null ? formatScore(approvedScore) : '-'}
                           </td>
                           <td className="border border-black p-2 text-center" style={{ border: '1px solid black', padding: '6px 6px', textAlign: 'center' }}>{u.selfRank || '-'}</td>
                           {/* CONSTRAINT: Vị trí từ phó phòng trở lên bỏ trống */}

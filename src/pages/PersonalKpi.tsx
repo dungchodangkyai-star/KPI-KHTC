@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { STANDARD_MONTHS, KPI_A_CRITERIA, getActiveLoggedInUser, normalizeNFC, safeFetchJson } from '../utils';
+import { STANDARD_MONTHS, KPI_A_CRITERIA, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, formatPercent, cleanPosition } from '../utils';
 import {
   Award,
   ChevronDown,
@@ -207,7 +207,7 @@ export default function PersonalKpi() {
               {u?.name || 'Đang tải...'}
             </div>
             <div className="text-xs font-bold text-slate-600">
-              {u?.position || 'Chuyên viên'} • Phòng Kế hoạch - Tài chính
+              {cleanPosition(u?.position)} • Phòng Kế hoạch - Tài chính
             </div>
           </div>
         </div>
@@ -221,7 +221,7 @@ export default function PersonalKpi() {
             Tổng KPI ({selectedMonth})
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-[#0f2440]">{totalKpi}</span>
+            <span className="text-3xl font-black text-[#0f2440]">{formatScore(totalKpi)}</span>
             <span className="text-sm font-bold text-slate-400">/ 100</span>
           </div>
           <div>
@@ -240,13 +240,13 @@ export default function PersonalKpi() {
           </span>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-black text-blue-900">
-              {scoreAApproved !== null ? scoreAApproved : (scoreASelf !== null ? scoreASelf : 0)}
+              {formatScore(scoreAApproved !== null ? scoreAApproved : (scoreASelf !== null ? scoreASelf : 0))}
             </span>
             <span className="text-sm font-bold text-slate-400">/ 30</span>
           </div>
           <div className="text-xs font-semibold text-slate-600">
-            Tự chấm: <strong className="text-blue-800">{scoreASelf !== null ? `${scoreASelf}đ` : 'Chưa chấm'}</strong> | Duyệt:{' '}
-            <strong className="text-emerald-700">{scoreAApproved !== null ? `${scoreAApproved}đ` : 'Chờ duyệt'}</strong>
+            Tự chấm: <strong className="text-blue-800">{scoreASelf !== null ? `${formatScore(scoreASelf)}đ` : 'Chưa chấm'}</strong> | Duyệt:{' '}
+            <strong className="text-emerald-700">{scoreAApproved !== null ? `${formatScore(scoreAApproved)}đ` : 'Chờ duyệt'}</strong>
           </div>
         </div>
 
@@ -256,11 +256,11 @@ export default function PersonalKpi() {
             Điểm B - Nhiệm vụ thường xuyên
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-indigo-900">{scoreB}</span>
+            <span className="text-3xl font-black text-indigo-900">{formatScore(scoreB)}</span>
             <span className="text-sm font-bold text-slate-400">/ 60</span>
           </div>
           <div className="text-xs font-semibold text-slate-600">
-            B1 (Tiến độ): <strong>{scoreB1}đ</strong> | B2 (Khối lượng): <strong>{scoreB2}đ</strong>
+            B1 (Tiến độ): <strong>{formatScore(scoreB1)}đ</strong> | B2 (Khối lượng): <strong>{formatScore(scoreB2)}đ</strong>
           </div>
         </div>
 
@@ -270,11 +270,11 @@ export default function PersonalKpi() {
             Thưởng (C) / Phạt (D)
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-800">+{scoreC}</span>
-            <span className="text-2xl font-black text-rose-700 ml-2">-{scoreD}</span>
+            <span className="text-3xl font-black text-emerald-800">+{formatScore(scoreC)}</span>
+            <span className="text-2xl font-black text-rose-700 ml-2">-{formatScore(scoreD)}</span>
           </div>
           <div className="text-xs font-semibold text-slate-600">
-            C1 (Tự động): <strong>+{scoreC1}đ</strong> | C2 (Lãnh đạo): <strong>+{scoreC2}đ</strong>
+            C1 (Tự động): <strong>+{formatScore(scoreC1)}đ</strong> | C2 (Lãnh đạo): <strong>+{formatScore(scoreC2)}đ</strong>
           </div>
         </div>
       </div>
@@ -315,10 +315,10 @@ export default function PersonalKpi() {
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-slate-700">30</td>
                 <td className="px-6 py-4 text-center font-bold text-blue-800">
-                  {scoreASelf !== null ? `${scoreASelf}đ` : 'Chưa tự chấm'}
+                  {scoreASelf !== null ? `${formatScore(scoreASelf)}đ` : 'Chưa tự chấm'}
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-emerald-700">
-                  {scoreAApproved !== null ? `${scoreAApproved}đ` : 'Chờ duyệt'}
+                  {scoreAApproved !== null ? `${formatScore(scoreAApproved)}đ` : 'Chờ duyệt'}
                 </td>
                 <td className="px-6 py-4 text-xs text-slate-600">
                   {detA?.statusA === 'Đã duyệt'
@@ -337,15 +337,15 @@ export default function PersonalKpi() {
                     Thực hiện nhiệm vụ thường xuyên (B1 + B2)
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5">
-                    B1 (Tiến độ, sản phẩm): {scoreB1}đ + B2 (Khối lượng quy đổi): {scoreB2}đ
+                    B1 (Tiến độ, sản phẩm): {formatScore(scoreB1)}đ + B2 (Khối lượng quy đổi): {formatScore(scoreB2)}đ
                   </div>
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-slate-700">60</td>
-                <td className="px-6 py-4 text-center font-bold text-slate-800">{scoreB}đ</td>
-                <td className="px-6 py-4 text-center font-bold text-indigo-900">{scoreB}đ</td>
+                <td className="px-6 py-4 text-center font-bold text-slate-800">{formatScore(scoreB)}đ</td>
+                <td className="px-6 py-4 text-center font-bold text-indigo-900">{formatScore(scoreB)}đ</td>
                 <td className="px-6 py-4 text-xs text-slate-600">
-                  Tỷ trọng công việc cá nhân: <strong>{sum?.personalShare || 0}%</strong> (Bình quân phòng:{' '}
-                  {sum?.avgShare || 0}%)
+                  Tỷ trọng công việc cá nhân: <strong>{formatPercent(sum?.personalShare)}</strong> (Bình quân phòng:{' '}
+                  {formatPercent(sum?.avgShare)})
                 </td>
               </tr>
 
@@ -355,15 +355,15 @@ export default function PersonalKpi() {
                 <td className="px-6 py-4">
                   <div className="font-bold text-slate-900">Điểm thưởng / Việc khó / Đột xuất (C1 + C2)</div>
                   <div className="text-xs text-slate-500 mt-0.5">
-                    C1 (Tự động từ tính chất việc): {scoreC1}đ | C2 (Lãnh đạo chấm việc khó/đột xuất): {scoreC2}đ
+                    C1 (Tự động từ tính chất việc): {formatScore(scoreC1)}đ | C2 (Lãnh đạo chấm việc khó/đột xuất): {formatScore(scoreC2)}đ
                   </div>
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-slate-700">10</td>
-                <td className="px-6 py-4 text-center font-bold text-emerald-700">+{scoreC}đ</td>
-                <td className="px-6 py-4 text-center font-bold text-emerald-800">+{scoreC}đ</td>
+                <td className="px-6 py-4 text-center font-bold text-emerald-700">+{formatScore(scoreC)}đ</td>
+                <td className="px-6 py-4 text-center font-bold text-emerald-800">+{formatScore(scoreC)}đ</td>
                 <td className="px-6 py-4 text-xs text-slate-600">
-                  C1: {detC?.personalNatureTotal ?? 0}đ tính chất (BQ phòng: {detC?.avgDeptNature ?? 0}đ) • C2:{' '}
-                  {scoreC2 > 0 ? `Lãnh đạo thưởng +${scoreC2}đ` : '0đ'}
+                  C1: {formatScore(detC?.personalNatureTotal)}đ tính chất (BQ phòng: {formatScore(detC?.avgDeptNature)}đ) • C2:{' '}
+                  {scoreC2 > 0 ? `Lãnh đạo thưởng +${formatScore(scoreC2)}đ` : '0đ'}
                 </td>
               </tr>
 
@@ -378,10 +378,10 @@ export default function PersonalKpi() {
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-slate-500">Trừ</td>
                 <td className="px-6 py-4 text-center font-bold text-rose-700">
-                  {scoreD > 0 ? `-${scoreD}đ` : '0đ'}
+                  {scoreD > 0 ? `-${formatScore(scoreD)}đ` : '0đ'}
                 </td>
                 <td className="px-6 py-4 text-center font-bold text-rose-700">
-                  {scoreD > 0 ? `-${scoreD}đ` : '0đ'}
+                  {scoreD > 0 ? `-${formatScore(scoreD)}đ` : '0đ'}
                 </td>
                 <td className="px-6 py-4 text-xs text-slate-600">
                   {detD?.items?.length > 0
@@ -403,13 +403,13 @@ export default function PersonalKpi() {
                 </td>
                 <td className="px-6 py-4 text-center text-base font-black text-slate-800">100</td>
                 <td className="px-6 py-4 text-center text-base font-black text-blue-900">
-                  {scoreASelf !== null ? `${Math.min(100, Math.max(0, scoreASelf + scoreB + scoreC - scoreD))}đ` : '-'}
+                  {scoreASelf !== null ? `${formatScore(Math.min(100, Math.max(0, scoreASelf + scoreB + scoreC - scoreD)))}đ` : '-'}
                 </td>
                 <td className="px-6 py-4 text-center text-xl font-black text-[#1F4E78]">
-                  {totalKpi}đ
+                  {formatScore(totalKpi)}đ
                 </td>
                 <td className="px-6 py-4 text-sm font-bold text-[#1F4E78]">
-                  {rankText} ({totalKpi}/100)
+                  {rankText} ({formatScore(totalKpi)}/100)
                 </td>
               </tr>
             </tbody>
@@ -425,7 +425,7 @@ export default function PersonalKpi() {
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-blue-700" />
               <h3 className="font-bold text-slate-900">
-                Chi tiết điểm A - Chấp hành nội quy, quy chế ({scoreAApproved !== null ? scoreAApproved : (scoreASelf || 0)}/30 điểm)
+                Chi tiết điểm A - Chấp hành nội quy, quy chế ({formatScore(scoreAApproved !== null ? scoreAApproved : (scoreASelf || 0))}/30 điểm)
               </h3>
             </div>
             <span className="text-xs font-semibold text-slate-500">
@@ -437,7 +437,7 @@ export default function PersonalKpi() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {KPI_A_CRITERIA.map(crit => {
                 const sItem = detA?.scores?.[crit.code];
-                const sSelf = sItem?.self ?? '-';
+                const sSelf = sItem?.self ?? null;
                 const sApp = sItem?.approved ?? sSelf;
                 return (
                   <div
@@ -455,8 +455,8 @@ export default function PersonalKpi() {
                         Tối đa: <strong>{crit.maxScore}đ</strong>
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className="text-blue-800">Tự chấm: <strong>{sSelf}đ</strong></span>
-                        <span className="text-emerald-700 font-bold">Duyệt: <strong>{sApp}đ</strong></span>
+                        <span className="text-blue-800">Tự chấm: <strong>{formatScore(sSelf, '-')}đ</strong></span>
+                        <span className="text-emerald-700 font-bold">Duyệt: <strong>{formatScore(sApp, '-')}đ</strong></span>
                       </div>
                     </div>
                   </div>
@@ -475,7 +475,7 @@ export default function PersonalKpi() {
             <div className="flex items-center gap-2">
               <Layers className="w-5 h-5 text-indigo-700" />
               <h3 className="font-bold text-slate-900">
-                Chi tiết điểm B - Danh sách công việc đã thực hiện ({approvedTasks.length} việc đã duyệt - {scoreB}/60 điểm)
+                Chi tiết điểm B - Danh sách công việc đã thực hiện ({approvedTasks.length} việc đã duyệt - {formatScore(scoreB)}/60 điểm)
               </h3>
             </div>
             <div className="flex items-center gap-2 text-xs font-bold text-[#1F4E78]">
@@ -521,9 +521,9 @@ export default function PersonalKpi() {
                             {t.nature || t.approvedNature || t.proposedNature || 'Trung bình'}
                           </span>
                         </td>
-                        <td className="p-3 text-center font-bold">{t.coef}</td>
-                        <td className="p-3 text-center font-bold text-slate-700">{t.baseScore}</td>
-                        <td className="p-3 text-center font-bold text-[#1F4E78]">{t.convertedScore}</td>
+                        <td className="p-3 text-center font-bold">{formatScore(t.coef)}</td>
+                        <td className="p-3 text-center font-bold text-slate-700">{formatScore(t.baseScore)}</td>
+                        <td className="p-3 text-center font-bold text-[#1F4E78]">{formatScore(t.convertedScore)}</td>
                         <td className="p-3 text-center">
                           <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
                             Đã duyệt
@@ -547,16 +547,16 @@ export default function PersonalKpi() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-emerald-700" />
               <h3 className="font-bold text-slate-900">
-                Chi tiết điểm C - Thống kê Điểm thưởng / Tính chất công việc / Việc khó (+{scoreC}/10 điểm)
+                Chi tiết điểm C - Thống kê Điểm thưởng / Tính chất công việc / Việc khó (+{formatScore(scoreC)}/10 điểm)
               </h3>
             </div>
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 text-xs">
                 <span className="bg-blue-50 text-blue-800 px-2.5 py-0.5 rounded-full border border-blue-200 font-bold">
-                  C1 (Tự động): +{scoreC1}đ
+                  C1 (Tự động): +{formatScore(scoreC1)}đ
                 </span>
                 <span className="bg-emerald-50 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200 font-bold">
-                  C2 (Lãnh đạo): +{scoreC2}đ
+                  C2 (Lãnh đạo): +{formatScore(scoreC2)}đ
                 </span>
               </div>
               <div className="flex items-center gap-1 text-xs font-bold text-[#1F4E78]">
@@ -580,7 +580,7 @@ export default function PersonalKpi() {
                       </span>
                     </div>
                     <span className="font-black text-base text-blue-800 bg-white px-3 py-1 rounded-lg border border-blue-200 shadow-xs">
-                      +{scoreC1} / 6.0 điểm
+                      +{formatScore(scoreC1)} / 6.0 điểm
                     </span>
                   </div>
 
@@ -591,10 +591,10 @@ export default function PersonalKpi() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600">
                       <div>
-                        • Điểm tính chất cá nhân: <strong className="text-blue-900">{detC?.personalNatureTotal ?? 0}đ</strong>
+                        • Điểm tính chất cá nhân: <strong className="text-blue-900">{formatScore(detC?.personalNatureTotal)}đ</strong>
                       </div>
                       <div>
-                        • BQ phòng: <strong className="text-slate-800">{detC?.avgDeptNature ?? 0}đ</strong> ({detC?.deptNatureTotal ?? 0}đ / {detC?.activeEmployeeCount ?? 0} người)
+                        • BQ phòng: <strong className="text-slate-800">{formatScore(detC?.avgDeptNature)}đ</strong> ({formatScore(detC?.deptNatureTotal)}đ / {detC?.activeEmployeeCount ?? 0} người)
                       </div>
                     </div>
                   </div>
@@ -614,7 +614,7 @@ export default function PersonalKpi() {
                       </span>
                     </div>
                     <span className="font-black text-base text-emerald-800 bg-white px-3 py-1 rounded-lg border border-emerald-200 shadow-xs">
-                      +{scoreC2} / 4.0 điểm
+                      +{formatScore(scoreC2)} / 4.0 điểm
                     </span>
                   </div>
 
@@ -628,7 +628,7 @@ export default function PersonalKpi() {
                             : 'bg-slate-100 text-slate-600 border border-slate-200'
                         }`}
                       >
-                        {scoreC2 > 0 ? `Được thưởng +${scoreC2} điểm` : 'Không có điểm thưởng C2'}
+                        {scoreC2 > 0 ? `Được thưởng +${formatScore(scoreC2)} điểm` : 'Không có điểm thưởng C2'}
                       </span>
                     </div>
 
@@ -685,10 +685,10 @@ export default function PersonalKpi() {
                             </td>
                             <td className="p-3 text-center font-bold text-slate-700">+{row.pointEach}đ / việc</td>
                             <td className="p-3 text-center font-bold text-blue-900">{dist.personalCount || 0} việc</td>
-                            <td className="p-3 text-center font-bold text-blue-800">+{dist.personalPoint || 0}đ</td>
+                            <td className="p-3 text-center font-bold text-blue-800">+{formatScore(dist.personalPoint)}đ</td>
                             <td className="p-3 text-center text-slate-700">{dist.deptCount || 0} việc</td>
-                            <td className="p-3 text-center text-slate-700">+{dist.deptPoint || 0}đ</td>
-                            <td className="p-3 text-center font-bold text-[#1F4E78]">{share}%</td>
+                            <td className="p-3 text-center text-slate-700">+{formatScore(dist.deptPoint)}đ</td>
+                            <td className="p-3 text-center font-bold text-[#1F4E78]">{formatPercent(share)}</td>
                           </tr>
                         );
                       })}
@@ -702,16 +702,16 @@ export default function PersonalKpi() {
                           {Object.values(natureDist).reduce((s: number, it: any) => s + (it.personalCount || 0), 0)} việc
                         </td>
                         <td className="p-3 text-center font-black text-blue-900 text-sm">
-                          {detC?.personalNatureTotal ?? 0}đ
+                          {formatScore(detC?.personalNatureTotal)}đ
                         </td>
                         <td className="p-3 text-center text-slate-800 font-bold">
                           {Object.values(natureDist).reduce((s: number, it: any) => s + (it.deptCount || 0), 0)} việc
                         </td>
                         <td className="p-3 text-center text-slate-800 font-bold text-sm">
-                          {detC?.deptNatureTotal ?? 0}đ
+                          {formatScore(detC?.deptNatureTotal)}đ
                         </td>
                         <td className="p-3 text-center font-black text-[#1F4E78] text-sm">
-                          {detC?.deptNatureTotal > 0 ? Math.round(((detC?.personalNatureTotal ?? 0) / detC.deptNatureTotal) * 100) : 0}%
+                          {detC?.deptNatureTotal > 0 ? formatPercent(Math.round(((detC?.personalNatureTotal ?? 0) / detC.deptNatureTotal) * 100)) : '0%'}
                         </td>
                       </tr>
                     </tbody>
@@ -775,8 +775,8 @@ export default function PersonalKpi() {
                                 </span>
                               </td>
                               <td className="p-3 text-center font-black text-blue-800">{natPts}</td>
-                              <td className="p-3 text-center font-bold text-slate-700">{t.coef}</td>
-                              <td className="p-3 text-center font-bold text-[#1F4E78]">{t.convertedScore}</td>
+                              <td className="p-3 text-center font-bold text-slate-700">{formatScore(t.coef)}</td>
+                              <td className="p-3 text-center font-bold text-[#1F4E78]">{formatScore(t.convertedScore)}</td>
                               <td className="p-3 text-center">
                                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
                                   Đã duyệt
@@ -803,7 +803,7 @@ export default function PersonalKpi() {
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-rose-600" />
               <h3 className="font-bold text-slate-900">
-                Chi tiết điểm D - Thống kê các lỗi vi phạm / trừ điểm ({detD?.items?.length || 0} vi phạm ghi nhận - Trừ chính thức: {scoreD} điểm)
+                Chi tiết điểm D - Thống kê các lỗi vi phạm / trừ điểm ({detD?.items?.length || 0} vi phạm ghi nhận - Trừ chính thức: {formatScore(scoreD)} điểm)
               </h3>
             </div>
             <div className="flex items-center gap-2 text-xs font-bold text-[#1F4E78]">
@@ -844,7 +844,7 @@ export default function PersonalKpi() {
                             <div className="text-[11px] text-slate-500">{it.group || 'Vi phạm tiến độ'}</div>
                           </td>
                           <td className="p-3 font-bold text-slate-800">{it.taskName || it.reason}</td>
-                          <td className="p-3 text-center text-slate-600 font-bold">-{it.autoD || 0}đ</td>
+                          <td className="p-3 text-center text-slate-600 font-bold">-{formatScore(it.autoD)}đ</td>
                           <td className="p-3 text-center">
                             {isExempted ? (
                               <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -861,7 +861,7 @@ export default function PersonalKpi() {
                             )}
                           </td>
                           <td className="p-3 text-center font-black text-rose-700 text-sm">
-                            -{it.officialD !== undefined ? it.officialD : it.autoD}đ
+                            -{formatScore(it.officialD !== undefined ? it.officialD : it.autoD)}đ
                           </td>
                           <td className="p-3 text-slate-600 text-xs italic">
                             {it.reason || (isExempted ? 'Được lãnh đạo xét miễn do lý do chính đáng' : 'Trừ điểm theo quy định')}

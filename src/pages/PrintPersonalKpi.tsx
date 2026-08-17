@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetchJson } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { Printer, Download, ArrowLeft, Calendar, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -299,7 +299,7 @@ export default function PrintPersonalKpi() {
             </div>
             <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Chức vụ / Vị trí:')}</span>
-              <span>{normalizeNFC(u?.position || 'Chuyên viên')}</span>
+              <span>{normalizeNFC(cleanPosition(u?.position))}</span>
             </div>
             <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Phòng chuyên môn:')}</span>
@@ -346,10 +346,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>30</td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#0f2440' }}>
-                  {selfA !== null ? `${selfA}` : normalizeNFC('Chưa tự chấm')}
+                  {selfA !== null ? `${formatScore(selfA)}` : normalizeNFC('Chưa tự chấm')}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#1F4E78' }}>
-                  {approvedA !== null ? `${approvedA}` : normalizeNFC('Chưa duyệt')}
+                  {approvedA !== null ? `${formatScore(approvedA)}` : normalizeNFC('Chưa duyệt')}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -360,12 +360,12 @@ export default function PrintPersonalKpi() {
                 <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm B - Thực hiện nhiệm vụ thường xuyên')}</div>
                   <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
-                    {normalizeNFC(`(B1: ${scoreB1}đ + B2: ${scoreB2}đ; ${sum?.approvedWorks || 0} việc đã duyệt)`)}
+                    {normalizeNFC(`(B1: ${formatScore(scoreB1)}đ + B2: ${formatScore(scoreB2)}đ; ${sum?.approvedWorks || 0} việc đã duyệt)`)}
                   </div>
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>60</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{scoreB}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{formatScore(scoreB)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{formatScore(scoreB)}</td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
@@ -375,12 +375,12 @@ export default function PrintPersonalKpi() {
                 <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm C - Thưởng/tính chất công việc/việc khó')}</div>
                   <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
-                    {normalizeNFC(`(C1 tự động: ${scoreC1}đ; C2 lãnh đạo chấm: ${scoreC2}đ)`)}
+                    {normalizeNFC(`(C1 tự động: ${formatScore(scoreC1)}đ; C2 lãnh đạo chấm: ${formatScore(scoreC2)}đ)`)}
                   </div>
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>10</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{scoreC}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{formatScore(scoreC)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{formatScore(scoreC)}</td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
@@ -395,10 +395,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontStyle: 'italic' }}>{normalizeNFC('Trừ')}</td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
-                  {scoreD > 0 ? `-${scoreD}` : '0'}
+                  {scoreD > 0 ? `-${formatScore(scoreD)}` : '0'}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
-                  {scoreD > 0 ? `-${scoreD}` : '0'}
+                  {scoreD > 0 ? `-${formatScore(scoreD)}` : '0'}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -412,10 +412,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11pt' }}>100</td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#0f2440' }}>
-                  {totalSelf !== null ? totalSelf : '-'}
+                  {totalSelf !== null ? formatScore(totalSelf) : '-'}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#1F4E78' }}>
-                  {totalApproved}
+                  {formatScore(totalApproved)}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -446,10 +446,10 @@ export default function PrintPersonalKpi() {
               {normalizeNFC('1. Điểm A (30đ): Chấp hành nội quy, kỷ luật lao động và phối hợp công tác; điểm chính thức áp dụng theo kết quả phê duyệt của lãnh đạo phòng.')}
             </div>
             <div>
-              {normalizeNFC(`2. Điểm B (60đ): Điểm quy đổi công việc cá nhân: ${sum?.convertedScore || 0}đ, tỷ trọng cá nhân: ${sum?.personalShare || 0}%, tỷ trọng bình quân phòng: ${sum?.avgShare || 0}%.`)}
+              {normalizeNFC(`2. Điểm B (60đ): Điểm quy đổi công việc cá nhân: ${formatScore(sum?.convertedScore)}đ, tỷ trọng cá nhân: ${formatScore(sum?.personalShare)}%, tỷ trọng bình quân phòng: ${formatScore(sum?.avgShare)}%.`)}
             </div>
             <div>
-              {normalizeNFC(`3. Điểm C (10đ): Điểm tính chất tự động C1: ${scoreC1}đ; Điểm việc khó/đột xuất C2: ${scoreC2}đ.`)}
+              {normalizeNFC(`3. Điểm C (10đ): Điểm tính chất tự động C1: ${formatScore(scoreC1)}đ; Điểm việc khó/đột xuất C2: ${formatScore(scoreC2)}đ.`)}
             </div>
             <div>
               {normalizeNFC('4. Quy định xếp loại: Từ 95 điểm trở lên: Hoàn thành xuất sắc nhiệm vụ; Từ 80 đến dưới 95 điểm: Hoàn thành tốt nhiệm vụ; Từ 65 đến dưới 80 điểm: Hoàn thành nhiệm vụ; Dưới 65 điểm: Không hoàn thành nhiệm vụ.')}

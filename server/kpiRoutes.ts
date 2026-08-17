@@ -247,7 +247,60 @@ kpiRouter.get('/detail', async (req, res) => {
       autoC1
     };
 
-    const detailsD = (kpiRecord?.detailsD as any) || { items: [], totalOfficialD: 0, totalAutoD: 0 };
+    const autoPenaltyItems: any[] = [];
+    userWorks.forEach(w => {
+      const st = String(w.status || '').toLowerCase();
+      let autoD = 0;
+      let reason = '';
+      if (st.includes('không hoàn thành') || st.includes('không đạt')) {
+        autoD = 3;
+        reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
+      } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
+        autoD = 2;
+        reason = 'Chậm tiến độ';
+      } else if (st.includes('bổ sung nhiều lần')) {
+        autoD = 1;
+        reason = 'Bổ sung nhiều lần';
+      }
+
+      if (autoD > 0) {
+        autoPenaltyItems.push({
+          id: `work-${w.id}`,
+          group: 'Công việc chuyên môn',
+          content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
+          autoD,
+          officialD: autoD, // default official
+          decision: 'Giữ nguyên',
+          note: reason
+        });
+      }
+    });
+
+    const savedDetailsD = (kpiRecord?.detailsD as any) || { items: [], totalOfficialD: 0, totalAutoD: 0 };
+    const savedItems = Array.isArray(savedDetailsD.items) ? savedDetailsD.items : [];
+    
+    // Merge: update auto items with saved decisions
+    const mergedDItems = autoPenaltyItems.map(autoItem => {
+      const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
+      if (savedMatch) {
+        return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
+      }
+      return autoItem;
+    });
+
+    // Append manual penalties (those not starting with 'work-')
+    const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
+    const finalDItems = [...mergedDItems, ...manualItems];
+
+    const totalAutoD = finalDItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0);
+    const totalOfficialD = finalDItems.reduce((s, it) => s + (parseFloat(it.officialD) || 0), 0);
+
+    const detailsD = {
+      ...savedDetailsD,
+      items: finalDItems,
+      totalAutoD,
+      totalOfficialD
+    };
 
     res.json({
       success: true,
@@ -349,6 +402,9 @@ kpiRouter.post('/self-score-a', async (req, res) => {
         updatedAt: new Date()
       }
     });
+
+    // Automatically recalculate full KPI record for user
+    await calculateAndSaveUserKpi(targetUser, targetMonth);
 
     res.json({
       success: true,
@@ -626,9 +682,8 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const rawDetailsC = (kpiRecord?.detailsC as any) || null;
       const rawDetailsD = (kpiRecord?.detailsD as any) || null;
 
-      // Score A: If self-scored in detailsA, use it; otherwise default to standard max score (30)
+      // Score A: If self-scored in detailsA, use it; otherwise default to 0 for self-evaluation (do not auto-add 30)
       const explicitSelfA = rawDetailsA?.selfTotal !== null && rawDetailsA?.selfTotal !== undefined ? parseFloat(rawDetailsA.selfTotal) : null;
-      const selfA = explicitSelfA !== null ? explicitSelfA : (alloc.maxA || 30);
       
       const approvedA = rawDetailsA?.approvedTotal !== null && rawDetailsA?.approvedTotal !== undefined 
         ? parseFloat(rawDetailsA.approvedTotal) 
@@ -639,17 +694,68 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const cTotal = Math.min(alloc.maxC || 10, autoC1 + c2);
 
       // Score D
-      const dItems = rawDetailsD?.items || [];
-      const totalOfficialD = dItems.reduce((s: number, item: any) => {
+      const autoPenaltyItems: any[] = [];
+      userWorks.forEach(w => {
+        const st = String(w.status || '').toLowerCase();
+        let autoD = 0;
+        let reason = '';
+        if (st.includes('không hoàn thành') || st.includes('không đạt')) {
+          autoD = 3;
+          reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
+        } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
+          autoD = 2;
+          reason = 'Chậm tiến độ';
+        } else if (st.includes('bổ sung nhiều lần')) {
+          autoD = 1;
+          reason = 'Bổ sung nhiều lần';
+        }
+
+        if (autoD > 0) {
+          autoPenaltyItems.push({
+            id: `work-${w.id}`,
+            group: 'Công việc chuyên môn',
+            content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
+            autoD,
+            officialD: autoD,
+            decision: 'Giữ nguyên',
+            note: reason
+          });
+        }
+      });
+
+      const savedDetailsD = rawDetailsD || { items: [] };
+      const savedItems = Array.isArray(savedDetailsD.items) ? savedDetailsD.items : [];
+      
+      const mergedDItems = autoPenaltyItems.map(autoItem => {
+        const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
+        if (savedMatch) {
+          return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
+        }
+        return autoItem;
+      });
+
+      const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
+      const finalDItems = [...mergedDItems, ...manualItems];
+
+      const totalOfficialD = finalDItems.reduce((s: number, item: any) => {
         const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
         return s + (isNaN(val) ? 0 : val);
       }, 0);
       const dTotal = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
 
-      // Self total and ranking: Máy tự động tính tổng hợp theo đúng nguyên tắc quy ước mức độ hoàn thành
-      const selfKpiTotal = calculateTotalKpi(selfA, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
-      const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: selfA, scoreB: bTotal, scoreD: dTotal });
-      const selfRank = evalSelf.rank;
+      // Self total and ranking:
+      // USER RULE: Điểm tự đánh giá = Điểm đã tự tổng hợp (B + C - D) + Điểm thực tế tự chấm A (nếu chưa tự chấm thì = 0, KHÔNG tự ý cộng 30)
+      const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
+      const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
+      
+      let selfRank = 'Chưa xếp loại';
+      if (explicitSelfA !== null) {
+        const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: bTotal, scoreD: dTotal });
+        selfRank = evalSelf.rank;
+      } else {
+        const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: 0, scoreB: bTotal, scoreD: dTotal });
+        selfRank = evalSelf.rank;
+      }
 
       // Approved total and ranking
       let approvedKpiTotal: number | null = null;
@@ -674,9 +780,9 @@ kpiRouter.get('/department-summary', async (req, res) => {
         group: u.group || 'Phòng KHTC',
         role: u.role || 'STAFF',
         isLeaderOrAbove,
-        statusA: rawDetailsA?.statusA || (explicitSelfA !== null ? 'Đã tự chấm' : 'Tự động tính chuẩn (30đ)'),
+        statusA: rawDetailsA?.statusA || (explicitSelfA !== null ? 'Đã tự chấm' : 'Chưa tự chấm'),
         scores: {
-          selfA,
+          selfA: explicitSelfA,
           explicitSelfA,
           approvedA,
           b1,
@@ -822,22 +928,74 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
   const rawDetailsA = (existingKpi?.detailsA as any) || {};
   const approvedA = rawDetailsA.approvedTotal !== undefined && rawDetailsA.approvedTotal !== null 
     ? parseFloat(rawDetailsA.approvedTotal) 
-    : (existingKpi?.aScore ? parseFloat(existingKpi.aScore) : (rawDetailsA.selfTotal ? parseFloat(rawDetailsA.selfTotal) : 0));
+    : (existingKpi?.aScore ? parseFloat(existingKpi.aScore) : null);
 
   const rawDetailsC = (existingKpi?.detailsC as any) || {};
   const c2Score = rawDetailsC.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (existingKpi?.c2Score ? parseFloat(existingKpi.c2Score) : 0);
   const cScore = Math.min(alloc.maxC || 10, autoC1 + c2Score);
 
   const rawDetailsD = (existingKpi?.detailsD as any) || {};
-  const dItems = rawDetailsD.items || [];
-  const totalOfficialD = dItems.reduce((s: number, item: any) => {
+  
+  const autoPenaltyItems: any[] = [];
+  userWorks.forEach(w => {
+    const st = String(w.status || '').toLowerCase();
+    let autoD = 0;
+    let reason = '';
+    if (st.includes('không hoàn thành') || st.includes('không đạt')) {
+      autoD = 3;
+      reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
+    } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
+      autoD = 2;
+      reason = 'Chậm tiến độ';
+    } else if (st.includes('bổ sung nhiều lần')) {
+      autoD = 1;
+      reason = 'Bổ sung nhiều lần';
+    }
+
+    if (autoD > 0) {
+      autoPenaltyItems.push({
+        id: `work-${w.id}`,
+        group: 'Công việc chuyên môn',
+        content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
+        autoD,
+        officialD: autoD,
+        decision: 'Giữ nguyên',
+        note: reason
+      });
+    }
+  });
+
+  const savedItems = Array.isArray(rawDetailsD.items) ? rawDetailsD.items : [];
+  
+  const mergedDItems = autoPenaltyItems.map(autoItem => {
+    const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
+    if (savedMatch) {
+      return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
+    }
+    return autoItem;
+  });
+
+  const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
+  const finalDItems = [...mergedDItems, ...manualItems];
+
+  const totalOfficialD = finalDItems.reduce((s: number, item: any) => {
     const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
     return s + (isNaN(val) ? 0 : val);
   }, 0);
   const dScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+  const updatedDetailsD = {
+    ...rawDetailsD,
+    items: finalDItems,
+    totalAutoD: finalDItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0),
+    totalOfficialD
+  };
 
-  const totalKpi = calculateTotalKpi(approvedA, bTotal, cScore, dScore, kpiConfig.formula, alloc);
-  const rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dScore });
+  let totalKpi: number | null = null;
+  let rankEval = { rank: 'Chưa xếp loại' };
+  if (approvedA !== null) {
+    totalKpi = calculateTotalKpi(approvedA, bTotal, cScore, dScore, kpiConfig.formula, alloc);
+    rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dScore });
+  }
 
   const updatedDetailsC = {
     ...rawDetailsC,
@@ -855,7 +1013,7 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     kpiId,
     month: targetMonth,
     userId: targetUser.id,
-    aScore: String(approvedA),
+    aScore: approvedA !== null ? String(approvedA) : null,
     b1Score: String(b1),
     b2Score: String(b2),
     bScore: String(bTotal),
@@ -863,16 +1021,16 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     c2Score: String(c2Score),
     cScore: String(cScore),
     dScore: String(dScore),
-    totalKpi: String(totalKpi),
+    totalKpi: totalKpi !== null ? String(totalKpi) : null,
     rank: rankEval.rank,
     detailsA: rawDetailsA,
     detailsC: updatedDetailsC,
-    detailsD: rawDetailsD,
+    detailsD: updatedDetailsD,
     note: `Tự động cập nhật tính toán KPI lúc ${new Date().toLocaleString('vi-VN')}`
   }).onConflictDoUpdate({
     target: kpiResults.kpiId,
     set: {
-      aScore: String(approvedA),
+      aScore: approvedA !== null ? String(approvedA) : null,
       b1Score: String(b1),
       b2Score: String(b2),
       bScore: String(bTotal),
@@ -880,9 +1038,10 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
       c2Score: String(c2Score),
       cScore: String(cScore),
       dScore: String(dScore),
-      totalKpi: String(totalKpi),
+      totalKpi: totalKpi !== null ? String(totalKpi) : null,
       rank: rankEval.rank,
       detailsC: updatedDetailsC,
+      detailsD: updatedDetailsD,
       updatedAt: new Date()
     }
   });

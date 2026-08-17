@@ -11,7 +11,8 @@ import {
   formatDate, 
   formatMonth, 
   isSoftDeleted,
-  getActiveLoggedInUser 
+  getActiveLoggedInUser,
+  formatScore
 } from '../utils';
 import { Work, User, Assignment, Overtime } from '../types';
 
@@ -275,7 +276,7 @@ export default function Stats() {
           <div>
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Tổng điểm KPI B</span>
             <span className="text-3xl font-black text-[#1F4E78] mt-1 block">
-              {Math.round(totalKpiScoreB * 10) / 10}
+              {formatScore(totalKpiScoreB)}
             </span>
             <span className="text-[11px] text-slate-500">Toàn phòng KHTC</span>
           </div>
@@ -384,10 +385,10 @@ export default function Stats() {
                       </div>
                     </td>
                     <td className="py-3 px-3 text-center font-black text-[#1F4E78] text-sm">
-                      {st.totalScoreB}
+                      {formatScore(st.totalScoreB)}
                     </td>
                     <td className="py-3 px-3 text-center font-bold text-amber-700">
-                      {st.totalOtHours > 0 ? `${st.totalOtHours}h` : '-'}
+                      {st.totalOtHours > 0 ? `${formatScore(st.totalOtHours)}h` : '-'}
                     </td>
                   </tr>
                 ))}
@@ -524,7 +525,7 @@ export default function Stats() {
                         <span className="font-bold text-[11px]">{st.doneRate}%</span>
                       </div>
                     </td>
-                    <td className="py-3 px-3 text-center font-black text-[#1F4E78] text-sm">{st.totalScore}</td>
+                    <td className="py-3 px-3 text-center font-black text-[#1F4E78] text-sm">{formatScore(st.totalScore)}</td>
                   </tr>
                 ))}
               </tbody>

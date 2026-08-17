@@ -1,48 +1,48 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, TrendingUp, Users, CheckCircle2, AlertCircle, 
   Clock, Calendar, Award, ArrowUpRight, ArrowRight, Briefcase, FileText,
-  AlertTriangle, ShieldCheck, Check
+  AlertTriangle, ShieldCheck, Check, RefreshCw, Star
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { STANDARD_MONTHS } from '../utils';
+import { STANDARD_MONTHS, formatScore, cleanPosition, safeFetchJson, isSoftDeleted } from '../utils';
 
 export default function Dashboard() {
   const [works, setWorks] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [overtimes, setOvertimes] = useState<any[]>([]);
-  const [kpis, setKpis] = useState<any[]>([]);
+  const [deptKpiUsers, setDeptKpiUsers] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [resW, resU, resO, resK] = await Promise.all([
-          fetch('/api/works'),
-          fetch('/api/users'),
-          fetch('/api/overtimes'),
-          fetch('/api/kpi')
-        ]);
-        const [dW, dU, dO, dK] = await Promise.all([
-          resW.json(),
-          resU.json(),
-          resO.json(),
-          resK.json()
-        ]);
-        if (dW.success) setWorks(dW.data || []);
-        if (dU.success) setUsers(dU.data || []);
-        if (dO.success) setOvertimes(dO.data || []);
-        if (dK.success) setKpis(dK.data || []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsLoading(false);
+  const fetchData = async (targetMonth = selectedMonth) => {
+    setIsLoading(true);
+    try {
+      const monthForKpi = targetMonth === 'Tất cả' ? '08-2026' : targetMonth;
+      const [dW, dU, dO, dK] = await Promise.all([
+        safeFetchJson<any[]>('/api/works'),
+        safeFetchJson<any[]>('/api/users'),
+        safeFetchJson<any[]>('/api/overtimes'),
+        safeFetchJson<any>(`/api/kpi/department-summary?month=${monthForKpi}`)
+      ]);
+      if (dW.success && dW.data) setWorks(dW.data);
+      if (dU.success && dU.data) setUsers(dU.data);
+      if (dO.success && dO.data) setOvertimes(dO.data);
+      if (dK.success && dK.data?.users) {
+        setDeptKpiUsers(dK.data.users);
+      } else {
+        setDeptKpiUsers([]);
       }
-    };
-    fetchData();
-  }, []);
+    } catch (e) {
+      console.error("Error fetching dashboard data:", e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData(selectedMonth);
+  }, [selectedMonth]);
 
   const formatMonth = (m: string) => {
     if (!m) return "";
@@ -50,12 +50,48 @@ export default function Dashboard() {
     return match ? match[0] : m;
   };
 
-  const scopedWorks = works.filter(w => selectedMonth === 'Tất cả' || formatMonth(w.month) === selectedMonth);
+  const scopedWorks = works.filter(w => !isSoftDeleted(w) && (selectedMonth === 'Tất cả' || formatMonth(w.month) === selectedMonth));
   const scopedOvertimes = overtimes.filter(o => selectedMonth === 'Tất cả' || formatMonth(o.month) === selectedMonth);
-  const scopedKpis = kpis
-    .filter(k => (parseFloat(k.totalKpi) || 0) > 0)
-    .filter(k => selectedMonth === 'Tất cả' || formatMonth(k.month) === selectedMonth)
-    .sort((a, b) => (parseFloat(b.totalKpi) || 0) - (parseFloat(a.totalKpi) || 0));
+
+  // Compute live KPI leaderboard from department summary
+  const scopedKpis = useMemo(() => {
+    return deptKpiUsers
+      .map(u => {
+        const approvedScore = u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined 
+          ? Number(u.scores.approvedKpiTotal) 
+          : null;
+        const selfScore = u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined 
+          ? Number(u.scores.selfKpiTotal) 
+          : 0;
+        
+        // Priority: approved score > self score
+        const effectiveScore = approvedScore !== null ? approvedScore : selfScore;
+        const effectiveRank = approvedScore !== null 
+          ? (u.approvedRank || u.selfRank || 'Chưa xếp loại')
+          : (u.selfRank || 'Tự đánh giá');
+
+        return {
+          id: u.id,
+          name: u.name,
+          position: u.position,
+          effectiveScore,
+          approvedScore,
+          selfScore,
+          rank: effectiveRank,
+          isApproved: approvedScore !== null,
+          approvedWorksCount: u.taskCounts?.approved || 0,
+          totalWorksCount: u.taskCounts?.total || 0,
+          isLeaderOrAbove: u.isLeaderOrAbove
+        };
+      })
+      .filter(u => u.effectiveScore > 0 || u.approvedWorksCount > 0)
+      .sort((a, b) => {
+        if (b.effectiveScore !== a.effectiveScore) {
+          return b.effectiveScore - a.effectiveScore; // Highest score first
+        }
+        return b.approvedWorksCount - a.approvedWorksCount;
+      });
+  }, [deptKpiUsers]);
 
   const totalWorks = scopedWorks.length;
   const approvedWorks = scopedWorks.filter(w => w.leaderApproval === 'Duyệt' || w.leaderApproval === 'Đã duyệt').length;
@@ -310,22 +346,47 @@ export default function Dashboard() {
               </div>
 
               <div className="p-4 space-y-3">
-                {scopedKpis.slice(0, 5).map((k, idx) => (
-                  <div key={k.id || idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-300 shadow-2xs">
+                {scopedKpis.slice(0, 8).map((k, idx) => (
+                  <div key={k.id || idx} className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-blue-50/40 rounded-xl border border-slate-300 shadow-2xs transition-colors">
                     <div className="flex items-center gap-3">
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black border shadow-2xs ${
-                        idx === 0 ? 'bg-amber-400 text-amber-950 border-amber-500' : idx === 1 ? 'bg-slate-300 text-slate-900 border-slate-400' : 'bg-slate-200 text-slate-800 border-slate-300'
+                      <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black border shadow-2xs ${
+                        idx === 0 ? 'bg-amber-400 text-amber-950 border-amber-500 ring-2 ring-amber-200' : 
+                        idx === 1 ? 'bg-slate-300 text-slate-900 border-slate-400' : 
+                        idx === 2 ? 'bg-amber-100 text-amber-800 border-amber-300' : 
+                        'bg-slate-200 text-slate-700 border-slate-300'
                       }`}>
                         {idx + 1}
                       </span>
                       <div>
-                        <div className="font-extrabold text-slate-900 text-sm">{k.user?.name || k.kpiId?.split('♦')[1]}</div>
-                        <div className="text-xs font-bold text-slate-600">{k.rank || 'Hoàn thành tốt'}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-slate-900 text-sm">{k.name}</span>
+                          {k.isApproved ? (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-300">
+                              Đã duyệt
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300">
+                              Tự chấm
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs font-medium text-slate-500">{cleanPosition(k.position)}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className={`text-xs font-bold ${
+                            k.rank.includes('xuất sắc') ? 'text-emerald-700' :
+                            k.rank.includes('tốt') ? 'text-blue-700' :
+                            k.rank.includes('Không hoàn thành') ? 'text-rose-700' :
+                            'text-slate-700'
+                          }`}>
+                            {k.rank}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
-                      <div className="font-black text-[#1F4E78] text-base">{k.totalKpi}</div>
-                      <div className="text-[10px] font-black text-blue-700 uppercase">điểm</div>
+                    <div className="text-right bg-white px-3 py-1.5 rounded-xl border border-blue-200 shadow-2xs">
+                      <div className="font-black text-[#1F4E78] text-base">{formatScore(k.effectiveScore)}</div>
+                      <div className="text-[10px] font-black text-blue-700 uppercase">điểm KPI</div>
                     </div>
                   </div>
                 ))}

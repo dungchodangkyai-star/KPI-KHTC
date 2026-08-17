@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Printer, Calendar, ArrowLeft, Download, FileText, User, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, formatDate } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, formatDate, cleanPosition } from '../utils';
 
 export default function OtPrint() {
   const navigate = useNavigate();
@@ -241,7 +241,7 @@ export default function OtPrint() {
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-[#1F4E78]"
             >
               {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.position || u.role})</option>
+                <option key={u.id} value={u.id}>{u.name} ({cleanPosition(u.position)})</option>
               ))}
             </select>
           </div>
@@ -321,7 +321,7 @@ export default function OtPrint() {
                   </td>
                   <td style={{ border: 'none', padding: '2px 0', width: '50%' }}>
                     <span style={{ fontWeight: 'bold' }}>{normalizeNFC('Vị trí công tác: ')}</span>
-                    <span>{normalizeNFC(activeUser?.position || activeUser?.role || 'Chuyên viên')}</span>
+                    <span>{normalizeNFC(cleanPosition(activeUser?.position))}</span>
                   </td>
                 </tr>
                 <tr style={{ border: 'none' }}>

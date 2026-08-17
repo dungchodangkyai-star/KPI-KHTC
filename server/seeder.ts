@@ -41,6 +41,11 @@ export async function runSeeder() {
           },
         });
       }
+      // Force position update for main admin
+      await db.update(users).set({
+        position: 'Phó Trưởng phòng',
+        updatedAt: new Date(),
+      }).where(eq(users.email, 'khvanson@gmail.com'));
       allUsers = await db.query.users.findMany();
     }
 
