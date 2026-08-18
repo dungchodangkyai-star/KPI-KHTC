@@ -20,11 +20,13 @@ import {
   formatPercent,
   cleanPosition
 } from '../utils';
+import { useOrgConfig } from '../contexts/OrgContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function DepartmentKpiSummary() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { orgConfig } = useOrgConfig();
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -351,8 +353,8 @@ export default function DepartmentKpiSummary() {
     <table class="header-table" style="width: 100%; border: none; border-collapse: collapse;">
       <tr>
         <td style="width: 45%; text-align: center; vertical-align: top; border: none;">
-          <div style="font-size: 10.5pt; font-weight: bold; text-transform: uppercase;">BAN QUẢN LÝ DỰ ÁN ĐẦU TƯ XÂY DỰNG</div>
-          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-top: 2px;">PHÒNG KẾ HOẠCH - TÀI CHÍNH</div>
+          <div style="font-size: 10.5pt; font-weight: bold; text-transform: uppercase;">${normalizeNFC(orgConfig.parentAgency || 'BAN QUẢN LÝ DỰ ÁN ĐẦU TƯ XÂY DỰNG')}</div>
+          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-top: 2px;">${normalizeNFC(orgConfig.departmentName || 'PHÒNG KẾ HOẠCH - TÀI CHÍNH')}</div>
           <div style="width: 120px; border-bottom: 1px solid #000000; margin: 4px auto 0 auto;"></div>
         </td>
         <td style="width: 55%; text-align: center; vertical-align: top; border: none;">
@@ -369,7 +371,7 @@ export default function DepartmentKpiSummary() {
         BẢNG TỔNG HỢP ĐÁNH GIÁ VÀ XẾP LOẠI HIỆU QUẢ CÔNG VIỆC (KPI)
       </div>
       <div style="font-size: 11pt; font-style: italic; font-weight: bold; margin-top: 4px;">
-        Tháng ${selectedMonth} — Đơn vị: Phòng Kế hoạch - Tài chính
+        Tháng ${selectedMonth} — Đơn vị: ${normalizeNFC(orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính')}
       </div>
     </div>
 
@@ -400,29 +402,29 @@ export default function DepartmentKpiSummary() {
 
     <!-- Date line -->
     <div style="text-align: right; font-style: italic; font-size: 11pt; margin-top: 10px; margin-bottom: 12px; padding-right: 20px;">
-      Đắk Lắk, ngày ...... tháng ...... năm ......
+      ${normalizeNFC(orgConfig.location || 'Đắk Lắk')}, ngày ...... tháng ...... năm ......
     </div>
 
     <!-- Signatures 3 Columns -->
     <table class="sig-table" style="width: 100%; border: none; border-collapse: collapse; margin-top: 10px;">
       <tr>
         <td style="width: 33.3%; text-align: center; vertical-align: top; border: none;">
-          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">NGƯỜI LẬP BIỂU</div>
+          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">${normalizeNFC(orgConfig.creatorTitle || 'NGƯỜI LẬP BIỂU')}</div>
           <div style="font-size: 10pt; font-style: italic; margin-top: 2px;">(Ký, ghi rõ họ tên)</div>
           <div style="height: 70px;"></div>
           <div style="font-size: 11pt; font-weight: bold;">${currentUser?.name || 'Nguyễn Thị Hải Hà'}</div>
         </td>
         <td style="width: 33.3%; text-align: center; vertical-align: top; border: none;">
-          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">LÃNH ĐẠO PHÒNG KHTC</div>
+          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">${normalizeNFC(orgConfig.approverTitle || 'LÃNH ĐẠO PHÒNG')}</div>
           <div style="font-size: 10pt; font-style: italic; margin-top: 2px;">(Ký, ghi rõ họ tên)</div>
           <div style="height: 70px;"></div>
           <div style="font-size: 11pt; font-weight: bold;">Khuất Văn Sơn</div>
         </td>
         <td style="width: 33.3%; text-align: center; vertical-align: top; border: none;">
-          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">THỦ TRƯỞNG ĐƠN VỊ</div>
+          <div style="font-size: 11pt; font-weight: bold; text-transform: uppercase;">${normalizeNFC(orgConfig.leaderTitle || 'THỦ TRƯỞNG ĐƠN VỊ')}</div>
           <div style="font-size: 10pt; font-style: italic; margin-top: 2px;">(Ký, đóng dấu)</div>
           <div style="height: 70px;"></div>
-          <div style="font-size: 11pt; font-weight: bold;">Giám đốc Ban QLDA</div>
+          <div style="font-size: 11pt; font-weight: bold;">Giám đốc</div>
         </td>
       </tr>
     </table>
@@ -530,7 +532,7 @@ export default function DepartmentKpiSummary() {
             </div>
             <div>
               <h1 className="text-2xl md:text-[26px] font-black text-[#0f2440] tracking-tight">
-                Tổng hợp & Tra cứu KPI Phòng Kế hoạch - Tài chính
+                Tổng hợp & Tra cứu KPI {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}
               </h1>
               <p className="text-xs md:text-sm font-medium text-slate-600 mt-0.5">
                 Báo cáo tổng hợp KPI toàn phòng tháng <strong className="text-[#1F4E78]">{selectedMonth}</strong>, tra cứu KPI chi tiết từng nhân sự và thống kê khối lượng công việc
@@ -785,7 +787,7 @@ export default function DepartmentKpiSummary() {
             <div>
               <h2 className="text-base font-black text-[#0f2440] flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#1F4E78]"></span>
-                Bảng tổng hợp kết quả đánh giá KPI Phòng KHTC tháng {selectedMonth}
+                Bảng tổng hợp kết quả đánh giá KPI {orgConfig.departmentName || 'Phòng KHTC'} tháng {selectedMonth}
               </h2>
               <p className="text-xs font-medium text-slate-600 mt-0.5">
                 (Tích chọn nhân sự để xuất báo cáo hoặc in; Vị trí từ Phó phòng trở lên cột Lãnh đạo xếp để trống)
@@ -1072,7 +1074,7 @@ export default function DepartmentKpiSummary() {
           {/* Footer Note */}
           <div className="p-4 bg-slate-100 border-t border-slate-300 text-xs text-slate-800 flex flex-wrap items-center justify-between gap-2 font-medium">
             <div>
-              Hiển thị: <strong className="text-[#1F4E78]">{filteredUsers.length}</strong> / <strong>{usersList.length}</strong> nhân sự của Phòng Kế hoạch - Tài chính.
+              Hiển thị: <strong className="text-[#1F4E78]">{filteredUsers.length}</strong> / <strong>{usersList.length}</strong> nhân sự của {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}.
             </div>
             <div className="text-[11px] text-slate-600 italic font-semibold">
               * Ghi chú: Tổng điểm KPI = A (Nội quy tối đa 30) + B (Nhiệm vụ tối đa 60) + C (Thưởng tối đa 10) - D (Trừ vi phạm).
@@ -1813,8 +1815,8 @@ export default function DepartmentKpiSummary() {
                 <tbody>
                   <tr style={{ border: 'none' }}>
                     <td style={{ width: '45%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: 0 }}>
-                      <div className="text-xs font-bold uppercase tracking-wider">BAN QUẢN LÝ DỰ ÁN ĐẦU TƯ XÂY DỰNG</div>
-                      <div className="text-xs font-black uppercase text-[#0f2440] mt-0.5">PHÒNG KẾ HOẠCH - TÀI CHÍNH</div>
+                      <div className="text-xs font-bold uppercase tracking-wider">{orgConfig.parentAgency || 'BAN QUẢN LÝ DỰ ÁN ĐẦU TƯ XÂY DỰNG'}</div>
+                      <div className="text-xs font-black uppercase text-[#0f2440] mt-0.5">{orgConfig.departmentName || 'PHÒNG KẾ HOẠCH - TÀI CHÍNH'}</div>
                       <div style={{ width: '120px', borderBottom: '1px solid #000000', margin: '4px auto 0 auto' }}></div>
                     </td>
                     <td style={{ width: '55%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: 0 }}>
@@ -1832,7 +1834,7 @@ export default function DepartmentKpiSummary() {
                   BẢNG TỔNG HỢP ĐÁNH GIÁ VÀ XẾP LOẠI HIỆU QUẢ CÔNG VIỆC (KPI)
                 </h2>
                 <p className="text-sm font-bold italic mt-1">
-                  Tháng {selectedMonth} — Đơn vị: Phòng Kế hoạch - Tài chính
+                  Tháng {selectedMonth} — Đơn vị: {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}
                 </p>
               </div>
 
@@ -1902,7 +1904,7 @@ export default function DepartmentKpiSummary() {
 
               {/* Date line */}
               <div className="text-right italic text-xs pt-4 pr-6">
-                Đắk Lắk, ngày ...... tháng ...... năm ......
+                {orgConfig.location || 'Đắk Lắk'}, ngày ...... tháng ...... năm ......
               </div>
 
               {/* Signature Block - 3 Columns Table */}
@@ -1910,24 +1912,24 @@ export default function DepartmentKpiSummary() {
                 <tbody>
                   <tr style={{ border: 'none' }}>
                     <td style={{ width: '33.3%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: '0 8px' }}>
-                      <div className="font-bold uppercase text-xs">NGƯỜI LẬP BIỂU</div>
+                      <div className="font-bold uppercase text-xs">{orgConfig.creatorTitle || 'NGƯỜI LẬP BIỂU'}</div>
                       <div className="text-slate-500 italic text-[10px] mt-0.5">(Ký, ghi rõ họ tên)</div>
                       <div className="h-16"></div>
                       <div className="font-bold text-xs">{currentUser?.name || 'Nguyễn Thị Hải Hà'}</div>
                     </td>
 
                     <td style={{ width: '33.3%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: '0 8px' }}>
-                      <div className="font-bold uppercase text-xs">LÃNH ĐẠO PHÒNG KHTC</div>
+                      <div className="font-bold uppercase text-xs">{orgConfig.approverTitle || 'LÃNH ĐẠO PHÒNG'}</div>
                       <div className="text-slate-500 italic text-[10px] mt-0.5">(Ký, ghi rõ họ tên)</div>
                       <div className="h-16"></div>
                       <div className="font-bold text-xs">Khuất Văn Sơn</div>
                     </td>
 
                     <td style={{ width: '33.3%', textAlign: 'center', verticalAlign: 'top', border: 'none', padding: '0 8px' }}>
-                      <div className="font-bold uppercase text-xs">THỦ TRƯỞNG ĐƠN VỊ</div>
+                      <div className="font-bold uppercase text-xs">{orgConfig.leaderTitle || 'THỦ TRƯỞNG ĐƠN VỊ'}</div>
                       <div className="text-slate-500 italic text-[10px] mt-0.5">(Ký, đóng dấu)</div>
                       <div className="h-16"></div>
-                      <div className="font-bold text-xs">Giám đốc Ban QLDA</div>
+                      <div className="font-bold text-xs">Giám đốc</div>
                     </td>
                   </tr>
                 </tbody>

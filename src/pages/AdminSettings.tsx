@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, FileDown, FileUp, Settings, Plus, Edit2, Trash2, Check, X, AlertCircle, Sliders } from 'lucide-react';
+import { Download, Upload, FileDown, FileUp, Settings, Plus, Edit2, Trash2, Check, X, AlertCircle, Sliders, Building2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { WORK_NATURE_COEFS } from '../utils';
 import KpiConfigSettings from '../components/KpiConfigSettings';
+import OrgConfigSettings from '../components/OrgConfigSettings';
 
 export default function AdminSettings() {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'TASK_GROUP' | 'TASK' | 'PRODUCT_TYPE' | 'KPI_CONFIG'>('KPI_CONFIG');
+  const [activeTab, setActiveTab] = useState<'ORG_CONFIG' | 'KPI_CONFIG' | 'TASK' | 'TASK_GROUP' | 'PRODUCT_TYPE'>('ORG_CONFIG');
   
   const [isEditing, setIsEditing] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -219,6 +220,7 @@ export default function AdminSettings() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/50">
           {[
+            { id: 'ORG_CONFIG', label: 'Cơ quan & Phòng ban', icon: Building2 },
             { id: 'KPI_CONFIG', label: 'Cấu hình phân bổ điểm & Xếp loại KPI', icon: Sliders },
             { id: 'TASK', label: 'Danh mục nhiệm vụ' },
             { id: 'TASK_GROUP', label: 'Nhóm công việc' },
@@ -240,7 +242,9 @@ export default function AdminSettings() {
         </div>
 
         <div className="p-6">
-          {activeTab === 'KPI_CONFIG' ? (
+          {activeTab === 'ORG_CONFIG' ? (
+            <OrgConfigSettings />
+          ) : activeTab === 'KPI_CONFIG' ? (
             <KpiConfigSettings onRecalculateSuccess={fetchCategories} />
           ) : (
             <>

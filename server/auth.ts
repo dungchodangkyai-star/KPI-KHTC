@@ -78,7 +78,22 @@ authRouter.post('/login', async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: `Không tìm thấy tài khoản "${loginIdentifier}". Vui lòng kiểm tra lại Email hoặc liên hệ Quản trị viên.`
+        message: `Không tìm thấy tài khoản "${loginIdentifier}". Vui lòng kiểm tra lại Email hoặc đăng ký tài khoản mới.`
+      });
+    }
+
+    // Check account status
+    if (user.status === 'Chờ duyệt') {
+      return res.status(403).json({
+        success: false,
+        message: `Tài khoản "${user.name}" đang trong trạng thái Chờ Quản trị viên (Khuất Văn Sơn) phê duyệt. Vui lòng liên hệ để được kích hoạt.`
+      });
+    }
+
+    if (user.status === 'Khóa' || user.status === 'Nghỉ việc' || user.status === 'Từ chối') {
+      return res.status(403).json({
+        success: false,
+        message: `Tài khoản "${user.name}" hiện đang bị tạm khóa hoặc đã ngưng hoạt động. Vui lòng liên hệ Quản trị viên để được hỗ trợ.`
       });
     }
 
@@ -87,7 +102,7 @@ authRouter.post('/login', async (req, res) => {
     if (!isValid) {
       return res.status(401).json({
         success: false,
-        message: 'Mật khẩu không chính xác. Mật khẩu mặc định ban đầu là 123456@'
+        message: 'Mật mã truy cập không chính xác. Vui lòng kiểm tra lại hoặc liên hệ Quản trị viên.'
       });
     }
 
@@ -243,3 +258,137 @@ authRouter.post('/reset-password', async (req, res) => {
 authRouter.post('/logout', async (req, res) => {
   return res.json({ success: true, message: 'Đăng xuất thành công.' });
 });
+
+// 5. REGISTER ACCOUNT REQUEST (For new employees)
+authRouter.post('/register-request', async (req, res) => {
+  try {
+    const { name, email, phone, zalo, position, group, note } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập họ và tên đầy đủ.' });
+    }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập địa chỉ Email.' });
+    }
+    if (!phone || !phone.trim()) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập số điện thoại liên hệ.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+
+    // Check if email already exists
+    const existingUser = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.email, cleanEmail)
+    });
+
+    if (existingUser) {
+      if (existingUser.status === 'Chờ duyệt') {
+        return res.status(400).json({
+          success: false,
+          message: `Email "${cleanEmail}" đã gửi yêu cầu đăng ký trước đó và đang chờ Quản trị viên phê duyệt.`
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: `Email "${cleanEmail}" đã tồn tại trong hệ thống. Nếu quên mật khẩu, vui lòng liên hệ Quản trị viên để được đặt lại.`
+      });
+    }
+
+    const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
+
+    const newUser = await db.insert(users).values({
+      name: cleanName,
+      email: cleanEmail,
+      phone: phone.trim(),
+      zalo: (zalo || phone).trim(),
+      position: position?.trim() || 'Chuyên viên',
+      group: group?.trim() || 'Kế hoạch - Tài chính',
+      role: 'STAFF',
+      status: 'Chờ duyệt',
+      permissions: JSON.stringify([]),
+      password: defaultPwdHash,
+      mustChangePassword: true,
+    }).returning();
+
+    return res.json({
+      success: true,
+      message: 'Đăng ký tài khoản thành công! Yêu cầu của bạn đã được gửi đến Quản trị hệ thống (Khuất Văn Sơn) để phê duyệt kích hoạt.',
+      user: newUser[0]
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    return res.status(500).json({ success: false, message: 'Lỗi khi gửi yêu cầu đăng ký: ' + String(error) });
+  }
+});
+
+// 6. APPROVE PENDING USER (Admin feature)
+authRouter.post('/approve-user', async (req, res) => {
+  try {
+    const { userId, role, position, group } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Thiếu userId cần duyệt.' });
+    }
+
+    const targetUser = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, Number(userId))
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng cần duyệt.' });
+    }
+
+    const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
+
+    const updated = await db.update(users).set({
+      status: 'Đang làm',
+      role: role || targetUser.role || 'STAFF',
+      position: position || targetUser.position || 'Chuyên viên',
+      group: group || targetUser.group || 'Kế hoạch - Tài chính',
+      password: targetUser.password || defaultPwdHash,
+      mustChangePassword: true,
+      updatedAt: new Date()
+    }).where(eq(users.id, Number(targetUser.id))).returning();
+
+    return res.json({
+      success: true,
+      message: `Đã phê duyệt và kích hoạt tài khoản cho nhân sự "${targetUser.name}". Mật khẩu mặc định ban đầu là 123456@.`,
+      user: updated[0]
+    });
+  } catch (error) {
+    console.error('Approve user error:', error);
+    return res.status(500).json({ success: false, message: 'Lỗi khi duyệt tài khoản: ' + String(error) });
+  }
+});
+
+// 7. REJECT PENDING USER (Admin feature)
+authRouter.post('/reject-user', async (req, res) => {
+  try {
+    const { userId, reason } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Thiếu userId cần từ chối.' });
+    }
+
+    const targetUser = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, Number(userId))
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
+    }
+
+    await db.update(users).set({
+      status: 'Từ chối',
+      updatedAt: new Date()
+    }).where(eq(users.id, Number(targetUser.id)));
+
+    return res.json({
+      success: true,
+      message: `Đã từ chối yêu cầu đăng ký của "${targetUser.name}".`
+    });
+  } catch (error) {
+    console.error('Reject user error:', error);
+    return res.status(500).json({ success: false, message: 'Lỗi khi từ chối yêu cầu: ' + String(error) });
+  }
+});
+

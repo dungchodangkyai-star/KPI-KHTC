@@ -1,3 +1,17 @@
+export interface OrgConfig {
+  id?: number;
+  parentAgency: string; // Tên Cơ quan / Đơn vị cấp trên (ví dụ: Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk)
+  departmentName: string; // Tên Phòng ban / Bộ phận sử dụng (ví dụ: Phòng Kế hoạch - Tài chính)
+  shortName: string; // Tên viết tắt (ví dụ: KHTC)
+  systemTitle: string; // Tiêu đề hệ thống (ví dụ: HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI)
+  location: string; // Địa danh ký duyệt (ví dụ: Đắk Lắk)
+  creatorTitle: string; // Chức danh Người lập biểu (ví dụ: NGƯỜI LẬP BIỂU)
+  approverTitle: string; // Chức danh Trưởng phòng / Phụ trách (ví dụ: TRƯỞNG PHÒNG)
+  leaderTitle: string; // Chức danh Lãnh đạo cấp trên (ví dụ: LÃNH ĐẠO BAN)
+  footerNote: string; // Ghi chú chân trang / Copyright
+  updatedAt?: string;
+}
+
 export interface User {
   id: number;
   uid?: string | null;

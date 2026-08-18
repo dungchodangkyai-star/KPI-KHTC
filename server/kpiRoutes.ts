@@ -2,9 +2,36 @@ import express from 'express';
 import { db } from '../src/db/index.ts';
 import { users, works, kpiResults, categories } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_KPI_CONFIG, calculateTotalKpi, evaluateKpiRank } from '../src/utils.ts';
+import { DEFAULT_KPI_CONFIG, DEFAULT_ORG_CONFIG, calculateTotalKpi, evaluateKpiRank } from '../src/utils.ts';
 
 export const kpiRouter = express.Router();
+
+export async function getEffectiveOrgConfig(): Promise<any> {
+  try {
+    const orgCat = await db.query.categories.findFirst({
+      where: (cat, { eq, and }) => and(eq(cat.code, 'SYSTEM_ORG_CONFIG'), eq(cat.type, 'SYSTEM_CONFIG'))
+    });
+    if (orgCat && orgCat.properties) {
+      return {
+        id: orgCat.id,
+        ...DEFAULT_ORG_CONFIG,
+        ...(orgCat.properties as any)
+      };
+    }
+    const kpiCat = await db.query.categories.findFirst({
+      where: (cat, { eq, and }) => and(eq(cat.code, 'KPI_GLOBAL_CONFIG'), eq(cat.type, 'KPI_CONFIG'))
+    });
+    if (kpiCat && kpiCat.properties && (kpiCat.properties as any).orgConfig) {
+      return {
+        ...DEFAULT_ORG_CONFIG,
+        ...((kpiCat.properties as any).orgConfig)
+      };
+    }
+  } catch (err) {
+    console.error("Error reading Org config from DB:", err);
+  }
+  return DEFAULT_ORG_CONFIG;
+}
 
 export async function getEffectiveKpiConfig(): Promise<any> {
   try {
@@ -36,6 +63,107 @@ kpiRouter.get('/', async (req, res) => {
     res.json({ success: true, data: all });
   } catch (error) {
     console.error("Error fetching KPI results:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 1.5 GET ORG / SYSTEM CONFIG
+kpiRouter.get('/org-config', async (req, res) => {
+  try {
+    const orgConfig = await getEffectiveOrgConfig();
+    res.json({ success: true, data: orgConfig });
+  } catch (error) {
+    console.error("Error fetching Org config:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 1.6 SAVE ORG / SYSTEM CONFIG
+kpiRouter.post('/org-config', async (req, res) => {
+  try {
+    const payload = req.body;
+    const orgProperties = {
+      parentAgency: payload.parentAgency || DEFAULT_ORG_CONFIG.parentAgency,
+      departmentName: payload.departmentName || DEFAULT_ORG_CONFIG.departmentName,
+      shortName: payload.shortName || DEFAULT_ORG_CONFIG.shortName,
+      systemTitle: payload.systemTitle || DEFAULT_ORG_CONFIG.systemTitle,
+      location: payload.location || DEFAULT_ORG_CONFIG.location,
+      creatorTitle: payload.creatorTitle || DEFAULT_ORG_CONFIG.creatorTitle,
+      approverTitle: payload.approverTitle || DEFAULT_ORG_CONFIG.approverTitle,
+      leaderTitle: payload.leaderTitle || DEFAULT_ORG_CONFIG.leaderTitle,
+      footerNote: payload.footerNote || DEFAULT_ORG_CONFIG.footerNote,
+      updatedAt: new Date().toISOString()
+    };
+
+    await db.insert(categories).values({
+      code: 'SYSTEM_ORG_CONFIG',
+      name: orgProperties.departmentName || 'Cấu hình Cơ quan - Đơn vị',
+      type: 'SYSTEM_CONFIG',
+      properties: orgProperties,
+      status: 'Đang áp dụng',
+      order: 1
+    }).onConflictDoUpdate({
+      target: categories.code,
+      set: {
+        name: orgProperties.departmentName || 'Cấu hình Cơ quan - Đơn vị',
+        properties: orgProperties,
+        status: 'Đang áp dụng',
+        order: 1
+      }
+    });
+
+    // Also update department name in KPI_GLOBAL_CONFIG if present
+    const kpiCat = await db.query.categories.findFirst({
+      where: (cat, { eq, and }) => and(eq(cat.code, 'KPI_GLOBAL_CONFIG'), eq(cat.type, 'KPI_CONFIG'))
+    });
+    if (kpiCat && kpiCat.properties) {
+      const updatedKpiProps = {
+        ...(kpiCat.properties as any),
+        department: orgProperties.departmentName,
+        orgConfig: orgProperties
+      };
+      await db.update(categories).set({
+        properties: updatedKpiProps
+      }).where(eq(categories.id, kpiCat.id));
+    }
+
+    const effective = await getEffectiveOrgConfig();
+    res.json({ success: true, data: effective, message: "Đã lưu và áp dụng thông tin Cơ quan - Đơn vị toàn hệ thống thành công!" });
+  } catch (error) {
+    console.error("Error saving Org config:", error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 1.7 RESET ORG CONFIG
+kpiRouter.post('/org-config/reset', async (req, res) => {
+  try {
+    await db.insert(categories).values({
+      code: 'SYSTEM_ORG_CONFIG',
+      name: 'Cấu hình Cơ quan - Đơn vị mặc định',
+      type: 'SYSTEM_CONFIG',
+      properties: {
+        ...DEFAULT_ORG_CONFIG,
+        updatedAt: new Date().toISOString()
+      },
+      status: 'Đang áp dụng',
+      order: 1
+    }).onConflictDoUpdate({
+      target: categories.code,
+      set: {
+        name: 'Cấu hình Cơ quan - Đơn vị mặc định',
+        properties: {
+          ...DEFAULT_ORG_CONFIG,
+          updatedAt: new Date().toISOString()
+        },
+        status: 'Đang áp dụng'
+      }
+    });
+
+    const effective = await getEffectiveOrgConfig();
+    res.json({ success: true, data: effective, message: "Đã khôi phục thông tin Cơ quan - Đơn vị về mặc định!" });
+  } catch (error) {
+    console.error("Error resetting Org config:", error);
     res.status(500).json({ error: String(error) });
   }
 });
