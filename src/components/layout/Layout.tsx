@@ -177,6 +177,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Send lightweight online heartbeat
+  const sendHeartbeat = (user?: any) => {
+    const active = user || currentUser || getActiveLoggedInUser();
+    if (!active?.id) return;
+
+    try {
+      fetch('/api/online/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: active.id,
+          userName: active.name,
+          userEmail: active.email,
+          role: active.role,
+          position: active.position,
+          group: active.group,
+          currentPath: location.pathname,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (e) {}
+  };
+
   useEffect(() => {
     const initialUser = getActiveLoggedInUser();
     if (!initialUser) {
@@ -185,6 +208,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
     setCurrentUser(initialUser);
     fetchLayoutData(initialUser);
+    sendHeartbeat(initialUser);
 
     const handleUserChange = () => {
       const active = getActiveLoggedInUser();
@@ -194,15 +218,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
       setCurrentUser(active);
       fetchLayoutData(active);
+      sendHeartbeat(active);
     };
 
     window.addEventListener('kpi_user_changed', handleUserChange);
-    const interval = setInterval(() => fetchLayoutData(), 30000);
+    const interval = setInterval(() => {
+      fetchLayoutData();
+      sendHeartbeat();
+    }, 45000);
+
     return () => {
       window.removeEventListener('kpi_user_changed', handleUserChange);
       clearInterval(interval);
     };
   }, [navigate]);
+
+  // Also send heartbeat when route changes
+  useEffect(() => {
+    if (currentUser?.id) {
+      sendHeartbeat(currentUser);
+    }
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {

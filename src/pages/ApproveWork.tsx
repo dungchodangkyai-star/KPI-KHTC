@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckSquare, Filter, Search, CheckCircle2, AlertCircle, RefreshCw, 
   Eye, FileText, Download, Check, X, Clock, AlertTriangle, ExternalLink,
-  Award, Layers, User, ChevronDown, Sparkles, MessageSquare, Send
+  Award, Layers, User, ChevronDown, Sparkles, MessageSquare, Send,
+  Calendar, Timer, ArrowRight, CornerDownRight, CheckCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { 
@@ -18,6 +19,110 @@ import {
   cleanPosition
 } from '../utils';
 import { Work, User as UserType, Assignment } from '../types';
+
+export interface WorkScheduleInfo {
+  startDateStr: string;
+  endDateStr: string;
+  daysCount: number;
+  scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue';
+  scheduleText: string;
+  diffDays: number;
+}
+
+export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
+  const start = w.startDate ? new Date(w.startDate) : (w.createdAt ? new Date(w.createdAt) : null);
+  const end = w.actualEndDate ? new Date(w.actualEndDate) : (w.endDate ? new Date(w.endDate) : null);
+  const deadline = w.endDate ? new Date(w.endDate) : null;
+  const now = new Date();
+
+  // Format strings
+  const startDateStr = formatDate(start);
+  const endDateStr = formatDate(end || deadline);
+
+  // Calculate days worked
+  let daysCount = w.days ? Number(w.days) : 0;
+  if (!daysCount && start && (w.actualEndDate || w.endDate)) {
+    const targetEnd = w.actualEndDate ? new Date(w.actualEndDate) : new Date(w.endDate!);
+    const diffMs = targetEnd.getTime() - start.getTime();
+    daysCount = Math.max(1, Math.round(diffMs / 86400000) + 1);
+  }
+  if (!daysCount) daysCount = 1;
+
+  // Calculate schedule comparison
+  let scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue' = 'in_progress';
+  let scheduleText = 'Đang thực hiện';
+  let diffDays = 0;
+
+  const isCompleted = w.status === 'Hoàn thành';
+  const isLate = w.status === 'Chậm';
+
+  if (isCompleted && w.actualEndDate && deadline) {
+    const actualTime = new Date(w.actualEndDate).setHours(0, 0, 0, 0);
+    const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
+    const diff = Math.round((actualTime - deadlineTime) / 86400000);
+    diffDays = Math.abs(diff);
+
+    if (diff < 0) {
+      scheduleStatus = 'early';
+      scheduleText = `Sớm ${diffDays} ngày`;
+    } else if (diff === 0) {
+      scheduleStatus = 'on_time';
+      scheduleText = 'Đúng hạn';
+    } else {
+      scheduleStatus = 'late';
+      scheduleText = `Chậm ${diffDays} ngày`;
+    }
+  } else if (isCompleted) {
+    scheduleStatus = 'on_time';
+    scheduleText = 'Đúng hạn';
+  } else if (isLate) {
+    if (deadline) {
+      const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
+      const nowTime = now.setHours(0, 0, 0, 0);
+      const diff = Math.max(1, Math.round((nowTime - deadlineTime) / 86400000));
+      diffDays = diff;
+      scheduleStatus = 'late';
+      scheduleText = `Chậm ${diffDays} ngày`;
+    } else {
+      scheduleStatus = 'late';
+      scheduleText = 'Chậm tiến độ';
+    }
+  } else if (deadline) {
+    const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
+    const nowTime = new Date().setHours(0, 0, 0, 0);
+    const diff = Math.round((nowTime - deadlineTime) / 86400000);
+    
+    if (diff > 0) {
+      scheduleStatus = 'overdue';
+      diffDays = diff;
+      scheduleText = `Quá hạn ${diff} ngày`;
+    } else if (diff === 0) {
+      scheduleStatus = 'in_progress';
+      scheduleText = 'Đến hạn hôm nay';
+    } else {
+      scheduleStatus = 'in_progress';
+      diffDays = Math.abs(diff);
+      scheduleText = `Còn ${diffDays} ngày`;
+    }
+  }
+
+  return {
+    startDateStr,
+    endDateStr,
+    daysCount,
+    scheduleStatus,
+    scheduleText,
+    diffDays
+  };
+}
+
+const QUICK_LEADER_SUGGESTIONS = [
+  'Hồ sơ đạt yêu cầu, số liệu đầy đủ và chính xác.',
+  'Hoàn thành đúng tiến độ, chất lượng sản phẩm tốt.',
+  'Cần bổ sung biên bản đối chiếu số liệu và nộp lại trước ngày 25.',
+  'Yêu cầu hoàn thiện lại thể thức văn bản theo quy định.',
+  'Số liệu chưa khớp với báo cáo nguồn vốn, cần kiểm tra lại.'
+];
 
 export default function ApproveWork() {
   const [works, setWorks] = useState<Work[]>([]);
@@ -41,6 +146,8 @@ export default function ApproveWork() {
   // Modal State for Reviewing & Scoring single item
   const [reviewingWork, setReviewingWork] = useState<Work | null>(null);
   const [reviewDecision, setReviewDecision] = useState<'Duyệt' | 'Cần bổ sung' | 'Không duyệt'>('Duyệt');
+  const [reviewApprovedNature, setReviewApprovedNature] = useState<string>('Trung bình');
+  const [reviewApprovedCoef, setReviewApprovedCoef] = useState<number>(0.8);
   const [reviewNote, setReviewNote] = useState('');
   const [reviewScore, setReviewScore] = useState<number | ''>('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
@@ -128,7 +235,36 @@ export default function ApproveWork() {
     setReviewingWork(w);
     setReviewDecision(w.leaderApproval === 'Cần bổ sung' || w.leaderApproval === 'Không duyệt' ? w.leaderApproval : 'Duyệt');
     setReviewNote(w.leaderNote || '');
-    setReviewScore(w.convertedScore ? Number(w.convertedScore) : '');
+
+    // Default Approved Nature to what user proposed or already approved
+    const initialNature = w.approvedNature || w.proposedNature || 'Trung bình';
+    const natureCoefObj = WORK_NATURE_COEFS[initialNature] || { coef: 0.8 };
+    setReviewApprovedNature(initialNature);
+    setReviewApprovedCoef(natureCoefObj.coef);
+
+    // Initial converted score
+    if (w.convertedScore && !isNaN(Number(w.convertedScore))) {
+      setReviewScore(Number(w.convertedScore));
+    } else {
+      const baseSc = Number(w.baseScore) || 10;
+      const qty = Number(w.productQty) || 1;
+      const calc = Math.round(baseSc * natureCoefObj.coef * qty * 10) / 10;
+      setReviewScore(calc);
+    }
+  };
+
+  // Handle nature change inside review modal
+  const handleReviewNatureChange = (newNature: string) => {
+    if (!reviewingWork) return;
+    const natureCoefObj = WORK_NATURE_COEFS[newNature] || { coef: 0.8 };
+    setReviewApprovedNature(newNature);
+    setReviewApprovedCoef(natureCoefObj.coef);
+
+    // Recalculate score automatically
+    const baseSc = Number(reviewingWork.baseScore) || 10;
+    const qty = Number(reviewingWork.productQty) || 1;
+    const calculated = Math.round(baseSc * natureCoefObj.coef * qty * 10) / 10;
+    setReviewScore(calculated);
   };
 
   // Submit single review
@@ -139,8 +275,13 @@ export default function ApproveWork() {
     try {
       const payload: any = {
         leaderApproval: reviewDecision,
-        leaderNote: reviewNote
+        approvedNature: reviewApprovedNature,
+        coef: String(reviewApprovedCoef),
+        leaderNote: reviewNote,
+        approverId: currentUser?.id || null,
+        approvalDate: new Date()
       };
+
       if (reviewScore !== '' && !isNaN(Number(reviewScore))) {
         payload.convertedScore = String(reviewScore);
       }
@@ -173,16 +314,18 @@ export default function ApproveWork() {
 
     setIsBatchApproving(true);
     try {
-      const promises = selectedIds.map(id => 
-        fetch(`/api/works/${id}`, {
+      const promises = selectedIds.map(id => {
+        const foundWork = works.find(w => w.id === id);
+        return fetch(`/api/works/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             leaderApproval: 'Duyệt',
+            approvedNature: foundWork?.approvedNature || foundWork?.proposedNature || 'Trung bình',
             leaderNote: 'Lãnh đạo phòng đã phê duyệt đạt yêu cầu.'
           })
-        })
-      );
+        });
+      });
       await Promise.all(promises);
       setSuccessMsg(`Đã phê duyệt thành công ${selectedIds.length} công việc!`);
       setSelectedIds([]);
@@ -197,23 +340,32 @@ export default function ApproveWork() {
 
   // Export Excel
   const handleExportExcel = () => {
-    const dataToExport = filteredWorks.map((w, idx) => ({
-      "STT": idx + 1,
-      "Tháng": w.month,
-      "Nhân viên": w.user?.name || '-',
-      "Chức danh": cleanPosition(w.user?.position),
-      "Nguồn việc": w.source === 'Giao việc' ? 'Được giao việc' : 'Tự đăng ký',
-      "Mã việc": w.taskCode || '-',
-      "Tên công việc": w.taskName || '-',
-      "Nhóm": w.taskGroup || '-',
-      "Tính chất": w.proposedNature || '-',
-      "Hệ số": w.coef || '-',
-      "Tiến độ": w.status || 'Đang xử lý',
-      "Điểm QĐ": w.convertedScore || '0',
-      "Minh chứng/Link": w.evidence || '-',
-      "Trạng thái duyệt": w.leaderApproval || 'Chưa duyệt',
-      "Ý kiến chỉ đạo của Lãnh đạo": w.leaderNote || ''
-    }));
+    const dataToExport = filteredWorks.map((w, idx) => {
+      const sched = calculateWorkSchedule(w);
+      return {
+        "STT": idx + 1,
+        "Tháng": w.month,
+        "Nhân viên": w.user?.name || '-',
+        "Chức danh": cleanPosition(w.user?.position),
+        "Nguồn việc": w.source === 'Giao việc' ? 'Được giao việc' : 'Tự đăng ký',
+        "Mã việc": w.taskCode || '-',
+        "Tên công việc": w.taskName || '-',
+        "Nhóm": w.taskGroup || '-',
+        "Ngày bắt đầu / đăng ký": sched.startDateStr,
+        "Ngày kết thúc / hạn": sched.endDateStr,
+        "Số ngày làm": sched.daysCount,
+        "Đánh giá tiến độ": sched.scheduleText,
+        "Tính chất đã chọn": w.proposedNature || '-',
+        "Hệ số đăng ký": w.coef || '-',
+        "Tính chất duyệt": w.approvedNature || w.proposedNature || '-',
+        "Điểm chuẩn": w.baseScore || '10',
+        "Số lượng SP": w.productQty || 1,
+        "Điểm QĐ": w.convertedScore || '0',
+        "Minh chứng/Link": w.evidence || '-',
+        "Trạng thái duyệt": w.leaderApproval || 'Chưa duyệt',
+        "Ý kiến chỉ đạo của Lãnh đạo": w.leaderNote || ''
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -259,14 +411,14 @@ export default function ApproveWork() {
             <button 
               onClick={fetchAll} 
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors shadow-2xs cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span>Đồng bộ</span>
             </button>
             <button 
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-colors shadow-2xs cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Xuất Excel</span>
@@ -351,7 +503,7 @@ export default function ApproveWork() {
               <button
                 onClick={handleBatchApprove}
                 disabled={isBatchApproving}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all border border-emerald-700"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all border border-emerald-700 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 <span>{isBatchApproving ? 'Đang duyệt...' : `Duyệt nhanh (${selectedIds.length})`}</span>
@@ -415,7 +567,7 @@ export default function ApproveWork() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Enhanced Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -428,14 +580,14 @@ export default function ApproveWork() {
                     className="rounded text-[#1F4E78] focus:ring-0"
                   />
                 </th>
-                <th className="py-3 px-3">Nhân sự</th>
-                <th className="py-3 px-3">Nguồn & Mã</th>
-                <th className="py-3 px-3">Tên nhiệm vụ / Hồ sơ</th>
-                <th className="py-3 px-3 text-center">Tiến độ</th>
-                <th className="py-3 px-3 text-center">Điểm QĐ</th>
-                <th className="py-3 px-3">Minh chứng</th>
-                <th className="py-3 px-3">Kết quả duyệt</th>
-                <th className="py-3 px-3 text-center">Thao tác</th>
+                <th className="py-3 px-3 min-w-[150px]">Nhân sự & Nguồn</th>
+                <th className="py-3 px-3 min-w-[200px]">Tên nhiệm vụ & Nhóm</th>
+                <th className="py-3 px-3 min-w-[140px]">Thời gian & Ngày làm</th>
+                <th className="py-3 px-3 min-w-[130px] text-center">Tiến độ & Kế hoạch</th>
+                <th className="py-3 px-3 min-w-[130px] text-center">Tính chất & Điểm QĐ</th>
+                <th className="py-3 px-3 min-w-[110px]">Minh chứng</th>
+                <th className="py-3 px-3 min-w-[120px]">Kết quả duyệt</th>
+                <th className="py-3 px-3 text-center min-w-[120px]">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-300 font-medium text-slate-700 bg-white">
@@ -453,8 +605,17 @@ export default function ApproveWork() {
                   const isRejected = w.leaderApproval === 'Không duyệt';
                   const isPending = !isApproved && !isSupplement && !isRejected;
 
+                  // Schedule info
+                  const sched = calculateWorkSchedule(w);
+
+                  // Nature and coef
+                  const proposedNat = w.proposedNature || 'Trung bình';
+                  const approvedNat = w.approvedNature;
+                  const isNatureModified = approvedNat && approvedNat !== proposedNat;
+
                   return (
                     <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
+                      {/* Checkbox */}
                       <td className="py-3 px-3 text-center">
                         <input
                           type="checkbox"
@@ -463,46 +624,125 @@ export default function ApproveWork() {
                           className="rounded text-[#1F4E78] focus:ring-0"
                         />
                       </td>
+
+                      {/* Nhân sự & Nguồn */}
                       <td className="py-3 px-3">
-                        <div className="font-bold text-slate-800">{w.user?.name || '-'}</div>
-                        <div className="text-[10px] text-slate-500">{w.user?.position || 'Chuyên viên'}</div>
+                        <div className="font-bold text-slate-900">{w.user?.name || '-'}</div>
+                        <div className="text-[11px] text-slate-500 font-medium">{cleanPosition(w.user?.position)}</div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          {isAssigned ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-[#1F4E78] border border-blue-200">
+                              Lãnh đạo giao
+                            </span>
+                          ) : (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              Tự đăng ký
+                            </span>
+                          )}
+                          <span className="font-bold text-[#1F4E78] text-[10px]">{w.taskCode || `CV-${w.id}`}</span>
+                        </div>
                       </td>
+
+                      {/* Tên nhiệm vụ / Hồ sơ & Nhóm */}
                       <td className="py-3 px-3">
-                        {isAssigned ? (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-[#1F4E78] border border-blue-200 mb-0.5">
-                            Lãnh đạo giao
-                          </span>
-                        ) : (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 mb-0.5">
-                            Tự đăng ký
-                          </span>
+                        <div className="font-bold text-slate-800 line-clamp-2 leading-snug">{w.taskName}</div>
+                        {w.taskGroup && (
+                          <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 mt-1">
+                            {w.taskGroup}
+                          </div>
                         )}
-                        <span className="font-bold text-[#1F4E78] block">{w.taskCode || `CV-${w.id}`}</span>
-                      </td>
-                      <td className="py-3 px-3 max-w-xs">
-                        <div className="font-bold text-slate-800 line-clamp-2">{w.taskName}</div>
                         {w.detail && (
-                          <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{w.detail}</div>
+                          <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5 italic">
+                            {w.detail}
+                          </div>
                         )}
                       </td>
+
+                      {/* Thời gian & Số ngày làm */}
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1 text-[11px] text-slate-700">
+                          <span className="text-slate-400">Bắt đầu:</span>
+                          <span className="font-bold">{sched.startDateStr}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-700 mt-0.5">
+                          <span className="text-slate-400">Kết thúc:</span>
+                          <span className="font-bold">{sched.endDateStr}</span>
+                        </div>
+                        <div className="mt-1">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1F4E78] border border-blue-200">
+                            <Timer className="w-3 h-3" /> {sched.daysCount} ngày làm
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Tiến độ & Kế hoạch (Nhanh/Chậm) */}
                       <td className="py-3 px-3 text-center">
-                        {w.status === 'Hoàn thành' ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                            Hoàn thành
-                          </span>
-                        ) : w.status === 'Chậm' ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800">
-                            Chậm tiến độ
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                            {w.status || 'Đang xử lý'}
-                          </span>
+                        {/* Work Status Badge */}
+                        <div className="mb-1">
+                          {w.status === 'Hoàn thành' ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 inline-block">
+                              Hoàn thành
+                            </span>
+                          ) : w.status === 'Chậm' ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 inline-block">
+                              Chậm tiến độ
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 inline-block">
+                              {w.status || 'Đang xử lý'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Schedule Assessment */}
+                        <div>
+                          {sched.scheduleStatus === 'early' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-300 inline-block">
+                              ⚡ {sched.scheduleText}
+                            </span>
+                          )}
+                          {sched.scheduleStatus === 'on_time' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-block">
+                              ✓ {sched.scheduleText}
+                            </span>
+                          )}
+                          {sched.scheduleStatus === 'late' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-300 inline-block">
+                              ⚠ {sched.scheduleText}
+                            </span>
+                          )}
+                          {sched.scheduleStatus === 'overdue' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-50 text-red-700 border border-red-300 inline-block">
+                              ✕ {sched.scheduleText}
+                            </span>
+                          )}
+                          {sched.scheduleStatus === 'in_progress' && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 inline-block">
+                              ⏳ {sched.scheduleText}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Tính chất & Điểm QĐ */}
+                      <td className="py-3 px-3 text-center">
+                        <div className="text-[11px] font-bold text-slate-700">
+                          ĐK: {proposedNat} <span className="text-slate-400 font-normal">({formatScore(w.coef || 0.8)})</span>
+                        </div>
+                        {isNatureModified && (
+                          <div className="text-[10px] font-black text-blue-700 mt-0.5 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
+                            Duyệt: {approvedNat}
+                          </div>
                         )}
+                        <div className="text-sm font-black text-[#1F4E78] mt-1">
+                          {formatScore(w.convertedScore)} <span className="text-[10px] font-bold text-slate-500">đ</span>
+                        </div>
+                        <div className="text-[9px] text-slate-400 font-medium">
+                          ({formatScore(w.baseScore || 10)}đ x {w.productQty || 1} SP)
+                        </div>
                       </td>
-                      <td className="py-3 px-3 text-center font-black text-[#1F4E78]">
-                        {formatScore(w.convertedScore)}
-                      </td>
+
+                      {/* Minh chứng */}
                       <td className="py-3 px-3">
                         {w.evidence ? (
                           <a
@@ -518,44 +758,49 @@ export default function ApproveWork() {
                           <span className="text-[10px] text-slate-400 italic">Chưa có link</span>
                         )}
                       </td>
+
+                      {/* Kết quả duyệt */}
                       <td className="py-3 px-3">
                         {isPending && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                            <Clock className="w-3 h-3" /> Chưa duyệt
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            <Clock className="w-3 h-3 text-amber-700" /> Chưa duyệt
                           </span>
                         )}
                         {isApproved && (
                           <div>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              <Check className="w-3 h-3" /> Đã duyệt
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                              <Check className="w-3 h-3 text-emerald-700" /> Đã duyệt
                             </span>
                             {w.leaderNote && (
-                              <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                              <div className="text-[10px] text-slate-600 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
                             )}
                           </div>
                         )}
                         {isSupplement && (
                           <div>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-orange-100 text-orange-800 border border-orange-200">
-                              <AlertTriangle className="w-3 h-3" /> Cần bổ sung
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-orange-100 text-orange-950 border border-orange-300">
+                              <AlertTriangle className="w-3 h-3 text-orange-700" /> Cần bổ sung
                             </span>
                             {w.leaderNote && (
-                              <div className="text-[10px] text-orange-600 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                              <div className="text-[10px] text-orange-700 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
                             )}
                           </div>
                         )}
                         {isRejected && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-red-100 text-red-800 border border-red-200">
-                            <X className="w-3 h-3" /> Không duyệt
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-red-100 text-red-950 border border-red-300">
+                            <X className="w-3 h-3 text-red-700" /> Không duyệt
                           </span>
                         )}
                       </td>
+
+                      {/* Thao tác */}
                       <td className="py-3 px-3 text-center">
                         <button
                           onClick={() => handleOpenReview(w)}
-                          className="px-3 py-1.5 bg-[#1F4E78] hover:bg-[#15385b] text-white text-xs font-bold rounded-xl transition-all shadow-xs"
+                          className="px-3 py-1.5 bg-[#1F4E78] hover:bg-[#15385b] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1 w-full cursor-pointer"
                         >
-                          Thẩm định / Chấm điểm
+                          <Award className="w-3.5 h-3.5" />
+                          <span>Thẩm định / Chấm điểm</span>
                         </button>
                       </td>
                     </tr>
@@ -567,75 +812,180 @@ export default function ApproveWork() {
         </div>
       </div>
 
-      {/* Review Modal */}
+      {/* Review & Scoring Modal */}
       {reviewingWork && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl p-6 max-w-xl w-full shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2 text-[#1F4E78] font-black text-base">
                 <CheckSquare className="w-5 h-5" />
                 <span>Thẩm định & Phê duyệt kết quả công việc</span>
               </div>
-              <button onClick={() => setReviewingWork(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
+              <button 
+                onClick={() => setReviewingWork(null)} 
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Work info card */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[#1F4E78] text-sm">[{reviewingWork.taskCode}] {reviewingWork.taskName}</span>
+            {/* Comprehensive Task Details Card */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
+                <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
+                  <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
+                    {reviewingWork.taskCode || 'CV'}
+                  </span>
+                  <span>{reviewingWork.taskName}</span>
+                </div>
                 {reviewingWork.source === 'Giao việc' ? (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-blue-100 text-[#1F4E78]">
+                  <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
                     Việc Lãnh đạo giao
                   </span>
                 ) : (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                  <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
                     Việc tự đăng ký
                   </span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2 text-slate-700">
-                <div><span className="font-bold">Nhân viên:</span> {reviewingWork.user?.name}</div>
-                <div><span className="font-bold">Tháng:</span> {reviewingWork.month}</div>
-                <div><span className="font-bold">Tiến độ nộp:</span> {reviewingWork.status}</div>
-                <div><span className="font-bold">Tính chất:</span> {reviewingWork.proposedNature} (Hệ số {formatScore(reviewingWork.coef)})</div>
+
+              {/* 4-column inspection grid */}
+              {(() => {
+                const sched = calculateWorkSchedule(reviewingWork);
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
+                      <span className="font-bold text-slate-900 text-xs">{reviewingWork.user?.name}</span>
+                      <div className="text-[10px] text-slate-500">{cleanPosition(reviewingWork.user?.position)}</div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
+                      <span className="font-bold text-slate-900 text-xs">Tháng {reviewingWork.month}</span>
+                      <div className="text-[10px] text-slate-500 truncate" title={reviewingWork.taskGroup || ''}>
+                        {reviewingWork.taskGroup || 'Khác'}
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
+                      <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
+                      <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
+                      <span className="font-bold text-slate-900 text-xs block">{reviewingWork.status || 'Đang xử lý'}</span>
+                      <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
+                        sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {sched.scheduleText}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Product Info Row */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
+                  <span className="font-bold text-slate-800">{reviewingWork.productType || 'Báo cáo'}</span> ({reviewingWork.productQty || 1} {reviewingWork.unit || 'Sản phẩm'})
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
+                  <span className="font-black text-[#1F4E78] text-xs">{formatScore(reviewingWork.baseScore || 10)} điểm</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
+                  <span className="font-bold text-slate-800">{reviewingWork.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(reviewingWork.coef || 0.8)})
+                </div>
               </div>
 
+              {/* Detail content */}
               {reviewingWork.detail && (
-                <div className="pt-1">
-                  <span className="font-bold text-slate-700 block">Nội dung báo cáo chi tiết:</span>
-                  <p className="text-slate-600 mt-0.5 bg-white p-2.5 rounded-lg border border-slate-200">{reviewingWork.detail}</p>
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
+                  <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
+                    {reviewingWork.detail}
+                  </p>
                 </div>
               )}
 
+              {/* Evidence */}
               {reviewingWork.evidence && (
-                <div className="pt-1">
-                  <span className="font-bold text-slate-700 block">Minh chứng sản phẩm:</span>
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
                   <a 
                     href={reviewingWork.evidence.startsWith('http') ? reviewingWork.evidence : `https://${reviewingWork.evidence}`} 
                     target="_blank" 
                     rel="noreferrer"
-                    className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1 mt-0.5"
+                    className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>{reviewingWork.evidence}</span>
+                    <ExternalLink className="w-4 h-4 shrink-0" />
+                    <span className="break-all">{reviewingWork.evidence}</span>
                   </a>
                 </div>
               )}
             </div>
 
             {/* Approval Decision Controls */}
-            <div className="space-y-3">
+            <div className="space-y-4 pt-1">
+              {/* Nature of Work Approval Control */}
+              <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-[#1F4E78]" />
+                    <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <select
+                      value={reviewApprovedNature}
+                      onChange={(e) => handleReviewNatureChange(e.target.value)}
+                      className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                    >
+                      {Object.keys(WORK_NATURE_COEFS).map(nat => (
+                        <option key={nat} value={nat}>
+                          {nat} (Hệ số {formatScore(WORK_NATURE_COEFS[nat].coef)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                    <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
+                    <span className="font-black text-[#1F4E78] text-sm">{formatScore(reviewApprovedCoef)}</span>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
+                    <span className="font-bold text-slate-800">{formatScore(reviewingWork.baseScore || 10)}</span>
+                  </div>
+                </div>
+
+                {/* Score formula explanation */}
+                <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
+                  <span>Công thức tự tính: <strong>{formatScore(reviewingWork.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong> x <strong>{reviewingWork.productQty || 1} (Số lượng)</strong></span>
+                  <span className="font-black text-xs text-[#1F4E78]">= {formatScore(reviewScore)} đ</span>
+                </div>
+              </div>
+
+              {/* 3 Decision Buttons */}
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">Quyết định phê duyệt</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setReviewDecision('Duyệt')}
-                    className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all ${
+                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
                       reviewDecision === 'Duyệt'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -646,9 +996,9 @@ export default function ApproveWork() {
                   <button
                     type="button"
                     onClick={() => setReviewDecision('Cần bổ sung')}
-                    className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all ${
+                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
                       reviewDecision === 'Cần bổ sung'
-                        ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                        ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -659,9 +1009,9 @@ export default function ApproveWork() {
                   <button
                     type="button"
                     onClick={() => setReviewDecision('Không duyệt')}
-                    className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all ${
+                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
                       reviewDecision === 'Không duyệt'
-                        ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                        ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -671,39 +1021,63 @@ export default function ApproveWork() {
                 </div>
               </div>
 
+              {/* Official Converted Score Input */}
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Điểm quy đổi KPI chính thức
+                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
+                  <span>Điểm quy đổi KPI chính thức</span>
+                  <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    Tự động cập nhật theo Tính chất duyệt
+                  </span>
                 </label>
                 <input
                   type="number"
                   step="0.1"
                   value={reviewScore}
                   onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  placeholder="Nhập điểm chính thức"
-                  className="w-full text-xs font-bold text-[#1F4E78] p-3 border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78]"
+                  placeholder="Nhập điểm quy đổi chính thức"
+                  className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
                 />
               </div>
 
+              {/* Leader Note & Quick Suggestions */}
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Ý kiến chỉ đạo / Nhận xét của Lãnh đạo phòng
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-800">
+                    Ý kiến chỉ đạo / Nhận xét của Lãnh đạo phòng
+                  </label>
+                  <span className="text-[10px] text-slate-400">Tùy chọn</span>
+                </div>
                 <textarea
                   rows={3}
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder="Ghi rõ ý kiến chỉ đạo, lý do cần bổ sung hoặc đánh giá chất lượng hồ sơ..."
-                  className="w-full text-xs p-3 border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78]"
+                  className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
                 />
+
+                {/* Quick suggestions chips */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-slate-400 self-center">Gợi ý nhanh:</span>
+                  {QUICK_LEADER_SUGGESTIONS.map((sug, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setReviewNote(sug)}
+                      className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer border border-slate-200 text-left"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setReviewingWork(null)}
-                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
               >
                 Hủy
               </button>
@@ -711,7 +1085,7 @@ export default function ApproveWork() {
                 type="button"
                 onClick={handleSubmitReview}
                 disabled={isSubmittingReview}
-                className="px-6 py-2.5 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                className="px-6 py-2.5 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>{isSubmittingReview ? 'Đang lưu...' : 'Lưu kết quả phê duyệt'}</span>

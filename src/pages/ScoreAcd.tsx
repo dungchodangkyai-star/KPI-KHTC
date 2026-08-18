@@ -4,8 +4,10 @@ import { KPI_A_CRITERIA, STANDARD_MONTHS, safeFetchJson, formatScore, cleanPosit
 import { 
   Award, Save, RefreshCw, CheckCircle, AlertTriangle, User, Calendar, 
   FileText, ShieldCheck, CheckSquare, Info, Plus, Trash2, ArrowRight, 
-  ArrowLeft, ExternalLink, ThumbsUp, Zap, HelpCircle, AlertCircle
+  ArrowLeft, ExternalLink, ThumbsUp, Zap, HelpCircle, AlertCircle,
+  ChevronDown, ChevronUp, Timer, Clock, Check, X
 } from 'lucide-react';
+import { calculateWorkSchedule } from './ApproveWork';
 
 const QUICK_PENALTY_EXEMPTION_REASONS = [
   'Chờ phản hồi/dữ liệu từ đơn vị phối hợp',
@@ -66,6 +68,8 @@ export default function ScoreAcd() {
     decision: 'Giữ nguyên',
     reason: ''
   });
+
+  const [showWorksList, setShowWorksList] = useState(true);
 
   useEffect(() => {
     fetchUsers();
@@ -597,6 +601,210 @@ export default function ScoreAcd() {
         </div>
       ) : (
         <form onSubmit={handleSaveApproval} className="space-y-6">
+          {/* SECTION 0: BẢNG TỔNG HỢP & THẨM ĐỊNH CÔNG VIỆC THỰC HIỆN TRONG THÁNG (ĐIỂM B) */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div 
+              onClick={() => setShowWorksList(!showWorksList)}
+              className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-blue-50/50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none hover:bg-blue-50/80 transition"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-[#1F4E78] text-white text-xs font-black flex items-center justify-center">B</span>
+                  <h2 className="text-[16px] font-black text-[#0f2440]">
+                    Danh sách công việc & hồ sơ thực hiện trong tháng (Điểm B)
+                  </h2>
+                  <span className="bg-blue-100 text-[#1F4E78] px-2.5 py-0.5 rounded-full text-xs font-black border border-blue-200">
+                    {kpiData?.works?.length || kpiData?.approvedTasks?.length || 0} công việc
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 mt-1 pl-8">
+                  Điểm quy đổi (B): <strong className="text-[#1F4E78] text-sm">{formatScore(bTotal)}đ</strong> / 60đ tối đa • Đã duyệt: <strong className="text-emerald-700">{kpiData?.summary?.approvedWorks || 0}</strong> • Chưa duyệt: <strong className="text-amber-700">{kpiData?.summary?.pendingWorks || 0}</strong>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/approve"
+                  onClick={(e) => e.stopPropagation()}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-[#1F4E78] rounded-xl text-xs font-bold transition shadow-2xs flex items-center gap-1.5"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Vào Duyệt việc chi tiết</span>
+                  <ExternalLink className="w-3 h-3 text-slate-400" />
+                </Link>
+
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-700 p-1"
+                >
+                  {showWorksList ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+
+            {showWorksList && (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#1F4E78] text-white font-black text-[11px] uppercase tracking-wider">
+                      <th className="py-2.5 px-3 min-w-[130px]">Mã & Nguồn việc</th>
+                      <th className="py-2.5 px-3 min-w-[200px]">Tên nhiệm vụ / Hồ sơ & Nhóm</th>
+                      <th className="py-2.5 px-3 min-w-[140px]">Thời gian & Số ngày</th>
+                      <th className="py-2.5 px-3 min-w-[120px] text-center">Tiến độ & Kế hoạch</th>
+                      <th className="py-2.5 px-3 min-w-[130px] text-center">Tính chất & Điểm QĐ</th>
+                      <th className="py-2.5 px-3 min-w-[100px]">Minh chứng</th>
+                      <th className="py-2.5 px-3 min-w-[120px]">Trạng thái duyệt</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-medium text-slate-700 bg-white">
+                    {(!kpiData?.works || kpiData.works.length === 0) && (!kpiData?.approvedTasks || kpiData.approvedTasks.length === 0) ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-slate-400 italic">
+                          Chưa có công việc nào được đăng ký trong tháng {selectedMonth}.
+                        </td>
+                      </tr>
+                    ) : (
+                      (kpiData?.works || kpiData?.approvedTasks || []).map((w: any) => {
+                        const sched = calculateWorkSchedule(w);
+                        const isAssigned = w.source === 'Giao việc' || w.sysNote?.includes('Giao bởi');
+                        const isApproved = w.leaderApproval === 'Duyệt';
+                        const isSupplement = w.leaderApproval === 'Cần bổ sung';
+                        const isRejected = w.leaderApproval === 'Không duyệt';
+
+                        return (
+                          <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
+                            {/* Mã & Nguồn */}
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-[#1F4E78] text-xs">{w.taskCode || `CV-${w.id}`}</div>
+                              <div className="mt-0.5">
+                                {isAssigned ? (
+                                  <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-[#1F4E78] border border-blue-200">
+                                    Lãnh đạo giao
+                                  </span>
+                                ) : (
+                                  <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                    Tự đăng ký
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Tên & Nhóm */}
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-slate-900 leading-snug line-clamp-2">{w.taskName}</div>
+                              {w.taskGroup && (
+                                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{w.taskGroup}</div>
+                              )}
+                            </td>
+
+                            {/* Thời gian & Số ngày */}
+                            <td className="py-2.5 px-3">
+                              <div className="text-[11px] text-slate-700">
+                                <div><span className="text-slate-400">Bắt đầu:</span> <span className="font-bold">{sched.startDateStr}</span></div>
+                                <div><span className="text-slate-400">Kết thúc:</span> <span className="font-bold">{sched.endDateStr}</span></div>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200 mt-0.5">
+                                  <Timer className="w-3 h-3" /> {sched.daysCount} ngày
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Tiến độ & Kế hoạch */}
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="mb-0.5">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-block border ${
+                                  w.status === 'Hoàn thành' 
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
+                                    : w.status === 'Chậm' 
+                                    ? 'bg-red-100 text-red-800 border-red-200' 
+                                    : 'bg-blue-100 text-blue-800 border-blue-200'
+                                }`}>
+                                  {w.status || 'Đang xử lý'}
+                                </span>
+                              </div>
+                              <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded ${
+                                sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                                {sched.scheduleText}
+                              </span>
+                            </td>
+
+                            {/* Tính chất & Điểm */}
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="text-[11px] font-bold text-slate-700">
+                                ĐK: {w.proposedNature || 'Trung bình'} <span className="text-slate-400 font-normal">({formatScore(w.coef || 0.8)})</span>
+                              </div>
+                              {w.approvedNature && w.approvedNature !== w.proposedNature && (
+                                <div className="text-[10px] font-black text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-200 mt-0.5">
+                                  Duyệt: {w.approvedNature}
+                                </div>
+                              )}
+                              <div className="text-sm font-black text-[#1F4E78] mt-0.5">
+                                {formatScore(w.convertedScore)} đ
+                              </div>
+                            </td>
+
+                            {/* Minh chứng */}
+                            <td className="py-2.5 px-3">
+                              {w.evidence ? (
+                                <a
+                                  href={w.evidence.startsWith('http') ? w.evidence : `https://${w.evidence}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline max-w-[120px] truncate"
+                                >
+                                  <ExternalLink className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">{w.evidence}</span>
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">Chưa nộp</span>
+                              )}
+                            </td>
+
+                            {/* Trạng thái duyệt */}
+                            <td className="py-2.5 px-3">
+                              {isApproved && (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                    <Check className="w-3 h-3 text-emerald-700" /> Đã duyệt
+                                  </span>
+                                  {w.leaderNote && (
+                                    <div className="text-[10px] text-slate-600 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                                  )}
+                                </div>
+                              )}
+                              {isSupplement && (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-950 border border-orange-300">
+                                    <AlertTriangle className="w-3 h-3 text-orange-700" /> Cần bổ sung
+                                  </span>
+                                  {w.leaderNote && (
+                                    <div className="text-[10px] text-orange-700 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                                  )}
+                                </div>
+                              )}
+                              {isRejected && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-950 border border-red-300">
+                                  <X className="w-3 h-3 text-red-700" /> Không duyệt
+                                </span>
+                              )}
+                              {!isApproved && !isSupplement && !isRejected && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                  <Clock className="w-3 h-3 text-amber-700" /> Chưa duyệt
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* SECTION 1: DUYỆT ĐIỂM A */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-blue-50/40 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">

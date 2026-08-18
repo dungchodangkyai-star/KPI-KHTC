@@ -456,6 +456,7 @@ kpiRouter.get('/detail', async (req, res) => {
         detailsA,
         detailsC,
         detailsD,
+        works: userWorks,
         approvedTasks: userApprovedWorks
       }
     });

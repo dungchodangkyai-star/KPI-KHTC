@@ -207,8 +207,14 @@ export const DEFAULT_TASK_GROUPS = [
   'Thanh toán, giải ngân',
   'Quyết toán',
   'Lựa chọn nhà thầu',
+  'Quản lý hợp đồng',
   'GPMB',
   'Báo cáo, GSDGĐT, ADB8',
+  'Báo cáo, GSDGĐT, ADB9',
+  'Rà soát, kiểm soát, xem xét, góp ý',
+  'Thanh tra, Kiểm toán, Kiểm tra, Giám sát',
+  'Thủ quỹ',
+  'Kế toán nội bộ',
   'Hành chính - tổng hợp'
 ];
 
@@ -226,20 +232,55 @@ export const DEFAULT_TASKS: Record<string, Array<{ code: string; name: string; s
   ],
   'Quyết toán': [
     { code: 'QT01', name: 'Lập hồ sơ quyết toán A-B', score: 15, nature: 'Rất phức tạp', productType: 'Hồ sơ quyết toán', unit: 'Hồ sơ' },
-    { code: 'QT02', name: 'Lập báo cáo quyết toán dự án hoàn thành (Thông tư 96/2021/TT-BTC)', score: 18, nature: 'Đặc biệt phức tạp', productType: 'Hồ sơ quyết toán', unit: 'Hồ sơ' },
-    { code: 'QT03', name: 'Theo dõi, đôn đốc phê duyệt quyết toán vốn đầu tư dự án hoàn thành', score: 12, nature: 'Phức tạp', productType: 'Tờ trình', unit: 'Tờ trình' }
+    { code: 'QT02', name: 'Lập báo cáo quyết toán dự án hoàn thành', score: 18, nature: 'Đặc biệt phức tạp', productType: 'Hồ sơ quyết toán', unit: 'Hồ sơ' },
+    { code: 'QT03', name: 'Theo dõi, đôn đốc phê duyệt quyết toán vốn đầu tư dự án hoàn thành', score: 12, nature: 'Phức tạp', productType: 'Tờ trình', unit: 'Tờ trình' },
+    { code: 'QT04', name: 'Báo cáo, giải trình quyết toán', score: 12, nature: 'Phức tạp', productType: 'Báo cáo', unit: 'Báo cáo' }
   ],
   'Lựa chọn nhà thầu': [
     { code: 'B6.1', name: 'Lập, điều chỉnh, bổ sung kế hoạch lựa chọn nhà thầu', score: 13, nature: 'Phức tạp', productType: 'Hồ sơ lựa chọn nhà thầu', unit: 'Hồ sơ' },
-    { code: 'B6.2', name: 'Thẩm định kế hoạch lựa chọn nhà thầu, hồ sơ mời thầu', score: 14, nature: 'Phức tạp', productType: 'Báo cáo', unit: 'Báo cáo' }
+    { code: 'B6.2', name: 'Thẩm định kế hoạch lựa chọn nhà thầu, hồ sơ mời thầu', score: 14, nature: 'Phức tạp', productType: 'Báo cáo', unit: 'Báo cáo' },
+    { code: 'B6.3', name: 'Lập Hồ sơ chỉ định thầu', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ', unit: 'Hồ sơ' }
+  ],
+  'Quản lý hợp đồng': [
+    { code: 'HD01', name: 'Góp ý, rà soát, thương thảo hợp đồng', score: 8, nature: 'Trung bình', productType: 'Hợp đồng', unit: 'Bộ' },
+    { code: 'HD02', name: 'Điều chỉnh thông tin hợp đồng', score: 1, nature: 'Rất đơn giản', productType: 'PL hợp đồng', unit: 'Bộ' },
+    { code: 'HD03', name: 'Thanh lý, chấm dứt hợp đồng', score: 8, nature: 'Trung bình', productType: 'Biên bản', unit: 'Biên bản' },
+    { code: 'HD04', name: 'Ký hợp đồng', score: 1, nature: 'Rất đơn giản', productType: 'Hợp đồng', unit: 'Bộ' },
+    { code: 'HD05', name: 'Điều chỉnh khối lượng, điều chỉnh tạm ứng, các điều chỉnh khác', score: 12, nature: 'Rất phức tạp', productType: 'Hồ sơ', unit: 'Bộ' }
   ],
   'GPMB': [
     { code: 'GPMB01', name: 'Tổng hợp hồ sơ đền bù, giải phóng mặt bằng', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ đền bù/GPMB', unit: 'Hồ sơ' },
-    { code: 'GPMB02', name: 'Phối hợp chi trả tiền bồi thường, hỗ trợ tái định cư', score: 10, nature: 'Trung bình', productType: 'Biên bản', unit: 'Biên bản' }
+    { code: 'GPMB02', name: 'Phối hợp chi trả tiền bồi thường, hỗ trợ tái định cư', score: 10, nature: 'Trung bình', productType: 'Biên bản', unit: 'Biên bản' },
+    { code: 'GPMB03', name: 'Tổng hợp hồ sơ Thanh toán, hoàn ứng GPMB', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ', unit: 'Hồ sơ' }
   ],
   'Báo cáo, GSDGĐT, ADB8': [
     { code: 'B9.1', name: 'Lập báo cáo định kỳ, đột xuất, giao ban, cấp trên', score: 8, nature: 'Trung bình', productType: 'Báo cáo', unit: 'Báo cáo' },
     { code: 'B9.2', name: 'Giám sát, đánh giá đầu tư dự án trên hệ thống quốc gia', score: 10, nature: 'Phức tạp', productType: 'Báo cáo', unit: 'Báo cáo' }
+  ],
+  'Báo cáo, GSDGĐT, ADB9': [
+    { code: 'B9.3', name: 'Báo cáo định kỳ, hàng ngày', score: 5, nature: 'Đơn giản', productType: 'Báo cáo', unit: 'Báo cáo' }
+  ],
+  'Rà soát, kiểm soát, xem xét, góp ý': [
+    { code: 'RS01', name: 'Góp ý, rà soát, kiểm soát hồ sơ, tài liệu, văn bản', score: 8, nature: 'Trung bình', productType: 'Văn bản', unit: 'Văn bản' }
+  ],
+  'Thanh tra, Kiểm toán, Kiểm tra, Giám sát': [
+    { code: 'TTr01', name: 'Phục vụ công tác thanh tra, kiểm toán, kiểm tra, giám sát', score: 15, nature: 'Rất phức tạp', productType: 'Hồ sơ', unit: 'Hồ sơ' },
+    { code: 'TTr02', name: 'Thực hiện kết luận, kiến nghị thanh tra, kiểm tra, kiểm toán', score: 15, nature: 'Rất phức tạp', productType: 'Báo cáo', unit: 'Báo cáo' }
+  ],
+  'Thủ quỹ': [
+    { code: 'TQ01', name: 'Vào sổ sách quỹ', score: 5, nature: 'Đơn giản', productType: 'Sổ sách', unit: 'Sổ' },
+    { code: 'TQ02', name: 'Rút tiền', score: 5, nature: 'Đơn giản', productType: 'Chứng từ', unit: 'Bộ' },
+    { code: 'TQ03', name: 'Chuyển tiền', score: 5, nature: 'Đơn giản', productType: 'Chứng từ', unit: 'Bộ' },
+    { code: 'TQ04', name: 'Chi tiền', score: 5, nature: 'Đơn giản', productType: 'Phiếu chi', unit: 'Phiếu' },
+    { code: 'TQ05', name: 'Chi GPMB', score: 10, nature: 'Trung bình', productType: 'Phiếu chi', unit: 'Phiếu' },
+    { code: 'TQ06', name: 'Kiểm kê quỹ', score: 8, nature: 'Trung bình', productType: 'Biên bản', unit: 'Biên bản' }
+  ],
+  'Kế toán nội bộ': [
+    { code: 'KT01', name: 'Thanh toán công tác', score: 8, nature: 'Trung bình', productType: 'Hồ sơ', unit: 'Hồ sơ' },
+    { code: 'KT02', name: 'Thanh toán tiếp khách', score: 8, nature: 'Trung bình', productType: 'Hồ sơ', unit: 'Hồ sơ' },
+    { code: 'KT03', name: 'Thanh toán chi mua sắm, sửa chữa', score: 8, nature: 'Trung bình', productType: 'Hồ sơ', unit: 'Hồ sơ' },
+    { code: 'KT04', name: 'Thanh toán lương, bảo hiểm, phúc lợi', score: 10, nature: 'Trung bình', productType: 'Bảng lương', unit: 'Bảng' },
+    { code: 'KT05', name: 'Quyết toán thuế cơ quan, cá nhân', score: 15, nature: 'Rất phức tạp', productType: 'Tờ khai', unit: 'Bộ' }
   ],
   'Hành chính - tổng hợp': [
     { code: 'HC01', name: 'Soạn thảo văn bản, tờ trình, công văn đi/đến', score: 8, nature: 'Trung bình', productType: 'Văn bản', unit: 'Văn bản' },

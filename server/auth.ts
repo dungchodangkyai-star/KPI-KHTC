@@ -3,6 +3,7 @@ import express from 'express';
 import { db } from '../src/db/index.ts';
 import { users } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
+import { logActivity, removeSession, getClientIp } from './onlineTracker.ts';
 
 export const DEFAULT_INITIAL_PASSWORD = '123456@';
 export const ADMIN_EMAIL = 'khvanson@gmail.com';
@@ -144,6 +145,15 @@ authRouter.post('/login', async (req, res) => {
       lastLoginAt: new Date().toISOString()
     };
 
+    // Log login activity
+    await logActivity({
+      userId: Number(user.id),
+      action: 'ĐĂNG_NHẬP',
+      target: user.name,
+      result: 'Thành công',
+      note: `Đăng nhập hệ thống từ IP: ${getClientIp(req)}`,
+    });
+
     return res.json({
       success: true,
       message: mustChange ? 'Đăng nhập thành công. Vui lòng đổi mật khẩu cho lần đầu truy cập!' : 'Đăng nhập thành công!',
@@ -256,7 +266,22 @@ authRouter.post('/reset-password', async (req, res) => {
 
 // 4. LOGOUT ENDPOINT
 authRouter.post('/logout', async (req, res) => {
-  return res.json({ success: true, message: 'Đăng xuất thành công.' });
+  try {
+    const { userId } = req.body;
+    if (userId) {
+      removeSession(Number(userId));
+      await logActivity({
+        userId: Number(userId),
+        action: 'ĐĂNG_XUẤT',
+        result: 'Thành công',
+        note: 'Người dùng đăng xuất khỏi hệ thống',
+      });
+    }
+    return res.json({ success: true, message: 'Đăng xuất thành công.' });
+  } catch (err) {
+    console.error('Logout handler error:', err);
+    return res.json({ success: true, message: 'Đã đăng xuất.' });
+  }
 });
 
 // 5. REGISTER ACCOUNT REQUEST (For new employees)
