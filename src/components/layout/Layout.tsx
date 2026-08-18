@@ -19,6 +19,7 @@ import {
   ADMIN_EMAIL,
   cleanPosition
 } from '../../utils';
+import { useOrgConfig } from '../../contexts/OrgContext';
 
 const allNavGroups = [
   {
@@ -84,6 +85,7 @@ const allNavGroups = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { orgConfig } = useOrgConfig();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userList, setUserList] = useState<any[]>([]);
   const [showSwitchMenu, setShowSwitchMenu] = useState(false);
@@ -311,12 +313,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <aside className="w-[285px] flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print">
         {/* Sidebar Header Brand */}
         <div className="p-4 bg-gradient-to-br from-[#1F4E78] to-[#173a5a] text-white flex items-center gap-3 border-b border-[#173a5a] shadow-xs">
-          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-base text-white shrink-0 shadow-inner">
-            KPI
+          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-xs text-white shrink-0 shadow-inner tracking-wider uppercase">
+            {orgConfig.shortName && orgConfig.shortName.length <= 4 ? orgConfig.shortName : 'KPI'}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="font-black text-sm tracking-tight text-white truncate">PHÒNG KẾ HOẠCH - TC</span>
-            <span className="text-[11px] text-blue-200 font-semibold truncate">Hệ thống điều hành & KPI</span>
+            <span className="font-black text-sm tracking-tight text-white uppercase truncate" title={orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}>
+              {orgConfig.departmentName ? orgConfig.departmentName.toUpperCase() : 'PHÒNG KẾ HOẠCH - TÀI CHÍNH'}
+            </span>
+            <span className="text-[11px] text-blue-200 font-semibold truncate">
+              Hệ thống điều hành & KPI
+            </span>
           </div>
         </div>
 
@@ -413,7 +419,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-center">
-          <p className="text-[10px] font-semibold text-slate-600">© 2026 Quản lý công việc & KPI Đắk Lắk</p>
+          <p className="text-[10px] font-semibold text-slate-600">© 2026 {orgConfig.footerNote || 'Quản lý công việc & Đánh giá KPI'}</p>
           <p className="text-[10px] text-slate-500">Tác giả: Khuất Văn Sơn ({ADMIN_EMAIL})</p>
         </div>
       </aside>
@@ -426,14 +432,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           
           <div className="flex flex-col pt-0.5">
             <span className="text-[11px] font-extrabold text-slate-600 tracking-wide uppercase">
-              Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk
+              {orgConfig.parentAgency || 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk'}
             </span>
             <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5">
-              HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI
+              {orgConfig.systemTitle || 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI'}
             </span>
             <span className="text-xs font-bold text-[#1F4E78] mt-0.5 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-              Phòng Kế hoạch - Tài chính
+              {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}
+              {orgConfig.shortName && (
+                <span className="text-[10px] font-extrabold bg-blue-50 text-[#1F4E78] px-1.5 py-0.2 rounded border border-blue-200">
+                  {orgConfig.shortName}
+                </span>
+              )}
             </span>
           </div>
           

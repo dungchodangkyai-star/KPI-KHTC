@@ -2,80 +2,272 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Filter, RefreshCw, CheckCircle2, Clock, AlertCircle, 
   Calendar, User, ChevronRight, FileText, ExternalLink, Edit3, 
-  Check, X, AlertTriangle, Briefcase, Plus, Send, Info, Eye
+  Check, X, AlertTriangle, Briefcase, Plus, Send, Info, Eye,
+  ClipboardList, Flame, CalendarClock, Inbox, PlayCircle, FileQuestion,
+  Paperclip, ShieldAlert, FilePlus2, XCircle, AlertOctagon, History,
+  FileEdit, FileX, ArrowUpRight, CheckCheck, Sparkles, Layers,
+  ListTodo, CheckSquare, BellRing, TrendingUp, Zap
 } from 'lucide-react';
 import { STANDARD_MONTHS, formatScore } from '../utils';
 
 interface MetricCardProps {
   id: string;
   title: string;
+  subtitle?: string;
   value: number;
   isActive: boolean;
   onClickDetail: () => void;
-  colorClass?: string;
-  danger?: boolean;
-  warning?: boolean;
-  success?: boolean;
+  icon: React.ReactNode;
+  theme: 'blue' | 'rose' | 'red' | 'amber' | 'yellow' | 'orange' | 'sky' | 'purple' | 'indigo' | 'teal' | 'slate' | 'emerald';
+  badgeLabel?: string;
 }
+
+const themeStyles = {
+  blue: {
+    bgLight: 'bg-blue-50/80',
+    border: 'border-blue-200/80',
+    borderHover: 'hover:border-blue-400 hover:shadow-blue-500/10',
+    iconBg: 'bg-blue-100 text-blue-700 border-blue-200',
+    textNum: 'text-blue-900',
+    textActive: 'text-blue-700',
+    activeBg: 'bg-blue-50/90 border-blue-600 ring-2 ring-blue-500/30',
+    badge: 'bg-blue-100 text-blue-800 border-blue-200',
+    btnActive: 'bg-[#1F4E78] text-white',
+    btnIdle: 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200',
+    accentBar: 'bg-blue-600'
+  },
+  rose: {
+    bgLight: 'bg-rose-50/70',
+    border: 'border-rose-200/80',
+    borderHover: 'hover:border-rose-400 hover:shadow-rose-500/10',
+    iconBg: 'bg-rose-100 text-rose-700 border-rose-200',
+    textNum: 'text-rose-900',
+    textActive: 'text-rose-700',
+    activeBg: 'bg-rose-50/90 border-rose-600 ring-2 ring-rose-500/30',
+    badge: 'bg-rose-100 text-rose-800 border-rose-200',
+    btnActive: 'bg-rose-700 text-white',
+    btnIdle: 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200',
+    accentBar: 'bg-rose-600'
+  },
+  red: {
+    bgLight: 'bg-red-50/70',
+    border: 'border-red-200/80',
+    borderHover: 'hover:border-red-400 hover:shadow-red-500/10',
+    iconBg: 'bg-red-100 text-red-700 border-red-200',
+    textNum: 'text-red-900',
+    textActive: 'text-red-700',
+    activeBg: 'bg-red-50/90 border-red-600 ring-2 ring-red-500/30',
+    badge: 'bg-red-100 text-red-800 border-red-200',
+    btnActive: 'bg-red-700 text-white',
+    btnIdle: 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200',
+    accentBar: 'bg-red-600'
+  },
+  amber: {
+    bgLight: 'bg-amber-50/70',
+    border: 'border-amber-200/80',
+    borderHover: 'hover:border-amber-400 hover:shadow-amber-500/10',
+    iconBg: 'bg-amber-100 text-amber-800 border-amber-200',
+    textNum: 'text-amber-900',
+    textActive: 'text-amber-800',
+    activeBg: 'bg-amber-50/90 border-amber-600 ring-2 ring-amber-500/30',
+    badge: 'bg-amber-100 text-amber-800 border-amber-200',
+    btnActive: 'bg-amber-700 text-white',
+    btnIdle: 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200',
+    accentBar: 'bg-amber-600'
+  },
+  yellow: {
+    bgLight: 'bg-yellow-50/70',
+    border: 'border-yellow-200/80',
+    borderHover: 'hover:border-yellow-400 hover:shadow-yellow-500/10',
+    iconBg: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    textNum: 'text-yellow-950',
+    textActive: 'text-yellow-800',
+    activeBg: 'bg-yellow-50/90 border-yellow-600 ring-2 ring-yellow-500/30',
+    badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    btnActive: 'bg-yellow-700 text-white',
+    btnIdle: 'bg-yellow-50 hover:bg-yellow-100 text-yellow-900 border-yellow-200',
+    accentBar: 'bg-yellow-500'
+  },
+  orange: {
+    bgLight: 'bg-orange-50/70',
+    border: 'border-orange-200/80',
+    borderHover: 'hover:border-orange-400 hover:shadow-orange-500/10',
+    iconBg: 'bg-orange-100 text-orange-800 border-orange-200',
+    textNum: 'text-orange-950',
+    textActive: 'text-orange-800',
+    activeBg: 'bg-orange-50/90 border-orange-600 ring-2 ring-orange-500/30',
+    badge: 'bg-orange-100 text-orange-800 border-orange-200',
+    btnActive: 'bg-orange-700 text-white',
+    btnIdle: 'bg-orange-50 hover:bg-orange-100 text-orange-900 border-orange-200',
+    accentBar: 'bg-orange-600'
+  },
+  sky: {
+    bgLight: 'bg-sky-50/70',
+    border: 'border-sky-200/80',
+    borderHover: 'hover:border-sky-400 hover:shadow-sky-500/10',
+    iconBg: 'bg-sky-100 text-sky-700 border-sky-200',
+    textNum: 'text-sky-900',
+    textActive: 'text-sky-700',
+    activeBg: 'bg-sky-50/90 border-sky-600 ring-2 ring-sky-500/30',
+    badge: 'bg-sky-100 text-sky-800 border-sky-200',
+    btnActive: 'bg-sky-700 text-white',
+    btnIdle: 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200',
+    accentBar: 'bg-sky-600'
+  },
+  purple: {
+    bgLight: 'bg-purple-50/70',
+    border: 'border-purple-200/80',
+    borderHover: 'hover:border-purple-400 hover:shadow-purple-500/10',
+    iconBg: 'bg-purple-100 text-purple-800 border-purple-200',
+    textNum: 'text-purple-950',
+    textActive: 'text-purple-800',
+    activeBg: 'bg-purple-50/90 border-purple-600 ring-2 ring-purple-500/30',
+    badge: 'bg-purple-100 text-purple-800 border-purple-200',
+    btnActive: 'bg-purple-700 text-white',
+    btnIdle: 'bg-purple-50 hover:bg-purple-100 text-purple-900 border-purple-200',
+    accentBar: 'bg-purple-600'
+  },
+  indigo: {
+    bgLight: 'bg-indigo-50/70',
+    border: 'border-indigo-200/80',
+    borderHover: 'hover:border-indigo-400 hover:shadow-indigo-500/10',
+    iconBg: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+    textNum: 'text-indigo-900',
+    textActive: 'text-indigo-700',
+    activeBg: 'bg-indigo-50/90 border-indigo-600 ring-2 ring-indigo-500/30',
+    badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    btnActive: 'bg-indigo-700 text-white',
+    btnIdle: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200',
+    accentBar: 'bg-indigo-600'
+  },
+  teal: {
+    bgLight: 'bg-teal-50/70',
+    border: 'border-teal-200/80',
+    borderHover: 'hover:border-teal-400 hover:shadow-teal-500/10',
+    iconBg: 'bg-teal-100 text-teal-700 border-teal-200',
+    textNum: 'text-teal-900',
+    textActive: 'text-teal-700',
+    activeBg: 'bg-teal-50/90 border-teal-600 ring-2 ring-teal-500/30',
+    badge: 'bg-teal-100 text-teal-800 border-teal-200',
+    btnActive: 'bg-teal-700 text-white',
+    btnIdle: 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-200',
+    accentBar: 'bg-teal-600'
+  },
+  emerald: {
+    bgLight: 'bg-emerald-50/70',
+    border: 'border-emerald-200/80',
+    borderHover: 'hover:border-emerald-400 hover:shadow-emerald-500/10',
+    iconBg: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    textNum: 'text-emerald-900',
+    textActive: 'text-emerald-700',
+    activeBg: 'bg-emerald-50/90 border-emerald-600 ring-2 ring-emerald-500/30',
+    badge: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    btnActive: 'bg-emerald-700 text-white',
+    btnIdle: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200',
+    accentBar: 'bg-emerald-600'
+  },
+  slate: {
+    bgLight: 'bg-slate-50/80',
+    border: 'border-slate-300',
+    borderHover: 'hover:border-slate-400 hover:shadow-slate-500/10',
+    iconBg: 'bg-slate-200 text-slate-700 border-slate-300',
+    textNum: 'text-slate-900',
+    textActive: 'text-slate-800',
+    activeBg: 'bg-slate-100 border-slate-600 ring-2 ring-slate-400/30',
+    badge: 'bg-slate-200 text-slate-800 border-slate-300',
+    btnActive: 'bg-slate-800 text-white',
+    btnIdle: 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300',
+    accentBar: 'bg-slate-500'
+  }
+};
 
 const MetricCard = ({ 
   id,
   title, 
+  subtitle,
   value, 
   isActive, 
   onClickDetail, 
-  colorClass = "text-[#1F4E78]", 
-  danger = false,
-  warning = false,
-  success = false 
+  icon,
+  theme = 'blue',
+  badgeLabel
 }: MetricCardProps) => {
-  let borderClass = 'border-slate-300';
-  let badgeColor = colorClass;
-  let bgHover = 'hover:border-slate-400';
-
-  if (isActive) {
-    borderClass = 'border-[#1F4E78] ring-2 ring-[#1F4E78]/30 bg-blue-50/80 shadow-md';
-  } else if (danger && value > 0) {
-    borderClass = 'border-l-4 border-l-red-600 border-slate-300 bg-red-50/20';
-    badgeColor = 'text-red-700';
-  } else if (warning && value > 0) {
-    borderClass = 'border-l-4 border-l-amber-600 border-slate-300 bg-amber-50/20';
-    badgeColor = 'text-amber-800';
-  } else if (success && value > 0) {
-    borderClass = 'border-l-4 border-l-emerald-600 border-slate-300 bg-emerald-50/20';
-    badgeColor = 'text-emerald-800';
-  }
+  const t = themeStyles[theme] || themeStyles.blue;
+  const isZero = value === 0;
 
   return (
     <div 
       id={id}
       onClick={onClickDetail}
-      className={`bg-white border p-4 rounded-xl flex flex-col justify-between min-h-[135px] shadow-2xs transition-all duration-200 cursor-pointer ${borderClass} ${bgHover} hover:shadow-sm`}
+      className={`group relative overflow-hidden rounded-2xl border p-4 flex flex-col justify-between min-h-[148px] transition-all duration-200 cursor-pointer shadow-xs ${
+        isActive 
+          ? `${t.activeBg} shadow-md -translate-y-0.5` 
+          : `bg-white ${t.border} ${t.borderHover} hover:-translate-y-0.5 hover:shadow-sm`
+      }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-extrabold text-slate-900 leading-snug">{title}</span>
-        {isActive && (
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1F4E78] shrink-0 mt-0.5"></span>
+      {/* Top Left Accent bar when active */}
+      {isActive && (
+        <div className={`absolute top-0 left-0 right-0 h-1 ${t.accentBar}`} />
+      )}
+
+      <div>
+        {/* Top Header with Icon & Badge */}
+        <div className="flex items-start justify-between gap-2.5 mb-2">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border transition-transform duration-200 group-hover:scale-105 ${t.iconBg} shadow-2xs`}>
+            {icon}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {badgeLabel && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${t.badge}`}>
+                {badgeLabel}
+              </span>
+            )}
+            {isActive && (
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${t.accentBar}`}></span>
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${t.accentBar}`}></span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Title */}
+        <h4 className="text-[13px] font-extrabold text-slate-800 leading-snug group-hover:text-slate-950 transition-colors line-clamp-2">
+          {title}
+        </h4>
+        {subtitle && (
+          <p className="text-[11px] font-medium text-slate-600 mt-0.5 line-clamp-1">
+            {subtitle}
+          </p>
         )}
       </div>
-      <div className="flex items-baseline justify-between mt-2">
-        <span className={`text-[30px] font-black tracking-tight leading-none ${badgeColor}`}>
-          {value}
-        </span>
+
+      {/* Number Value & Action Button */}
+      <div className="flex items-end justify-between mt-3 pt-2 border-t border-slate-100">
+        <div className="flex items-baseline gap-1">
+          <span className={`text-2xl sm:text-[28px] font-black tracking-tight leading-none ${
+            isZero ? 'text-slate-400 font-semibold' : (isActive ? t.textActive : t.textNum)
+          }`}>
+            {value}
+          </span>
+          {!isZero && (
+            <span className="text-[10px] font-bold text-slate-600 uppercase">mục</span>
+          )}
+        </div>
+
         <button 
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onClickDetail();
           }}
-          className={`px-3 py-1 text-xs font-black rounded-lg transition-colors flex items-center gap-1 ${
-            isActive 
-              ? 'bg-[#1F4E78] text-white shadow-2xs' 
-              : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+          className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition-all flex items-center gap-1 shadow-2xs border ${
+            isActive ? `${t.btnActive} border-transparent` : `${t.btnIdle}`
           }`}
         >
           <span>Xem</span>
-          <ChevronRight className="w-3 h-3" />
+          <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
         </button>
       </div>
     </div>
@@ -534,186 +726,373 @@ export default function Monitor() {
         </div>
       </div>
 
+      {/* Executive Quick Stats Banner */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* Banner 1: Tổng việc */}
+        <div 
+          onClick={() => handleCardClick('TOTAL')}
+          className="bg-gradient-to-br from-blue-500 to-[#1F4E78] text-white p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+        >
+          <div>
+            <span className="text-xs font-extrabold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
+              <ClipboardList className="w-3.5 h-3.5" />
+              Tổng việc theo dõi
+            </span>
+            <div className="text-2xl font-black mt-1 group-hover:scale-105 transition-transform">
+              {workStats.total} <span className="text-xs font-semibold text-blue-200">công việc</span>
+            </div>
+            <span className="text-[11px] text-blue-100 font-medium">Toàn phòng trong kỳ</span>
+          </div>
+          <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center border border-white/20">
+            <TrendingUp className="w-6 h-6 text-white" />
+          </div>
+        </div>
+
+        {/* Banner 2: Cảnh báo tiến độ */}
+        <div 
+          onClick={() => handleCardClick(workStats.overdue > 0 ? 'OVERDUE' : 'DUE_TODAY')}
+          className={`p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between border group ${
+            workStats.overdue > 0 
+              ? 'bg-red-50 border-red-200 text-red-950' 
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          <div>
+            <span className={`text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
+              workStats.overdue > 0 ? 'text-red-700' : 'text-slate-600'
+            }`}>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Cảnh báo tiến độ
+            </span>
+            <div className="text-2xl font-black mt-1 group-hover:scale-105 transition-transform flex items-baseline gap-1.5">
+              <span className={workStats.overdue > 0 ? 'text-red-700' : 'text-slate-900'}>
+                {workStats.overdue + workStats.dueToday}
+              </span>
+              <span className="text-xs font-bold text-slate-600">
+                ({workStats.overdue} trễ | {workStats.dueToday} hôm nay)
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-600 font-medium">Cần đôn đốc xử lý ngay</span>
+          </div>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center border ${
+            workStats.overdue > 0 
+              ? 'bg-red-100 text-red-700 border-red-200 animate-pulse' 
+              : 'bg-slate-100 text-slate-600 border-slate-200'
+          }`}>
+            <BellRing className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Banner 3: Chờ duyệt */}
+        <div 
+          onClick={() => handleCardClick('PENDING_APPROVAL')}
+          className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+        >
+          <div>
+            <span className="text-xs font-extrabold uppercase tracking-wider text-teal-800 flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Chờ Lãnh đạo duyệt
+            </span>
+            <div className="text-2xl font-black mt-1 text-slate-900 group-hover:scale-105 transition-transform flex items-baseline gap-1.5">
+              <span className="text-teal-800">{workStats.pendingApproval + otStats.otPending}</span>
+              <span className="text-xs font-bold text-slate-600">
+                ({workStats.pendingApproval} việc | {otStats.otPending} OT)
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-600 font-medium">Cần thẩm định phê duyệt</span>
+          </div>
+          <div className="w-11 h-11 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 flex items-center justify-center">
+            <CheckSquare className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Banner 4: Làm thêm ngoài giờ */}
+        <div 
+          onClick={() => handleCardClick('OT_TOTAL')}
+          className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+        >
+          <div>
+            <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5" />
+              Làm thêm ngoài giờ
+            </span>
+            <div className="text-2xl font-black mt-1 text-slate-900 group-hover:scale-105 transition-transform flex items-baseline gap-1.5">
+              <span className="text-indigo-800">{otStats.otTotal}</span>
+              <span className="text-xs font-bold text-slate-600">
+                ({otStats.otApproved} đã duyệt)
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-600 font-medium">Hồ sơ đăng ký thực tế</span>
+          </div>
+          <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center">
+            <Clock className="w-6 h-6" />
+          </div>
+        </div>
+      </div>
+
       {/* SECTION 1: 13 Metric Cards - Báo cáo điều hành công việc */}
       <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-[#1F4E78]"></span>
-            <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight">
-              Báo cáo điều hành công việc
-            </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center text-[#1F4E78] shadow-2xs">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight flex items-center gap-2">
+                <span>Báo cáo điều hành công việc</span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-50 text-[#1F4E78] border border-blue-200 normal-case">
+                  13 chỉ số giám sát
+                </span>
+              </h3>
+              <p className="text-xs font-medium text-slate-600 mt-0.5">
+                Nhấn vào từng thẻ để lọc danh sách chi tiết và thao tác phê duyệt trực tiếp bên dưới.
+              </p>
+            </div>
           </div>
-          <span className="text-xs font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
-            Tháng: <b className="text-[#1F4E78]">{selectedMonth}</b> | Nhân sự: <b className="text-[#1F4E78]">{selectedEmployee}</b>
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+              Tháng: <b className="text-[#1F4E78]">{selectedMonth}</b> | Nhân sự: <b className="text-[#1F4E78]">{selectedEmployee}</b>
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
           <MetricCard 
             id="card-total"
-            title="Tổng việc đang theo dõi" 
+            title="Tổng việc theo dõi"
+            subtitle="Toàn bộ đầu việc trong kỳ" 
             value={workStats.total} 
             isActive={monitorType === 'TOTAL'}
-            onClickDetail={() => handleCardClick('TOTAL')} 
+            onClickDetail={() => handleCardClick('TOTAL')}
+            icon={<ClipboardList className="w-5 h-5" />}
+            theme="blue"
+            badgeLabel="Tổng quan"
           />
           <MetricCard 
             id="card-need-action"
-            title="Việc cần xử lý" 
+            title="Việc cần xử lý"
+            subtitle="Chưa xong / Cần thao tác"
             value={workStats.needAction} 
-            danger={workStats.needAction > 0} 
             isActive={monitorType === 'NEED_ACTION'}
-            onClickDetail={() => handleCardClick('NEED_ACTION')} 
+            onClickDetail={() => handleCardClick('NEED_ACTION')}
+            icon={<Flame className="w-5 h-5" />}
+            theme="rose"
+            badgeLabel={workStats.needAction > 0 ? "Cần xử lý" : undefined}
           />
           <MetricCard 
             id="card-overdue"
-            title="Quá hạn" 
+            title="Quá hạn hoàn thành"
+            subtitle="Trễ hạn theo quy định"
             value={workStats.overdue} 
-            danger={workStats.overdue > 0} 
             isActive={monitorType === 'OVERDUE'}
-            onClickDetail={() => handleCardClick('OVERDUE')} 
+            onClickDetail={() => handleCardClick('OVERDUE')}
+            icon={<AlertCircle className="w-5 h-5" />}
+            theme="red"
+            badgeLabel={workStats.overdue > 0 ? "Quá hạn" : undefined}
           />
           <MetricCard 
             id="card-due-today"
-            title="Đến hạn hôm nay" 
+            title="Đến hạn hôm nay"
+            subtitle="Hạn chót trong ngày"
             value={workStats.dueToday} 
-            warning={workStats.dueToday > 0} 
             isActive={monitorType === 'DUE_TODAY'}
-            onClickDetail={() => handleCardClick('DUE_TODAY')} 
+            onClickDetail={() => handleCardClick('DUE_TODAY')}
+            icon={<CalendarClock className="w-5 h-5" />}
+            theme="amber"
+            badgeLabel={workStats.dueToday > 0 ? "Hôm nay" : undefined}
           />
           <MetricCard 
             id="card-due-soon"
-            title="Sắp đến hạn" 
+            title="Sắp đến hạn"
+            subtitle="Hạn trong 1-2 ngày tới"
             value={workStats.dueSoon} 
             isActive={monitorType === 'DUE_SOON'}
-            onClickDetail={() => handleCardClick('DUE_SOON')} 
+            onClickDetail={() => handleCardClick('DUE_SOON')}
+            icon={<Clock className="w-5 h-5" />}
+            theme="yellow"
+            badgeLabel={workStats.dueSoon > 0 ? "1-2 ngày" : undefined}
           />
           <MetricCard 
             id="card-not-accepted"
-            title="Chưa nhận việc" 
+            title="Chưa nhận việc"
+            subtitle="Nhiệm vụ giao chưa xem"
             value={workStats.notAccepted} 
-            warning={workStats.notAccepted > 0} 
             isActive={monitorType === 'NOT_ACCEPTED'}
-            onClickDetail={() => handleCardClick('NOT_ACCEPTED')} 
+            onClickDetail={() => handleCardClick('NOT_ACCEPTED')}
+            icon={<Inbox className="w-5 h-5" />}
+            theme="orange"
+            badgeLabel={workStats.notAccepted > 0 ? "Chưa nhận" : undefined}
           />
           <MetricCard 
             id="card-accepted-in-progress"
-            title="Đã nhận - đang triển khai" 
+            title="Đã nhận - đang làm"
+            subtitle="Đang tiến hành triển khai"
             value={workStats.acceptedInProgress} 
-            success={workStats.acceptedInProgress > 0}
             isActive={monitorType === 'ACCEPTED_IN_PROGRESS'}
-            onClickDetail={() => handleCardClick('ACCEPTED_IN_PROGRESS')} 
+            onClickDetail={() => handleCardClick('ACCEPTED_IN_PROGRESS')}
+            icon={<PlayCircle className="w-5 h-5" />}
+            theme="sky"
+            badgeLabel="Đang làm"
           />
           <MetricCard 
             id="card-accepted-no-kh"
-            title="Đã nhận nhưng chưa có KH" 
+            title="Đã nhận - chưa có KH"
+            subtitle="Chưa lập kế hoạch chi tiết"
             value={workStats.acceptedNoKh} 
-            danger={workStats.acceptedNoKh > 0} 
             isActive={monitorType === 'ACCEPTED_NO_KH'}
-            onClickDetail={() => handleCardClick('ACCEPTED_NO_KH')} 
+            onClickDetail={() => handleCardClick('ACCEPTED_NO_KH')}
+            icon={<FileQuestion className="w-5 h-5" />}
+            theme="purple"
+            badgeLabel={workStats.acceptedNoKh > 0 ? "Thiếu KH" : undefined}
           />
           <MetricCard 
             id="card-no-evidence"
-            title="Chưa cập nhật minh chứng" 
+            title="Chưa có minh chứng"
+            subtitle="Thiếu link Drive/sản phẩm"
             value={workStats.noEvidence} 
-            warning={workStats.noEvidence > 0} 
             isActive={monitorType === 'NO_EVIDENCE'}
-            onClickDetail={() => handleCardClick('NO_EVIDENCE')} 
+            onClickDetail={() => handleCardClick('NO_EVIDENCE')}
+            icon={<Paperclip className="w-5 h-5" />}
+            theme="indigo"
+            badgeLabel={workStats.noEvidence > 0 ? "Thiếu MC" : undefined}
           />
           <MetricCard 
             id="card-pending-approval"
-            title="Chờ duyệt" 
+            title="Chờ phê duyệt"
+            subtitle="Chờ Lãnh đạo duyệt việc"
             value={workStats.pendingApproval} 
             isActive={monitorType === 'PENDING_APPROVAL'}
-            onClickDetail={() => handleCardClick('PENDING_APPROVAL')} 
+            onClickDetail={() => handleCardClick('PENDING_APPROVAL')}
+            icon={<ShieldAlert className="w-5 h-5" />}
+            theme="teal"
+            badgeLabel="Chờ duyệt"
           />
           <MetricCard 
             id="card-need-supplement"
-            title="Cần bổ sung" 
+            title="Cần bổ sung hồ sơ"
+            subtitle="Yêu cầu sửa / bổ sung MC"
             value={workStats.needSupplement} 
-            danger={workStats.needSupplement > 0} 
             isActive={monitorType === 'NEED_SUPPLEMENT'}
-            onClickDetail={() => handleCardClick('NEED_SUPPLEMENT')} 
+            onClickDetail={() => handleCardClick('NEED_SUPPLEMENT')}
+            icon={<FilePlus2 className="w-5 h-5" />}
+            theme="amber"
+            badgeLabel={workStats.needSupplement > 0 ? "Bổ sung" : undefined}
           />
           <MetricCard 
             id="card-rejected"
-            title="Không duyệt / cần làm lại" 
+            title="Không duyệt / làm lại"
+            subtitle="Bị từ chối duyệt công việc"
             value={workStats.rejected} 
-            danger={workStats.rejected > 0} 
             isActive={monitorType === 'REJECTED'}
-            onClickDetail={() => handleCardClick('REJECTED')} 
+            onClickDetail={() => handleCardClick('REJECTED')}
+            icon={<XCircle className="w-5 h-5" />}
+            theme="rose"
+            badgeLabel={workStats.rejected > 0 ? "Làm lại" : undefined}
           />
           <MetricCard 
             id="card-data-error"
-            title="Dữ liệu lỗi / mồ côi" 
+            title="Dữ liệu lỗi / mồ côi"
+            subtitle="Thiếu nhân sự, tháng, tên"
             value={workStats.dataError} 
-            danger={workStats.dataError > 0} 
             isActive={monitorType === 'DATA_ERROR'}
-            onClickDetail={() => handleCardClick('DATA_ERROR')} 
+            onClickDetail={() => handleCardClick('DATA_ERROR')}
+            icon={<AlertOctagon className="w-5 h-5" />}
+            theme="slate"
+            badgeLabel={workStats.dataError > 0 ? "Lỗi dữ liệu" : undefined}
           />
         </div>
       </div>
 
       {/* SECTION 2: 6 Metric Cards - Theo dõi làm thêm ngoài giờ */}
       <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-amber-600"></span>
-            <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight">
-              Theo dõi làm thêm ngoài giờ
-            </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800 shadow-2xs">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-base sm:text-lg uppercase tracking-tight flex items-center gap-2">
+                <span>Theo dõi làm thêm ngoài giờ</span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 normal-case">
+                  6 chỉ số OT
+                </span>
+              </h3>
+              <p className="text-xs font-medium text-slate-600 mt-0.5">
+                Dữ liệu đọc trực tiếp từ hồ sơ đăng ký làm thêm thực tế của toàn phòng.
+              </p>
+            </div>
           </div>
-          <span className="text-xs font-bold text-slate-600 italic bg-amber-50 px-3 py-1 rounded-lg border border-amber-200">
-            Dữ liệu đọc trực tiếp từ hồ sơ đăng ký làm thêm thực tế
+          <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 shadow-2xs self-start sm:self-auto">
+            Hồ sơ làm thêm thực tế
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
           <MetricCard 
             id="card-ot-total"
-            title="Tổng đăng ký làm thêm" 
+            title="Tổng đăng ký OT"
+            subtitle="Toàn bộ hồ sơ đăng ký"
             value={otStats.otTotal} 
             isActive={monitorType === 'OT_TOTAL'}
-            onClickDetail={() => handleCardClick('OT_TOTAL')} 
+            onClickDetail={() => handleCardClick('OT_TOTAL')}
+            icon={<History className="w-5 h-5" />}
+            theme="indigo"
+            badgeLabel="Tổng số"
           />
           <MetricCard 
             id="card-ot-pending"
-            title="Chờ duyệt làm thêm" 
+            title="Chờ duyệt OT"
+            subtitle="Chờ Lãnh đạo thẩm duyệt"
             value={otStats.otPending} 
-            warning={otStats.otPending > 0} 
             isActive={monitorType === 'OT_PENDING'}
-            onClickDetail={() => handleCardClick('OT_PENDING')} 
+            onClickDetail={() => handleCardClick('OT_PENDING')}
+            icon={<Clock className="w-5 h-5" />}
+            theme="amber"
+            badgeLabel={otStats.otPending > 0 ? "Chờ duyệt" : undefined}
           />
           <MetricCard 
             id="card-ot-need-supplement"
-            title="Cần bổ sung làm thêm" 
+            title="Cần bổ sung OT"
+            subtitle="Yêu cầu bổ sung tài liệu"
             value={otStats.otNeedSupplement} 
-            danger={otStats.otNeedSupplement > 0} 
             isActive={monitorType === 'OT_NEED_SUPPLEMENT'}
-            onClickDetail={() => handleCardClick('OT_NEED_SUPPLEMENT')} 
+            onClickDetail={() => handleCardClick('OT_NEED_SUPPLEMENT')}
+            icon={<FileEdit className="w-5 h-5" />}
+            theme="orange"
+            badgeLabel={otStats.otNeedSupplement > 0 ? "Bổ sung" : undefined}
           />
           <MetricCard 
             id="card-ot-approved"
-            title="Làm thêm đã duyệt" 
+            title="OT đã duyệt"
+            subtitle="Đã chấp thuận số giờ"
             value={otStats.otApproved} 
-            success={otStats.otApproved > 0} 
             isActive={monitorType === 'OT_APPROVED'}
-            onClickDetail={() => handleCardClick('OT_APPROVED')} 
+            onClickDetail={() => handleCardClick('OT_APPROVED')}
+            icon={<CheckCircle2 className="w-5 h-5" />}
+            theme="emerald"
+            badgeLabel="Đã duyệt"
           />
           <MetricCard 
             id="card-ot-rejected"
-            title="Làm thêm không duyệt" 
+            title="OT không duyệt"
+            subtitle="Từ chối hồ sơ làm thêm"
             value={otStats.otRejected} 
-            danger={otStats.otRejected > 0} 
             isActive={monitorType === 'OT_REJECTED'}
-            onClickDetail={() => handleCardClick('OT_REJECTED')} 
+            onClickDetail={() => handleCardClick('OT_REJECTED')}
+            icon={<XCircle className="w-5 h-5" />}
+            theme="red"
+            badgeLabel={otStats.otRejected > 0 ? "Từ chối" : undefined}
           />
           <MetricCard 
             id="card-ot-no-result"
-            title="Chưa có kết quả / MC" 
+            title="Chưa có kết quả/MC"
+            subtitle="Chưa cập nhật sản phẩm"
             value={otStats.otNoResult} 
-            warning={otStats.otNoResult > 0} 
             isActive={monitorType === 'OT_NO_RESULT'}
-            onClickDetail={() => handleCardClick('OT_NO_RESULT')} 
+            onClickDetail={() => handleCardClick('OT_NO_RESULT')}
+            icon={<FileX className="w-5 h-5" />}
+            theme="purple"
+            badgeLabel={otStats.otNoResult > 0 ? "Thiếu KQ" : undefined}
           />
         </div>
       </div>

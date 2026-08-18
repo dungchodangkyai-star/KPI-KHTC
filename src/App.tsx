@@ -24,6 +24,8 @@ import OtApprove from './pages/OtApprove';
 import Stats from './pages/Stats';
 import DepartmentKpiSummary from './pages/DepartmentKpiSummary';
 
+import { OrgProvider } from './contexts/OrgContext';
+
 function Placeholder({ title }: { title: string }) {
   return (
     <div className="p-4 md:p-8 h-full flex">
@@ -42,45 +44,47 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/monitor" element={<ProtectedRoute><Monitor /></ProtectedRoute>} />
-        <Route path="/input" element={<ProtectedRoute><InputWork /></ProtectedRoute>} />
-        <Route path="/my-works" element={<ProtectedRoute><MyWorks /></ProtectedRoute>} />
-        <Route path="/ot-register" element={<ProtectedRoute><OtRegister /></ProtectedRoute>} />
-        <Route path="/ot-my" element={<ProtectedRoute><OtMy /></ProtectedRoute>} />
-        <Route path="/ot-print" element={<ProtectedRoute><OtPrint /></ProtectedRoute>} />
-        
-        {/* KPI Routes */}
-        <Route path="/self-score-a" element={<ProtectedRoute><SelfScoreA /></ProtectedRoute>} />
-        <Route path="/score-a" element={<Navigate to="/self-score-a" replace />} />
-        <Route path="/kpi" element={<ProtectedRoute><PersonalKpi /></ProtectedRoute>} />
-        <Route path="/print-personal" element={<ProtectedRoute><PrintPersonalKpi /></ProtectedRoute>} />
-        <Route path="/score-acd" element={<ProtectedRoute><ScoreAcd /></ProtectedRoute>} />
-        
-        {/* Operations */}
-        <Route path="/assign" element={<ProtectedRoute><AssignTask /></ProtectedRoute>} />
-        <Route path="/approve" element={<ProtectedRoute><ApproveWork /></ProtectedRoute>} />
-        <Route path="/approve-ot" element={<ProtectedRoute><OtApprove /></ProtectedRoute>} />
-        <Route path="/ot-approve" element={<ProtectedRoute><OtApprove /></ProtectedRoute>} />
-        <Route path="/stats" element={<ProtectedRoute><Stats /></ProtectedRoute>} />
-        <Route path="/department-kpi" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
-        <Route path="/kpi-summary" element={<Navigate to="/department-kpi" replace />} />
-        <Route path="/print-department" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
-        
-        {/* Admin Routes */}
-        <Route path="/ot-summary" element={<ProtectedRoute><OtSummary /></ProtectedRoute>} />
-        <Route path="/admin/online" element={<ProtectedRoute><AdminOnline /></ProtectedRoute>} />
-        <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
-        <Route path="/admin/sync" element={<ProtectedRoute><AdminSync /></ProtectedRoute>} />
-        <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
-        
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <OrgProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/monitor" element={<ProtectedRoute><Monitor /></ProtectedRoute>} />
+          <Route path="/input" element={<ProtectedRoute><InputWork /></ProtectedRoute>} />
+          <Route path="/my-works" element={<ProtectedRoute><MyWorks /></ProtectedRoute>} />
+          <Route path="/ot-register" element={<ProtectedRoute><OtRegister /></ProtectedRoute>} />
+          <Route path="/ot-my" element={<ProtectedRoute><OtMy /></ProtectedRoute>} />
+          <Route path="/ot-print" element={<ProtectedRoute><OtPrint /></ProtectedRoute>} />
+          
+          {/* KPI Routes */}
+          <Route path="/self-score-a" element={<ProtectedRoute><SelfScoreA /></ProtectedRoute>} />
+          <Route path="/score-a" element={<Navigate to="/self-score-a" replace />} />
+          <Route path="/kpi" element={<ProtectedRoute><PersonalKpi /></ProtectedRoute>} />
+          <Route path="/print-personal" element={<ProtectedRoute><PrintPersonalKpi /></ProtectedRoute>} />
+          <Route path="/score-acd" element={<ProtectedRoute><ScoreAcd /></ProtectedRoute>} />
+          
+          {/* Operations */}
+          <Route path="/assign" element={<ProtectedRoute><AssignTask /></ProtectedRoute>} />
+          <Route path="/approve" element={<ProtectedRoute><ApproveWork /></ProtectedRoute>} />
+          <Route path="/approve-ot" element={<ProtectedRoute><OtApprove /></ProtectedRoute>} />
+          <Route path="/ot-approve" element={<Navigate to="/approve-ot" replace />} />
+          <Route path="/stats" element={<ProtectedRoute><Stats /></ProtectedRoute>} />
+          <Route path="/department-kpi" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
+          <Route path="/kpi-summary" element={<Navigate to="/department-kpi" replace />} />
+          <Route path="/print-department" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
+          
+          {/* Admin Routes */}
+          <Route path="/ot-summary" element={<ProtectedRoute><OtSummary /></ProtectedRoute>} />
+          <Route path="/admin/online" element={<ProtectedRoute><AdminOnline /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
+          <Route path="/admin/sync" element={<ProtectedRoute><AdminSync /></ProtectedRoute>} />
+          <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
+          
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </OrgProvider>
   );
 }

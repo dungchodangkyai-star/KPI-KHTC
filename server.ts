@@ -35,6 +35,32 @@ async function startServer() {
   // KPI Router
   app.use("/api/kpi", kpiRouter);
 
+  // System & Org Config route aliases for convenience
+  app.get("/api/system-config", (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/system-config", (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/system-config/reset", (req, res, next) => {
+    req.url = '/org-config/reset';
+    kpiRouter(req, res, next);
+  });
+  app.get("/api/org-config", (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/org-config", (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/org-config/reset", (req, res, next) => {
+    req.url = '/org-config/reset';
+    kpiRouter(req, res, next);
+  });
+
   // KPI Config route aliases for compatibility
   app.get("/api/kpi-config", (req, res, next) => {
     req.url = '/config';

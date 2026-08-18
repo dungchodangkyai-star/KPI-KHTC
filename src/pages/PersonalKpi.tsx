@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { STANDARD_MONTHS, KPI_A_CRITERIA, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, formatPercent, cleanPosition } from '../utils';
+import { useOrgConfig } from '../contexts/OrgContext';
 import {
   Award,
   ChevronDown,
@@ -18,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 
 export default function PersonalKpi() {
   const navigate = useNavigate();
+  const { orgConfig } = useOrgConfig();
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -207,7 +209,7 @@ export default function PersonalKpi() {
               {u?.name || 'Đang tải...'}
             </div>
             <div className="text-xs font-bold text-slate-600">
-              {cleanPosition(u?.position)} • Phòng Kế hoạch - Tài chính
+              {cleanPosition(u?.position)} • {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}
             </div>
           </div>
         </div>

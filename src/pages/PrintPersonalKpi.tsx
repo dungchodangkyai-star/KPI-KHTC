@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { Printer, Download, ArrowLeft, Calendar, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function PrintPersonalKpi() {
   const navigate = useNavigate();
+  const { orgConfig } = useOrgConfig();
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -265,9 +267,8 @@ export default function PrintPersonalKpi() {
             <tbody>
               <tr style={{ border: 'none' }}>
                 <td className="w-1/2 text-center align-top p-0" style={{ border: 'none', textAlign: 'center', verticalAlign: 'top', width: '50%' }}>
-                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('UBND TỈNH ĐẮK LẮK')}</div>
-                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('BAN QLDA ĐẦU TƯ XDCT')}</div>
-                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold' }}>{normalizeNFC('GIAO THÔNG VÀ NÔNG NGHIỆP PTNT')}</div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>{normalizeNFC(orgConfig.parentAgency || 'BAN QUẢN LÝ DỰ ÁN ĐẦU TƯ XDCT')}</div>
+                  <div style={{ fontSize: '10.5pt', fontWeight: 'bold', textTransform: 'uppercase' }}>{normalizeNFC(orgConfig.departmentName || 'PHÒNG KẾ HOẠCH - TÀI CHÍNH')}</div>
                   <div style={{ width: '85px', borderBottom: '1px solid black', margin: '4px auto 0 auto' }}></div>
                 </td>
                 <td className="w-1/2 text-center align-top p-0" style={{ border: 'none', textAlign: 'center', verticalAlign: 'top', width: '50%' }}>
@@ -303,7 +304,7 @@ export default function PrintPersonalKpi() {
             </div>
             <div style={{ display: 'flex', marginBottom: '5px' }}>
               <span style={{ width: '180px', fontWeight: 'bold' }}>{normalizeNFC('Phòng chuyên môn:')}</span>
-              <span>{normalizeNFC('Phòng Kế hoạch - Tài chính')}</span>
+              <span>{normalizeNFC(orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính')}</span>
             </div>
           </div>
 
@@ -459,24 +460,24 @@ export default function PrintPersonalKpi() {
           {/* Signatures Section */}
           <div className="signature-block avoid-page-break" style={{ marginTop: '16px', marginBottom: '0' }}>
             <div style={{ textAlign: 'right', fontStyle: 'italic', fontSize: '11pt', marginBottom: '12px' }}>
-              {normalizeNFC('Đắk Lắk, ngày ...... tháng ...... năm ......')}
+              {normalizeNFC(`${orgConfig.location || 'Đắk Lắk'}, ngày ...... tháng ...... năm ......`)}
             </div>
 
             <table style={{ width: '100%', border: 'none', borderCollapse: 'collapse', textAlign: 'center' }}>
               <tbody>
                 <tr style={{ border: 'none' }}>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
-                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('NGƯỜI TỰ ĐÁNH GIÁ')}</div>
+                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC(orgConfig.creatorTitle || 'NGƯỜI TỰ ĐÁNH GIÁ')}</div>
                     <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
                     <div style={{ fontWeight: 'bold', fontSize: '11pt' }}>{normalizeNFC(u?.name || '')}</div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
-                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('LÃNH ĐẠO PHÒNG')}</div>
+                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC(orgConfig.approverTitle || 'LÃNH ĐẠO PHÒNG')}</div>
                     <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
                     <div style={{ minHeight: '1.4em' }}></div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
-                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC('GIÁM ĐỐC BAN')}</div>
+                    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '11pt' }}>{normalizeNFC(orgConfig.leaderTitle || 'THỦ TRƯỞNG ĐƠN VỊ')}</div>
                     <div style={{ fontStyle: 'italic', fontSize: '10pt', marginBottom: '70px' }}>{normalizeNFC('(Ký, ghi rõ họ tên)')}</div>
                     <div style={{ minHeight: '1.4em' }}></div>
                   </td>

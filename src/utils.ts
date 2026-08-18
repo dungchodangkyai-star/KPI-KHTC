@@ -247,6 +247,126 @@ export const DEFAULT_TASKS: Record<string, Array<{ code: string; name: string; s
   ]
 };
 
+import { OrgConfig } from './types';
+
+export const DEFAULT_ORG_CONFIG: OrgConfig = {
+  parentAgency: 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk',
+  departmentName: 'Phòng Kế hoạch - Tài chính',
+  shortName: 'KHTC',
+  systemTitle: 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI',
+  location: 'Đắk Lắk',
+  creatorTitle: 'NGƯỜI LẬP BIỂU',
+  approverTitle: 'TRƯỞNG PHÒNG',
+  leaderTitle: 'LÃNH ĐẠO BAN',
+  footerNote: 'Hệ thống Quản lý công việc & Đánh giá KPI'
+};
+
+export interface OrgPreset {
+  id: string;
+  name: string;
+  category: string;
+  config: OrgConfig;
+}
+
+export const ORG_CONFIG_PRESETS: OrgPreset[] = [
+  {
+    id: 'bql_khtc',
+    name: 'Ban QLDA ĐTXD — Phòng Kế hoạch - Tài chính',
+    category: 'Ban Quản lý dự án',
+    config: {
+      parentAgency: 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk',
+      departmentName: 'Phòng Kế hoạch - Tài chính',
+      shortName: 'KHTC',
+      systemTitle: 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI',
+      location: 'Đắk Lắk',
+      creatorTitle: 'NGƯỜI LẬP BIỂU',
+      approverTitle: 'TRƯỞNG PHÒNG',
+      leaderTitle: 'LÃNH ĐẠO BAN',
+      footerNote: 'Hệ thống Quản lý công việc & Đánh giá KPI — Phòng KHTC'
+    }
+  },
+  {
+    id: 'bql_kt_td',
+    name: 'Ban QLDA ĐTXD — Phòng Kỹ thuật & Thẩm định',
+    category: 'Ban Quản lý dự án',
+    config: {
+      parentAgency: 'Ban Quản lý dự án ĐTXD Công trình Giao thông và NN PTNT',
+      departmentName: 'Phòng Kỹ thuật & Thẩm định',
+      shortName: 'KTTĐ',
+      systemTitle: 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI',
+      location: 'Đắk Lắk',
+      creatorTitle: 'NGƯỜI LẬP BIỂU',
+      approverTitle: 'TRƯỞNG PHÒNG',
+      leaderTitle: 'GIÁM ĐỐC BAN',
+      footerNote: 'Hệ thống Quản lý công việc & Đánh giá KPI — Phòng Kỹ thuật'
+    }
+  },
+  {
+    id: 'bql_dhda',
+    name: 'Ban QLDA ĐTXD — Phòng Điều hành Dự án',
+    category: 'Ban Quản lý dự án',
+    config: {
+      parentAgency: 'Ban Quản lý dự án Đầu tư Xây dựng Công trình',
+      departmentName: 'Phòng Điều hành Dự án 1',
+      shortName: 'ĐHDA1',
+      systemTitle: 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI',
+      location: 'Đắk Lắk',
+      creatorTitle: 'NGƯỜI LẬP BIỂU',
+      approverTitle: 'TRƯỞNG PHÒNG',
+      leaderTitle: 'LÃNH ĐẠO BAN',
+      footerNote: 'Hệ thống Quản lý tiến độ & KPI Dự án'
+    }
+  },
+  {
+    id: 'so_ban_nganh',
+    name: 'Sở / Ngành / Cơ quan — Phòng Kế hoạch - Tổng hợp',
+    category: 'Cơ quan Nhà nước',
+    config: {
+      parentAgency: 'SỞ GIAO THÔNG VẬN TẢI TỈNH ĐẮK LẮK',
+      departmentName: 'Phòng Kế hoạch - Tổng hợp',
+      shortName: 'KHTH',
+      systemTitle: 'HỆ THỐNG ĐIỀU HÀNH CÔNG VIỆC & ĐÁNH GIÁ KPI',
+      location: 'Đắk Lắk',
+      creatorTitle: 'CHUYÊN VIÊN TỔNG HỢP',
+      approverTitle: 'TRƯỞNG PHÒNG',
+      leaderTitle: 'GIÁM ĐỐC SỞ',
+      footerNote: 'Hệ thống Quản lý công việc & Đánh giá kết quả công tác'
+    }
+  },
+  {
+    id: 'doanh_nghiep',
+    name: 'Doanh nghiệp / Công ty — Phòng Tài chính - Kế toán',
+    category: 'Doanh nghiệp',
+    config: {
+      parentAgency: 'TỔNG CÔNG TY XÂY DỰNG CÔNG TRÌNH',
+      departmentName: 'Phòng Tài chính - Kế toán',
+      shortName: 'TCKT',
+      systemTitle: 'HỆ THỐNG QUẢN TRỊ HIỆU SUẤT & ĐÁNH GIÁ KPI',
+      location: 'TP. Buôn Ma Thuột',
+      creatorTitle: 'NGƯỜI TỔNG HỢP',
+      approverTitle: 'KẾ TOÁN TRƯỞNG / TRƯỞNG PHÒNG',
+      leaderTitle: 'TỔNG GIÁM ĐỐC',
+      footerNote: 'Hệ thống Quản trị hiệu suất & KPI doanh nghiệp'
+    }
+  },
+  {
+    id: 'trung_tam_cntt',
+    name: 'Đơn vị sự nghiệp — Trung tâm CNTT & Chuyển đổi số',
+    category: 'Đơn vị Sự nghiệp',
+    config: {
+      parentAgency: 'TRUNG TÂM CÔNG NGHỆ THÔNG TIN VÀ TRUYỀN THÔNG',
+      departmentName: 'Phòng Phát triển Phần mềm & Chuyển đổi số',
+      shortName: 'CNTT',
+      systemTitle: 'HỆ THỐNG QUẢN LÝ TIẾN ĐỘ & ĐÁNH GIÁ KPI',
+      location: 'Đắk Lắk',
+      creatorTitle: 'NGƯỜI LẬP BÁO CÁO',
+      approverTitle: 'TRƯỞNG PHÒNG',
+      leaderTitle: 'GIÁM ĐỐC TRUNG TÂM',
+      footerNote: 'Hệ thống Quản lý công việc & Hiệu suất'
+    }
+  }
+];
+
 export const DEFAULT_PRODUCT_TYPES = [
   'Báo cáo', 'Văn bản', 'Tờ trình', 'Bảng tổng hợp', 'Hồ sơ thanh toán',
   'Hồ sơ quyết toán', 'Hồ sơ lựa chọn nhà thầu', 'Hồ sơ đền bù/GPMB', 'Biên bản', 'Khác'
@@ -486,6 +606,27 @@ export const getUserPermissionsList = (user: any): string[] => {
   return [];
 };
 
+export const PERMISSION_ALIASES: Record<string, string[]> = {
+  assign_task: ['manage_works', 'assign_task'],
+  manage_works: ['assign_task', 'manage_works'],
+  approve_works: ['approve_works'],
+  approve_ot: ['approve_ot'],
+  evaluate_kpi: ['evaluate_kpi', 'calculate_kpi'],
+  calculate_kpi: ['calculate_kpi', 'evaluate_kpi'],
+  monitor_works: ['view_department_works', 'monitor_works'],
+  view_department_works: ['monitor_works', 'view_department_works'],
+  view_department_kpi: ['view_department_kpi', 'calculate_kpi'],
+  view_department_dashboard: ['view_department_dashboard'],
+  view_export_stats: ['view_export_stats'],
+  print_department_kpi: ['print_department_kpi'],
+  view_department_ot: ['view_department_ot'],
+  monitor_sessions: ['monitor_sessions'],
+  manage_users: ['manage_users'],
+  manage_data: ['manage_data'],
+  manage_categories: ['manage_categories'],
+  manage_permissions: ['manage_permissions']
+};
+
 /**
  * Checks if user has specific permission code
  */
@@ -503,8 +644,14 @@ export const hasUserPermission = (user: any, permissionCode?: string): boolean =
 
   const perms = getUserPermissionsList(user);
   if (perms.includes('full_access')) return true;
+  if (perms.includes(permissionCode)) return true;
 
-  return perms.includes(permissionCode);
+  const aliases = PERMISSION_ALIASES[permissionCode];
+  if (aliases && aliases.some(a => perms.includes(a))) {
+    return true;
+  }
+
+  return false;
 };
 
 /**

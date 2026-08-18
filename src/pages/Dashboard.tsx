@@ -6,8 +6,10 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { STANDARD_MONTHS, formatScore, cleanPosition, safeFetchJson, isSoftDeleted } from '../utils';
+import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function Dashboard() {
+  const { orgConfig } = useOrgConfig();
   const [works, setWorks] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [overtimes, setOvertimes] = useState<any[]>([]);
@@ -115,7 +117,7 @@ export default function Dashboard() {
             Bảng điều khiển tổng hợp
           </h2>
           <p className="text-sm font-medium text-slate-600 mt-1">
-            Tổng quan hiệu suất công việc, đánh giá KPI và điều hành làm thêm ngoài giờ Phòng Kế hoạch - Tài chính.
+            Tổng quan hiệu suất công việc, đánh giá KPI và điều hành làm thêm ngoài giờ {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}.
           </p>
         </div>
 
