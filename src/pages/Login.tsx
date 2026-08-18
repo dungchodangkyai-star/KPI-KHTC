@@ -367,7 +367,9 @@ export default function Login() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <span className="text-xs font-black text-blue-300">Phòng KT-TC</span>
+                <span className="text-xs font-black text-blue-300">
+                  {orgConfig.shortName ? `Phòng ${orgConfig.shortName}` : (orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính')}
+                </span>
                 <p className="text-[10px] text-slate-500">Năm điều hành 2026</p>
               </div>
             </div>
