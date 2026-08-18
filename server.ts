@@ -7,6 +7,7 @@ import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter } from "./server/auth.ts";
 import { kpiRouter } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
+import { onlineRouter } from "./server/onlineRoutes.ts";
 import { runSeeder } from "./server/seeder.ts";
 
 async function startServer() {
@@ -22,6 +23,11 @@ async function startServer() {
   }, 1000);
 
   // --- API Routes ---
+
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
+  });
 
   // Seeder endpoint
   app.get("/api/seed", async (req, res) => {
@@ -896,6 +902,9 @@ async function startServer() {
   // 7. Sync & Backup Router
   app.use("/api/sync", syncRouter);
 
+  // 8. Online & Session Tracking Router
+  app.use("/api/online", onlineRouter);
+
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -906,7 +915,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*all", (req, res) => {
+    app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

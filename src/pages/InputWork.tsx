@@ -148,7 +148,9 @@ export default function InputWork() {
         const c = await catRes.json();
         if (c.success) {
           const catData = c.data;
-          const groups = catData.filter((x: any) => x.type === 'TASK_GROUP' && x.status === 'Đang dùng').map((x: any) => x.name);
+          const directGroups = catData.filter((x: any) => x.type === 'TASK_GROUP' && x.status === 'Đang dùng').map((x: any) => x.name);
+          const taskGroupNames = catData.filter((x: any) => x.type === 'TASK' && x.status === 'Đang dùng').map((x: any) => x.properties?.taskGroup).filter(Boolean);
+          const groups = Array.from(new Set([...directGroups, ...taskGroupNames]));
           const products = catData.filter((x: any) => x.type === 'PRODUCT_TYPE' && x.status === 'Đang dùng').map((x: any) => x.name);
           const tasks = catData.filter((x: any) => x.type === 'TASK' && x.status === 'Đang dùng');
           
