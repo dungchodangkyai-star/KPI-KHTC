@@ -8,7 +8,7 @@ export async function runSeeder() {
   try {
     const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
 
-    // 1. Seed or update official users
+    // 1. Seed official users ONLY IF user table is completely empty
     let allUsers: any[] = await db.query.users.findMany();
     if (allUsers.length === 0) {
       for (const u of OFFICIAL_USERS) {
@@ -20,32 +20,14 @@ export async function runSeeder() {
       }
       allUsers = await db.query.users.findMany();
     } else {
-      // Ensure all 19 official users exist and khvanson@gmail.com / Khuất Văn Sơn is set as ADMIN
+      // Do NOT overwrite user modifications. Only insert missing official users without updating existing records.
       for (const u of OFFICIAL_USERS) {
         await db.insert(users).values({
           ...u,
           password: defaultPwdHash,
           mustChangePassword: true,
-        }).onConflictDoUpdate({
-          target: users.email,
-          set: {
-            name: u.name,
-            phone: u.phone,
-            zalo: u.zalo,
-            position: u.position,
-            group: u.group,
-            role: u.role,
-            status: u.status,
-            permissions: u.permissions,
-            updatedAt: new Date(),
-          },
-        });
+        }).onConflictDoNothing();
       }
-      // Force position update for main admin
-      await db.update(users).set({
-        position: 'Phó Trưởng phòng',
-        updatedAt: new Date(),
-      }).where(eq(users.email, 'khvanson@gmail.com'));
       allUsers = await db.query.users.findMany();
     }
 

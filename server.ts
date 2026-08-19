@@ -9,7 +9,16 @@ import { kpiRouter } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
+import { backupRouter } from "./server/backupRoutes.ts";
+import { startBackupScheduler } from "./server/backupService.ts";
 import { runSeeder } from "./server/seeder.ts";
+import { 
+  getZaloConfig, 
+  saveZaloConfig, 
+  sendZaloNotification, 
+  formatZaloMessage, 
+  DEFAULT_ZALO_TEMPLATE 
+} from "./server/zaloService.ts";
 
 async function startServer() {
   const app = express();
@@ -21,6 +30,7 @@ async function startServer() {
   // Seed data on startup
   setTimeout(() => {
     runSeeder().then((res) => console.log("Init seed result:", res));
+    startBackupScheduler();
   }, 1000);
 
   // --- API Routes ---
@@ -41,6 +51,9 @@ async function startServer() {
 
   // Database Router
   app.use("/api/database", databaseRouter);
+
+  // Backup & Disaster Recovery Router
+  app.use("/api/backups", backupRouter);
 
   // KPI Router
   app.use("/api/kpi", kpiRouter);
@@ -298,6 +311,62 @@ async function startServer() {
     }
   });
 
+  // --- Zalo Integration APIs ---
+  app.get("/api/zalo/config", (req, res) => {
+    try {
+      const config = getZaloConfig();
+      res.json({ success: true, data: config });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/config", (req, res) => {
+    try {
+      const saved = saveZaloConfig(req.body);
+      if (saved) {
+        res.json({ success: true, message: "Đã lưu cấu hình Zalo thành công!", data: getZaloConfig() });
+      } else {
+        res.status(500).json({ success: false, error: "Không thể lưu cấu hình Zalo" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/send", async (req, res) => {
+    try {
+      const params = req.body;
+      const result = await sendZaloNotification(params);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/test", async (req, res) => {
+    try {
+      const { phone, name, customMessage } = req.body;
+      const config = getZaloConfig();
+      const testResult = await sendZaloNotification({
+        receiverName: name || "Cán bộ thử nghiệm",
+        receiverPhone: phone || config.senderPhone || "0988888888",
+        assignerName: config.senderName || "Lãnh đạo Phòng",
+        taskName: "Nhiệm vụ thử nghiệm kết nối Zalo",
+        taskCode: "TEST-01",
+        taskGroup: "Thử nghiệm hệ thống",
+        score: 10,
+        coef: 1.0,
+        deadline: new Date().toLocaleDateString("vi-VN"),
+        leaderNote: customMessage || "Kiểm tra tính năng phát thông báo Zalo 1-Chạm hoạt động hoàn hảo",
+        role: "Chủ trì"
+      });
+      res.json(testResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err?.message || String(err) });
+    }
+  });
+
   // 3. Assignments APIs
   app.get("/api/assignments", async (req, res) => {
     try {
@@ -322,48 +391,97 @@ async function startServer() {
       const assigner = await db.query.users.findFirst({
         where: (u, { eq, or }) => or(eq(u.id, p.assignerId || 0), eq(u.name, p.assignerName || "Khuất Văn Sơn")),
       });
-      const receiver = await db.query.users.findFirst({
-        where: (u, { eq, or }) => or(eq(u.id, p.receiverId || 0), eq(u.name, p.receiverName || "")),
-      });
+      const assignerId = assigner ? assigner.id : 1;
+      const assignerName = assigner ? assigner.name : (p.assignerName || "Lãnh đạo Phòng");
 
-      const newAssignment = await db.insert(assignments).values({
-        assignmentId: p.assignmentId || `A8-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        month: p.month || "08-2026",
-        assignerId: assigner ? assigner.id : 1,
-        receiverId: receiver ? receiver.id : 1,
-        taskGroup: p.taskGroup || p.group,
-        taskName: p.taskName || p.task,
-        taskCode: p.taskCode || p.code,
-        baseScore: String(p.baseScore || p.score || "10"),
-        suggestedNature: p.suggestedNature || p.nature || "Trung bình",
-        suggestedCoef: String(p.suggestedCoef || p.coef || "0.8"),
-        expectedConvertedScore: String(p.expectedConvertedScore || "8"),
-        detail: p.detail || "",
-        startDate: p.startDate ? new Date(p.startDate) : new Date(),
-        deadline: p.deadline ? new Date(p.deadline) : new Date(),
-        productRequired: p.productRequired || "",
-        productType: p.productType || "Báo cáo",
-        productQty: parseInt(p.productQty || "1"),
-        unit: p.unit || "Sản phẩm",
-        priority: p.priority || "Bình thường",
-        receiveStatus: "Chờ nhận việc",
-        leaderNote: p.note || p.leaderNote || "",
-      }).returning();
+      // Check if multi-receiver payload is provided
+      const receiversList: Array<{ userId: number; userName?: string; userPhone?: string; role?: string; coef?: number }> = 
+        (Array.isArray(p.receivers) && p.receivers.length > 0)
+          ? p.receivers
+          : [{ userId: p.receiverId || 1, userName: p.receiverName, userPhone: p.receiverPhone, role: p.role || "Chủ trì", coef: Number(p.suggestedCoef || 0.8) }];
 
-      if (receiver) {
+      const createdAssignments: any[] = [];
+      const zaloResults: any[] = [];
+
+      for (const rec of receiversList) {
+        const receiverUser = await db.query.users.findFirst({
+          where: (u, { eq, or }) => or(eq(u.id, rec.userId), eq(u.name, rec.userName || "")),
+        });
+
+        const effectiveReceiverId = receiverUser ? receiverUser.id : (rec.userId || 1);
+        const effectiveReceiverName = receiverUser ? receiverUser.name : (rec.userName || "Cán bộ");
+        const effectiveReceiverPhone = receiverUser ? receiverUser.phone : rec.userPhone;
+
+        const role = rec.role || "Chủ trì";
+        const coef = rec.coef !== undefined ? String(rec.coef) : String(p.suggestedCoef || "0.8");
+        const baseScore = String(p.baseScore || p.score || "10");
+        const expectedConvertedScore = String(Math.round(Number(baseScore) * Number(coef) * Number(p.productQty || 1) * 10) / 10);
+
+        const newAssignment = await db.insert(assignments).values({
+          assignmentId: `A8-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          month: p.month || "08-2026",
+          assignerId: assignerId,
+          receiverId: effectiveReceiverId,
+          taskGroup: p.taskGroup || p.group,
+          taskName: p.taskName || p.task,
+          taskCode: p.taskCode || p.code,
+          baseScore: baseScore,
+          suggestedNature: p.suggestedNature || p.nature || "Trung bình",
+          suggestedCoef: coef,
+          expectedConvertedScore: expectedConvertedScore,
+          detail: p.detail || "",
+          startDate: p.startDate ? new Date(p.startDate) : new Date(),
+          deadline: p.deadline ? new Date(p.deadline) : new Date(),
+          productRequired: p.productRequired || "",
+          productType: p.productType || "Báo cáo",
+          productQty: parseInt(p.productQty || "1"),
+          unit: p.unit || "Sản phẩm",
+          priority: p.priority || "Bình thường",
+          receiveStatus: "Chờ nhận việc",
+          leaderNote: `${role === "Phối hợp" ? "[Phối hợp] " : ""}${p.note || p.leaderNote || ""}`.trim(),
+        }).returning();
+
+        createdAssignments.push(newAssignment[0]);
+
+        // Push internal notification
         await db.insert(notifications).values({
           notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          senderId: assigner ? assigner.id : 1,
-          receiverId: receiver.id,
+          senderId: assignerId,
+          receiverId: effectiveReceiverId,
           type: "Giao việc",
-          title: "Bạn có nhiệm vụ mới được Lãnh đạo giao",
-          content: `[${p.taskCode || "NV"}] ${p.taskName || p.task || ""} - Hạn chót: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
+          title: `Lãnh đạo giao nhiệm vụ (${role}): ${p.taskName || p.task || ""}`,
+          content: `[${p.taskCode || "NV"}] ${p.taskName || p.task || ""} - Vai trò: ${role} - Hạn chót: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
           relatedTarget: newAssignment[0].assignmentId,
           status: "Chưa xem",
         }).onConflictDoNothing();
+
+        // If Flow 2 (Auto Send Zalo requested)
+        if (p.sendZalo || p.flow === 'zalo' || p.sendZaloDirect) {
+          const zaloRes = await sendZaloNotification({
+            receiverName: effectiveReceiverName,
+            receiverPhone: effectiveReceiverPhone,
+            assignerName: assignerName,
+            taskName: p.taskName || p.task,
+            taskCode: p.taskCode || p.code,
+            taskGroup: p.taskGroup || p.group,
+            score: baseScore,
+            coef: coef,
+            productRequired: p.productRequired || p.productType,
+            deadline: p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Theo hạn chót",
+            leaderNote: p.note || p.leaderNote || "Thực hiện đúng tiến độ",
+            role: role
+          });
+          zaloResults.push({ receiverId: effectiveReceiverId, name: effectiveReceiverName, phone: effectiveReceiverPhone, zalo: zaloRes });
+        }
       }
 
-      res.json({ success: true, data: newAssignment[0], message: "Đã giao việc thành công!" });
+      res.json({ 
+        success: true, 
+        data: createdAssignments[0], 
+        all: createdAssignments, 
+        zaloResults,
+        message: `Đã giao việc thành công cho ${createdAssignments.length} nhân sự!` 
+      });
     } catch (error) {
       console.error("Error creating assignment:", error);
       res.status(500).json({ error: String(error) });
