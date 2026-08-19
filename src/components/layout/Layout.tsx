@@ -6,7 +6,7 @@ import {
   Edit, Award, FileText, 
   Send, CheckSquare, Settings, 
   Database, Users, LayoutDashboard, BarChart3, Radio, ChevronDown, UserCheck,
-  Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock
+  Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock, Server
 } from 'lucide-react';
 import { 
   cn, 
@@ -76,6 +76,7 @@ const allNavGroups = [
     items: [
       { name: 'Đang online', href: '/admin/online', icon: Radio, desc: 'Theo dõi phiên truy cập' },
       { name: 'Nhân sự/Tài khoản', href: '/admin/users', icon: Users, desc: 'Quản lý tài khoản và phân quyền' },
+      { name: 'Cơ sở dữ liệu', href: '/admin/database', icon: Server, desc: 'Cấu hình kết nối DB đa chế độ' },
       { name: 'Đồng bộ dữ liệu', href: '/admin/sync', icon: Database, desc: 'Import từ Excel / App Script' },
       { name: 'Cài đặt danh mục', href: '/admin/settings', icon: Settings, desc: 'Cấu hình danh mục & tham số' },
     ]

@@ -754,6 +754,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string> = {
   '/ot-summary': 'view_department_ot',
   '/admin/online': 'monitor_sessions',
   '/admin/users': 'manage_users',
+  '/admin/database': 'manage_data',
   '/admin/sync': 'manage_data',
   '/admin/settings': 'manage_categories'
 };
