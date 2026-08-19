@@ -8,6 +8,7 @@ import { authRouter } from "./server/auth.ts";
 import { kpiRouter } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
+import { databaseRouter } from "./server/databaseRoutes.ts";
 import { runSeeder } from "./server/seeder.ts";
 
 async function startServer() {
@@ -37,6 +38,9 @@ async function startServer() {
 
   // Auth Router
   app.use("/api/auth", authRouter);
+
+  // Database Router
+  app.use("/api/database", databaseRouter);
 
   // KPI Router
   app.use("/api/kpi", kpiRouter);

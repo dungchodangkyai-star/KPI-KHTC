@@ -15,6 +15,7 @@ import Monitor from './pages/Monitor';
 import Login from './pages/Login';
 import AdminSync from './pages/AdminSync';
 import AdminSettings from './pages/AdminSettings';
+import AdminDatabase from './pages/AdminDatabase';
 import AdminUsers from './pages/AdminUsers';
 import OtSummary from './pages/OtSummary';
 import AdminOnline from './pages/AdminOnline';
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/ot-summary" element={<ProtectedRoute><OtSummary /></ProtectedRoute>} />
           <Route path="/admin/online" element={<ProtectedRoute><AdminOnline /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
+          <Route path="/admin/database" element={<ProtectedRoute><AdminDatabase /></ProtectedRoute>} />
           <Route path="/admin/sync" element={<ProtectedRoute><AdminSync /></ProtectedRoute>} />
           <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
           
