@@ -2,10 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { 
   Download, Upload, FileDown, Settings, Plus, Edit2, Trash2, 
   Check, X, AlertCircle, Sliders, Building2, Search, Filter, 
-  Layers, CheckCircle2, RefreshCw, FolderTree, Package, Sparkles
+  Layers, CheckCircle2, RefreshCw, FolderTree, Package, Sparkles,
+  FileSpreadsheet, Database, Archive, RotateCcw, ShieldCheck
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { WORK_NATURE_COEFS } from '../utils';
+import { 
+  exportStyledExcel, 
+  exportMultiSheetExcel, 
+  downloadStyledTemplate, 
+  ExportColumn, 
+  MultiSheetConfig 
+} from '../excelUtils';
 import KpiConfigSettings from '../components/KpiConfigSettings';
 import OrgConfigSettings from '../components/OrgConfigSettings';
 
@@ -19,6 +27,10 @@ export default function AdminSettings() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGroup, setFilterGroup] = useState('ALL');
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  // Quick Category Backup / Restore state
+  const [backingUpCat, setBackingUpCat] = useState(false);
+  const [restoringCat, setRestoringCat] = useState(false);
 
   useEffect(() => {
     fetchCategories();
@@ -58,148 +70,381 @@ export default function AdminSettings() {
     });
   };
 
-  // EXPORT EXCEL
-  const handleExport = () => {
-    let filename = `Danh_Muc_${activeTab}.xlsx`;
-    let wsData: any[] = [];
+  // --------------------------------------------------------------------------
+  // JSON BACKUP & RESTORE FOR CATEGORIES
+  // --------------------------------------------------------------------------
+  const handleExportCategoryJson = () => {
+    try {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const dataToSave = {
+        version: '2.0',
+        type: 'CATEGORIES_BACKUP',
+        exportedAt: new Date().toISOString(),
+        counts: {
+          tasks: tasks.length,
+          taskGroups: taskGroups.length,
+          productTypes: productTypes.length,
+          total: categories.length
+        },
+        data: categories
+      };
 
-    if (activeTab === 'TASK') {
-      filename = `Danh_Muc_Nhiem_Vu.xlsx`;
-      wsData = tasks.map((c, idx) => ({
-        'Mã': c.code || `NV${String(idx + 1).padStart(2, '0')}`,
-        'Tên nhiệm vụ / Công việc': c.name,
-        'Nhóm việc (Nếu là TASK)': c.properties?.taskGroup || '',
-        'Điểm chuẩn (Nếu là TASK)': c.properties?.score ?? 10,
-        'Tính chất (Nếu là TASK)': c.properties?.nature || 'Trung bình',
-        'Loại SP (Nếu là TASK)': c.properties?.productType || 'Khác',
-        'Đơn vị (Nếu là SP)': c.properties?.unit || 'Sản phẩm',
-        'Trạng thái': c.status || 'Đang dùng',
-        'Thứ tự': c.order || idx + 1
-      }));
-    } else if (activeTab === 'TASK_GROUP') {
-      filename = `Danh_Sach_Nhom_Cong_Viec.xlsx`;
-      wsData = taskGroups.map((c, idx) => ({
-        'Mã': c.code || `GRP_${idx + 1}`,
-        'Tên nhóm công việc': c.name,
-        'Thứ tự': c.order || idx + 1,
-        'Trạng thái': c.status || 'Đang dùng'
-      }));
-    } else if (activeTab === 'PRODUCT_TYPE') {
-      filename = `Danh_Sach_Loai_San_Pham.xlsx`;
-      wsData = productTypes.map((c, idx) => ({
-        'Mã': c.code || `PROD_${idx + 1}`,
-        'Tên loại sản phẩm': c.name,
-        'Đơn vị tính': c.properties?.unit || c.name,
-        'Thứ tự': c.order || idx + 1,
-        'Trạng thái': c.status || 'Đang dùng'
-      }));
+      const jsonStr = JSON.stringify(dataToSave, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Sao_Luu_Toan_Bo_Danh_Muc_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showNotice('success', `Đã xuất file JSON sao lưu độc lập chứa ${categories.length} bản ghi danh mục!`);
+    } catch (e: any) {
+      showNotice('error', `Lỗi xuất file sao lưu JSON: ${e?.message || String(e)}`);
     }
-
-    const ws = XLSX.utils.json_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Danh_Muc");
-    XLSX.writeFile(wb, filename);
-    showNotice('success', `Đã xuất thành công file ${filename}`);
   };
 
-  // DOWNLOAD EXCEL TEMPLATE
-  const handleDownloadTemplate = () => {
-    let filename = `Mau_Danh_Muc_${activeTab}.xlsx`;
-    let sampleData: any[] = [];
-
-    if (activeTab === 'TASK') {
-      filename = `Mau_Danh_Muc_Nhiem_Vu.xlsx`;
-      sampleData = [
-        {
-          'Mã': 'KH01',
-          'Tên nhiệm vụ / Công việc': 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
-          'Nhóm việc (Nếu là TASK)': 'Kế hoạch vốn',
-          'Điểm chuẩn (Nếu là TASK)': 10,
-          'Tính chất (Nếu là TASK)': 'Trung bình',
-          'Loại SP (Nếu là TASK)': 'Bảng tổng hợp',
-          'Đơn vị (Nếu là SP)': 'Bảng',
-          'Trạng thái': 'Đang dùng',
-          'Thứ tự': 1
-        },
-        {
-          'Mã': 'B2.1',
-          'Tên nhiệm vụ / Công việc': 'Kiểm tra, rà soát hồ sơ tạm ứng, thanh toán khối lượng hoàn thành',
-          'Nhóm việc (Nếu là TASK)': 'Thanh toán, giải ngân',
-          'Điểm chuẩn (Nếu là TASK)': 12,
-          'Tính chất (Nếu là TASK)': 'Phức tạp',
-          'Loại SP (Nếu là TASK)': 'Hồ sơ thanh toán',
-          'Đơn vị (Nếu là SP)': 'Hồ sơ',
-          'Trạng thái': 'Đang dùng',
-          'Thứ tự': 2
-        },
-        {
-          'Mã': 'QT01',
-          'Tên nhiệm vụ / Công việc': 'Lập hồ sơ quyết toán A-B',
-          'Nhóm việc (Nếu là TASK)': 'Quyết toán',
-          'Điểm chuẩn (Nếu là TASK)': 12,
-          'Tính chất (Nếu là TASK)': 'Rất phức tạp',
-          'Loại SP (Nếu là TASK)': 'Hồ sơ quyết toán',
-          'Đơn vị (Nếu là SP)': 'Hồ sơ',
-          'Trạng thái': 'Đang dùng',
-          'Thứ tự': 3
-        },
-        {
-          'Mã': 'HD01',
-          'Tên nhiệm vụ / Công việc': 'Điều chỉnh thông tin hợp đồng',
-          'Nhóm việc (Nếu là TASK)': 'Quản lý hợp đồng',
-          'Điểm chuẩn (Nếu là TASK)': 1,
-          'Tính chất (Nếu là TASK)': 'Rất đơn giản',
-          'Loại SP (Nếu là TASK)': 'PL hợp đồng',
-          'Đơn vị (Nếu là SP)': 'Bộ',
-          'Trạng thái': 'Đang dùng',
-          'Thứ tự': 4
-        }
-      ];
-    } else if (activeTab === 'TASK_GROUP') {
-      filename = `Mau_Nhom_Cong_Viec.xlsx`;
-      sampleData = [
-        { 'Mã': 'GRP_VON', 'Tên nhóm công việc': 'Kế hoạch vốn', 'Thứ tự': 1, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'GRP_THANHTOAN', 'Tên nhóm công việc': 'Thanh toán, giải ngân', 'Thứ tự': 2, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'GRP_QUYETTOAN', 'Tên nhóm công việc': 'Quyết toán', 'Thứ tự': 3, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'GRP_QLHD', 'Tên nhóm công việc': 'Quản lý hợp đồng', 'Thứ tự': 4, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'GRP_KETOAN', 'Tên nhóm công việc': 'Kế toán nội bộ', 'Thứ tự': 5, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'GRP_THUQUY', 'Tên nhóm công việc': 'Thủ quỹ', 'Thứ tự': 6, 'Trạng thái': 'Đang dùng' }
-      ];
-    } else if (activeTab === 'PRODUCT_TYPE') {
-      filename = `Mau_Loai_San_Pham.xlsx`;
-      sampleData = [
-        { 'Mã': 'PROD_BAOCAO', 'Tên loại sản phẩm': 'Báo cáo', 'Đơn vị tính': 'Báo cáo', 'Thứ tự': 1, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'PROD_TOTRINH', 'Tên loại sản phẩm': 'Tờ trình', 'Đơn vị tính': 'Tờ trình', 'Thứ tự': 2, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'PROD_BANG', 'Tên loại sản phẩm': 'Bảng tổng hợp', 'Đơn vị tính': 'Bảng', 'Thứ tự': 3, 'Trạng thái': 'Đang dùng' },
-        { 'Mã': 'PROD_HSTT', 'Tên loại sản phẩm': 'Hồ sơ thanh toán', 'Đơn vị tính': 'Hồ sơ', 'Thứ tự': 4, 'Trạng thái': 'Đang dùng' }
-      ];
-    }
-
-    const ws = XLSX.utils.json_to_sheet(sampleData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Mau_Danh_Muc");
-    XLSX.writeFile(wb, filename);
-  };
-
-  // SMART IMPORT EXCEL
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCategoryJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!confirm('Bạn có chắc chắn muốn nạp/khôi phục toàn bộ Danh mục từ file JSON này? Dữ liệu danh mục sẽ được cập nhật đồng bộ.')) {
+      e.target.value = '';
+      return;
+    }
+
+    setRestoringCat(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        const listToImport = Array.isArray(parsed) ? parsed : (parsed.data && Array.isArray(parsed.data) ? parsed.data : null);
+
+        if (!listToImport || listToImport.length === 0) {
+          showNotice('error', 'File JSON không hợp lệ hoặc không có dữ liệu danh mục.');
+          setRestoringCat(false);
+          return;
+        }
+
+        let successCount = 0;
+        for (const item of listToImport) {
+          if (!item.name || !item.type) continue;
+          try {
+            await fetch('/api/categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code: item.code || `CAT_${Date.now() % 100000}`,
+                name: item.name,
+                type: item.type,
+                properties: item.properties || {},
+                status: item.status || 'Đang dùng',
+                order: item.order || 0
+              })
+            });
+            successCount++;
+          } catch (err) {
+            console.error('Error inserting category item:', err);
+          }
+        }
+
+        showNotice('success', `Đã khôi phục và đồng bộ thành công ${successCount} danh mục từ file JSON!`);
+        fetchCategories();
+      } catch (err: any) {
+        showNotice('error', `Lỗi xử lý file JSON: ${err?.message || String(err)}`);
+      } finally {
+        setRestoringCat(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // --------------------------------------------------------------------------
+  // EXCEL EXPORT (SINGLE TAB & MASTER 3-IN-1)
+  // --------------------------------------------------------------------------
+  const handleExport = async () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    if (activeTab === 'TASK') {
+      const cols: ExportColumn[] = [
+        { header: 'STT', key: 'stt', width: 8, align: 'center' },
+        { header: 'Mã chuẩn', key: 'code', width: 16, align: 'center' },
+        { header: 'Tên nhiệm vụ / Công việc', key: 'name', width: 44, align: 'left' },
+        { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+        { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+        { header: 'Tính chất mặc định', key: 'nature', width: 18, align: 'center' },
+        { header: 'Loại sản phẩm', key: 'productType', width: 22, align: 'left' },
+        { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+        { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+      ];
+      const data = tasks.map((c, idx) => ({
+        stt: idx + 1,
+        code: c.code || `NV${String(idx + 1).padStart(2, '0')}`,
+        name: c.name,
+        taskGroup: c.properties?.taskGroup || '',
+        score: c.properties?.score ?? 10,
+        nature: c.properties?.nature || 'Trung bình',
+        productType: c.properties?.productType || 'Khác',
+        unit: c.properties?.unit || 'Sản phẩm',
+        order: c.order || idx + 1,
+        status: c.status || 'Đang dùng',
+      }));
+      await exportStyledExcel(data, cols, `Danh_Muc_Nhiem_Vu_${dateStr}.xlsx`, 'DanhMuc_NhiemVu');
+      showNotice('success', `Đã xuất ${tasks.length} nhiệm vụ sang file Excel chuẩn (#1F4E78).`);
+    } else if (activeTab === 'TASK_GROUP') {
+      const cols: ExportColumn[] = [
+        { header: 'STT', key: 'stt', width: 8, align: 'center' },
+        { header: 'Mã nhóm', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên nhóm công việc', key: 'name', width: 38, align: 'left' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+      ];
+      const data = taskGroups.map((c, idx) => ({
+        stt: idx + 1,
+        code: c.code || `GRP_${idx + 1}`,
+        name: c.name,
+        order: c.order || idx + 1,
+        status: c.status || 'Đang dùng',
+      }));
+      await exportStyledExcel(data, cols, `Danh_Muc_Nhom_Cong_Viec_${dateStr}.xlsx`, 'Nhom_Cong_Viec');
+      showNotice('success', `Đã xuất ${taskGroups.length} nhóm việc sang file Excel chuẩn (#1F4E78).`);
+    } else if (activeTab === 'PRODUCT_TYPE') {
+      const cols: ExportColumn[] = [
+        { header: 'STT', key: 'stt', width: 8, align: 'center' },
+        { header: 'Mã loại SP', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+        { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+      ];
+      const data = productTypes.map((c, idx) => ({
+        stt: idx + 1,
+        code: c.code || `PROD_${idx + 1}`,
+        name: c.name,
+        unit: c.properties?.unit || c.name,
+        order: c.order || idx + 1,
+        status: c.status || 'Đang dùng',
+      }));
+      await exportStyledExcel(data, cols, `Danh_Muc_Loai_San_Pham_${dateStr}.xlsx`, 'Loai_San_Pham');
+      showNotice('success', `Đã xuất ${productTypes.length} loại sản phẩm sang file Excel chuẩn (#1F4E78).`);
+    }
+  };
+
+  const handleExportAllMaster = async () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const sheets: MultiSheetConfig[] = [
+      {
+        sheetName: 'Danh_Muc_Nhiem_Vu',
+        columns: [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã chuẩn', key: 'code', width: 16, align: 'center' },
+          { header: 'Tên nhiệm vụ / Công việc', key: 'name', width: 44, align: 'left' },
+          { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+          { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất mặc định', key: 'nature', width: 18, align: 'center' },
+          { header: 'Loại sản phẩm', key: 'productType', width: 22, align: 'left' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ],
+        data: tasks.map((c, idx) => ({
+          stt: idx + 1,
+          code: c.code || `NV${String(idx + 1).padStart(2, '0')}`,
+          name: c.name,
+          taskGroup: c.properties?.taskGroup || '',
+          score: c.properties?.score ?? 10,
+          nature: c.properties?.nature || 'Trung bình',
+          productType: c.properties?.productType || 'Khác',
+          unit: c.properties?.unit || 'Sản phẩm',
+          order: c.order || idx + 1,
+          status: c.status || 'Đang dùng',
+        }))
+      },
+      {
+        sheetName: 'Nhom_Cong_Viec',
+        columns: [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã nhóm', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên nhóm công việc', key: 'name', width: 38, align: 'left' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ],
+        data: taskGroups.map((c, idx) => ({
+          stt: idx + 1,
+          code: c.code || `GRP_${idx + 1}`,
+          name: c.name,
+          order: c.order || idx + 1,
+          status: c.status || 'Đang dùng',
+        }))
+      },
+      {
+        sheetName: 'Loai_San_Pham',
+        columns: [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã loại SP', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+          { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ],
+        data: productTypes.map((c, idx) => ({
+          stt: idx + 1,
+          code: c.code || `PROD_${idx + 1}`,
+          name: c.name,
+          unit: c.properties?.unit || c.name,
+          order: c.order || idx + 1,
+          status: c.status || 'Đang dùng',
+        }))
+      }
+    ];
+
+    await exportMultiSheetExcel(sheets, `Tong_Hop_Danh_Muc_He_Thong_3in1_${dateStr}.xlsx`);
+    showNotice('success', 'Đã tải thành công tệp Excel tổng hợp 3-in-1 chứa đầy đủ Danh mục nhiệm vụ, Nhóm việc và Loại SP!');
+  };
+
+  // --------------------------------------------------------------------------
+  // DOWNLOAD EXCEL TEMPLATES (SINGLE & MASTER 3-IN-1)
+  // --------------------------------------------------------------------------
+  const handleDownloadTemplate = async () => {
+    if (activeTab === 'TASK') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã chuẩn', key: 'code', width: 16, align: 'center' },
+        { header: 'Tên nhiệm vụ / Công việc', key: 'name', width: 44, align: 'left' },
+        { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+        { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+        { header: 'Tính chất mặc định', key: 'nature', width: 18, align: 'center' },
+        { header: 'Loại sản phẩm', key: 'productType', width: 22, align: 'left' },
+        { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+      ];
+      const sample = [
+        { code: 'KH01', name: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', taskGroup: 'Kế hoạch vốn', score: 10, nature: 'Trung bình', productType: 'Bảng tổng hợp', unit: 'Bảng', order: 1 },
+        { code: 'B2.1', name: 'Kiểm tra, rà soát hồ sơ tạm ứng, thanh toán khối lượng hoàn thành', taskGroup: 'Thanh toán, giải ngân', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ thanh toán', unit: 'Hồ sơ', order: 2 },
+        { code: 'QT01', name: 'Lập hồ sơ quyết toán A-B', taskGroup: 'Quyết toán', score: 12, nature: 'Rất phức tạp', productType: 'Hồ sơ quyết toán', unit: 'Hồ sơ', order: 3 },
+        { code: 'HD01', name: 'Điều chỉnh thông tin hợp đồng', taskGroup: 'Quản lý hợp đồng', score: 1, nature: 'Rất đơn giản', productType: 'PL hợp đồng', unit: 'Bộ', order: 4 },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Danh_Muc_Nhiem_Vu.xlsx', 'DanhMuc_NhiemVu');
+    } else if (activeTab === 'TASK_GROUP') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã nhóm', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên nhóm công việc', key: 'name', width: 38, align: 'left' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        { header: 'Ghi chú mô tả', key: 'note', width: 35, align: 'left' },
+      ];
+      const sample = [
+        { code: 'GRP_VON', name: 'Kế hoạch vốn', order: 1, note: 'Theo dõi, phân bổ kế hoạch vốn đầu tư công' },
+        { code: 'GRP_THANHTOAN', name: 'Thanh toán, giải ngân', order: 2, note: 'Hồ sơ thanh toán, kiểm soát chi Kho bạc' },
+        { code: 'GRP_QUYETTOAN', name: 'Quyết toán', order: 3, note: 'Quyết toán vốn đầu tư công dự án hoàn thành' },
+        { code: 'GRP_QLHD', name: 'Quản lý hợp đồng', order: 4, note: 'Hợp đồng tư vấn, xây lắp, phụ lục hợp đồng' },
+        { code: 'GRP_KETOAN', name: 'Kế toán nội bộ', order: 5, note: 'Chi tiêu nội bộ, tiền lương, công tác phí' },
+        { code: 'GRP_THUQUY', name: 'Thủ quỹ', order: 6, note: 'Thu chi tiền mặt, quản lý quỹ cơ quan' },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Nhom_Cong_Viec.xlsx', 'Nhom_Cong_Viec');
+    } else if (activeTab === 'PRODUCT_TYPE') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã loại SP', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+        { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+      ];
+      const sample = [
+        { code: 'PROD_BAOCAO', name: 'Báo cáo', unit: 'Báo cáo', order: 1 },
+        { code: 'PROD_VANBAN', name: 'Văn bản', unit: 'Văn bản', order: 2 },
+        { code: 'PROD_TOTRINH', name: 'Tờ trình', unit: 'Tờ trình', order: 3 },
+        { code: 'PROD_BANG', name: 'Bảng tổng hợp', unit: 'Bảng', order: 4 },
+        { code: 'PROD_HSTT', name: 'Hồ sơ thanh toán', unit: 'Hồ sơ', order: 5 },
+        { code: 'PROD_HSQT', name: 'Hồ sơ quyết toán', unit: 'Hồ sơ', order: 6 },
+        { code: 'PROD_HSLCNT', name: 'Hồ sơ lựa chọn nhà thầu', unit: 'Hồ sơ', order: 7 },
+        { code: 'PROD_HSGPMB', name: 'Hồ sơ đền bù/GPMB', unit: 'Hồ sơ', order: 8 },
+        { code: 'PROD_BIENBAN', name: 'Biên bản', unit: 'Biên bản', order: 9 },
+        { code: 'PROD_PLHD', name: 'PL hợp đồng', unit: 'Bộ', order: 10 },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Loai_San_Pham.xlsx', 'Loai_San_Pham');
+    }
+  };
+
+  const handleDownloadMasterTemplate = async () => {
+    const sheets: MultiSheetConfig[] = [
+      {
+        sheetName: 'Danh_Muc_Nhiem_Vu',
+        columns: [
+          { header: 'Mã chuẩn', key: 'code', width: 16, align: 'center' },
+          { header: 'Tên nhiệm vụ / Công việc', key: 'name', width: 44, align: 'left' },
+          { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+          { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất mặc định', key: 'nature', width: 18, align: 'center' },
+          { header: 'Loại sản phẩm', key: 'productType', width: 22, align: 'left' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+        ],
+        data: [
+          { code: 'KH01', name: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', taskGroup: 'Kế hoạch vốn', score: 10, nature: 'Trung bình', productType: 'Bảng tổng hợp', unit: 'Bảng', order: 1 },
+          { code: 'B2.1', name: 'Kiểm tra, rà soát hồ sơ tạm ứng, thanh toán khối lượng hoàn thành', taskGroup: 'Thanh toán, giải ngân', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ thanh toán', unit: 'Hồ sơ', order: 2 },
+          { code: 'QT01', name: 'Lập hồ sơ quyết toán A-B', taskGroup: 'Quyết toán', score: 12, nature: 'Rất phức tạp', productType: 'Hồ sơ quyết toán', unit: 'Hồ sơ', order: 3 },
+          { code: 'HD01', name: 'Điều chỉnh thông tin hợp đồng', taskGroup: 'Quản lý hợp đồng', score: 1, nature: 'Rất đơn giản', productType: 'PL hợp đồng', unit: 'Bộ', order: 4 },
+        ]
+      },
+      {
+        sheetName: 'Nhom_Cong_Viec',
+        columns: [
+          { header: 'Mã nhóm', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên nhóm công việc', key: 'name', width: 38, align: 'left' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+          { header: 'Ghi chú', key: 'note', width: 30, align: 'left' },
+        ],
+        data: [
+          { code: 'GRP_VON', name: 'Kế hoạch vốn', order: 1, note: 'Theo dõi, phân bổ kế hoạch vốn đầu tư công' },
+          { code: 'GRP_THANHTOAN', name: 'Thanh toán, giải ngân', order: 2, note: 'Hồ sơ thanh toán, kiểm soát chi Kho bạc' },
+          { code: 'GRP_QUYETTOAN', name: 'Quyết toán', order: 3, note: 'Quyết toán vốn đầu tư công dự án hoàn thành' },
+          { code: 'GRP_QLHD', name: 'Quản lý hợp đồng', order: 4, note: 'Hợp đồng tư vấn, xây lắp, phụ lục hợp đồng' },
+          { code: 'GRP_KETOAN', name: 'Kế toán nội bộ', order: 5, note: 'Chi tiêu nội bộ, tiền lương, công tác phí' },
+          { code: 'GRP_THUQUY', name: 'Thủ quỹ', order: 6, note: 'Thu chi tiền mặt, quản lý quỹ cơ quan' },
+        ]
+      },
+      {
+        sheetName: 'Loai_San_Pham',
+        columns: [
+          { header: 'Mã loại SP', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+          { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        ],
+        data: [
+          { code: 'PROD_BAOCAO', name: 'Báo cáo', unit: 'Báo cáo', order: 1 },
+          { code: 'PROD_VANBAN', name: 'Văn bản', unit: 'Văn bản', order: 2 },
+          { code: 'PROD_TOTRINH', name: 'Tờ trình', unit: 'Tờ trình', order: 3 },
+          { code: 'PROD_BANG', name: 'Bảng tổng hợp', unit: 'Bảng', order: 4 },
+          { code: 'PROD_HSTT', name: 'Hồ sơ thanh toán', unit: 'Hồ sơ', order: 5 },
+          { code: 'PROD_HSQT', name: 'Hồ sơ quyết toán', unit: 'Hồ sơ', order: 6 },
+          { code: 'PROD_HSLCNT', name: 'Hồ sơ lựa chọn nhà thầu', unit: 'Hồ sơ', order: 7 },
+          { code: 'PROD_HSGPMB', name: 'Hồ sơ đền bù/GPMB', unit: 'Hồ sơ', order: 8 },
+          { code: 'PROD_BIENBAN', name: 'Biên bản', unit: 'Biên bản', order: 9 },
+          { code: 'PROD_PLHD', name: 'PL hợp đồng', unit: 'Bộ', order: 10 },
+        ]
+      }
+    ];
+
+    await exportMultiSheetExcel(sheets, 'Mau_Chuan_Tong_Hop_Danh_Muc_3in1.xlsx');
+    showNotice('success', 'Đã tải thành công tệp Excel mẫu chuẩn tổng hợp 3-in-1!');
+  };
+
+  // --------------------------------------------------------------------------
+  // EXCEL IMPORT ENGINE (SMART AUTO-DETECTION)
+  // --------------------------------------------------------------------------
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const rows: any[] = XLSX.utils.sheet_to_json(ws);
-        
-        if (!rows || rows.length === 0) {
-          showNotice('error', 'File Excel không có dữ liệu!');
-          return;
-        }
 
-        // Helper to get row value by multiple possible header keys
         const getVal = (row: any, keys: string[]) => {
           for (const k of keys) {
             if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
@@ -209,162 +454,193 @@ export default function AdminSettings() {
           return undefined;
         };
 
-        // Determine if file contains TASK items (has score, nature, or task group)
-        const isTaskFile = rows.some(r => 
-          getVal(r, ['Nhóm việc (Nếu là TASK)', 'Nhóm việc', 'Nhóm công việc', 'Nhóm', 'Điểm chuẩn (Nếu là TASK)', 'Điểm chuẩn', 'Tính chất (Nếu là TASK)', 'Tính chất']) !== undefined
-        );
-
-        let successTasks = 0;
+        let importedTasks = 0;
+        let importedGroups = 0;
+        let importedProducts = 0;
         let syncedGroups = new Set<string>();
         let syncedProducts = new Set<string>();
 
-        // 1. IF IMPORTING TASKS (or file contains Task items)
-        if (activeTab === 'TASK' || isTaskFile) {
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            const name = getVal(row, ['Tên nhiệm vụ / Công việc', 'Tên', 'Tên nhiệm vụ', 'Nội dung', 'TaskName']);
-            if (!name) continue;
+        // Process each sheet in workbook
+        for (const sName of wb.SheetNames) {
+          const ws = wb.Sheets[sName];
+          const rows: any[] = XLSX.utils.sheet_to_json(ws);
+          if (!rows || rows.length === 0) continue;
 
-            const code = getVal(row, ['Mã', 'Mã nhiệm vụ', 'TaskCode', 'Mã số']) || `TASK-${Date.now()}-${i + 1}`;
-            const groupName = getVal(row, ['Nhóm việc (Nếu là TASK)', 'Nhóm việc', 'Nhóm công việc', 'Nhóm', 'TaskGroup']) || 'Hành chính - tổng hợp';
-            const score = Number(getVal(row, ['Điểm chuẩn (Nếu là TASK)', 'Điểm chuẩn', 'Điểm', 'Đc', 'Score'])) || 10;
-            const nature = getVal(row, ['Tính chất (Nếu là TASK)', 'Tính chất', 'Nature']) || 'Trung bình';
-            const productType = getVal(row, ['Loại SP (Nếu là TASK)', 'Loại SP', 'Loại sản phẩm', 'ProductType']) || 'Báo cáo';
-            const unit = getVal(row, ['Đơn vị (Nếu là SP)', 'Đơn vị', 'Đơn vị tính', 'Unit']) || 'Sản phẩm';
-            const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
-            const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+          const sClean = sName.toLowerCase().replace(/[\s\-_]/g, '');
 
-            // Save Task
-            const payload = {
-              code,
-              name,
-              type: 'TASK',
-              status,
-              order,
-              properties: {
-                taskGroup: groupName,
-                score,
-                nature,
-                productType,
-                unit
+          // Check if this sheet is TASK_GROUP
+          const isGroupSheet = sClean.includes('nhomviec') || sClean.includes('taskgroup') || (rows[0] && getVal(rows[0], ['Tên nhóm công việc', 'Tên nhóm', 'GroupName']) !== undefined && getVal(rows[0], ['Điểm chuẩn', 'Điểm chuẩn (Nếu là TASK)', 'Score']) === undefined);
+
+          // Check if this sheet is PRODUCT_TYPE
+          const isProdSheet = sClean.includes('loaisanpham') || sClean.includes('producttype') || (rows[0] && (getVal(rows[0], ['Tên loại sản phẩm', 'Tên loại SP', 'ProductTypeName']) !== undefined || (getVal(rows[0], ['Đơn vị tính', 'ĐVT']) !== undefined && getVal(rows[0], ['Điểm chuẩn', 'Score']) === undefined)));
+
+          // Check if this sheet is TASK
+          const isTaskSheet = sClean.includes('danhmuc') || sClean.includes('nhiemvu') || sClean.includes('task') || rows.some(r => getVal(r, ['Nhóm việc (Nếu là TASK)', 'Nhóm việc', 'Điểm chuẩn (Nếu là TASK)', 'Điểm chuẩn', 'Tính chất']) !== undefined);
+
+          if (isGroupSheet && !isTaskSheet) {
+            // Import Task Groups
+            for (let i = 0; i < rows.length; i++) {
+              const row = rows[i];
+              const name = getVal(row, ['Tên nhóm công việc', 'Tên nhóm', 'Tên', 'GroupName', 'Name']);
+              if (!name) continue;
+              const code = getVal(row, ['Mã', 'Mã nhóm', 'GroupCode']) || `GRP_${Date.now()}_${i + 1}`;
+              const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+              const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+
+              await fetch('/api/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, name, type: 'TASK_GROUP', status, order })
+              });
+              importedGroups++;
+            }
+          } else if (isProdSheet && !isTaskSheet) {
+            // Import Product Types
+            for (let i = 0; i < rows.length; i++) {
+              const row = rows[i];
+              const name = getVal(row, ['Tên loại sản phẩm', 'Tên loại SP', 'Tên', 'ProductTypeName', 'Name']);
+              if (!name) continue;
+              const code = getVal(row, ['Mã', 'Mã loại SP', 'Mã SP', 'ProductCode']) || `PROD_${Date.now()}_${i + 1}`;
+              const unit = getVal(row, ['Đơn vị tính (ĐVT)', 'Đơn vị tính', 'Đơn vị', 'Unit']) || name;
+              const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+              const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+
+              await fetch('/api/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, name, type: 'PRODUCT_TYPE', status, order, properties: { unit } })
+              });
+              importedProducts++;
+            }
+          } else {
+            // Default or Task Sheet: If activeTab is active or sheet contains tasks
+            if (activeTab === 'TASK_GROUP' && wb.SheetNames.length === 1 && !isTaskSheet) {
+              // Single sheet import while on Task Group tab
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const name = getVal(row, ['Tên nhóm công việc', 'Tên nhóm', 'Tên', 'GroupName', 'Name']);
+                if (!name) continue;
+                const code = getVal(row, ['Mã', 'Mã nhóm', 'GroupCode']) || `GRP_${Date.now()}_${i + 1}`;
+                const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+                const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+
+                await fetch('/api/categories', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ code, name, type: 'TASK_GROUP', status, order })
+                });
+                importedGroups++;
               }
-            };
+            } else if (activeTab === 'PRODUCT_TYPE' && wb.SheetNames.length === 1 && !isTaskSheet) {
+              // Single sheet import while on Product Type tab
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const name = getVal(row, ['Tên loại sản phẩm', 'Tên loại SP', 'Tên', 'ProductTypeName', 'Name']);
+                if (!name) continue;
+                const code = getVal(row, ['Mã', 'Mã loại SP', 'Mã SP', 'ProductCode']) || `PROD_${Date.now()}_${i + 1}`;
+                const unit = getVal(row, ['Đơn vị tính (ĐVT)', 'Đơn vị tính', 'Đơn vị', 'Unit']) || name;
+                const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+                const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
 
-            await fetch('/api/categories', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
+                await fetch('/api/categories', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ code, name, type: 'PRODUCT_TYPE', status, order, properties: { unit } })
+                });
+                importedProducts++;
+              }
+            } else {
+              // Task Items
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const name = getVal(row, ['Tên nhiệm vụ / Công việc', 'Tên nhiệm vụ', 'Tên công việc', 'Tên', 'TaskName', 'Name']);
+                if (!name) continue;
 
-            successTasks++;
-            if (groupName) syncedGroups.add(groupName);
-            if (productType) syncedProducts.add(productType);
-          }
+                const code = getVal(row, ['Mã chuẩn', 'Mã', 'TaskCode', 'Code']) || `NV_${Date.now() % 100000}_${i + 1}`;
+                const taskGroup = getVal(row, ['Nhóm công việc', 'Nhóm việc', 'Nhóm việc (Nếu là TASK)', 'TaskGroup']) || 'Kế hoạch vốn';
+                const score = parseFloat(getVal(row, ['Điểm chuẩn (Đc)', 'Điểm chuẩn', 'Điểm chuẩn (Nếu là TASK)', 'Score']) || '10');
+                const nature = getVal(row, ['Tính chất mặc định', 'Tính chất', 'Nature']) || 'Trung bình';
+                const productType = getVal(row, ['Loại sản phẩm', 'Loại SP', 'ProductType']) || 'Báo cáo';
+                const unit = getVal(row, ['Đơn vị tính', 'ĐVT', 'Unit']) || 'Sản phẩm';
+                const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+                const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
 
-          // Auto-sync Task Groups into TASK_GROUP
-          for (const gName of Array.from(syncedGroups)) {
-            const cleanGName = String(gName).trim();
-            if (!cleanGName) continue;
-            
-            const existingGroup = taskGroups.find(g => g.name?.toLowerCase() === cleanGName.toLowerCase());
-            if (!existingGroup) {
-              const gCode = `GRP_${cleanGName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 15)}_${Date.now() % 10000}`;
-              await fetch('/api/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code: gCode,
-                  name: cleanGName,
-                  type: 'TASK_GROUP',
-                  status: 'Đang dùng',
-                  order: taskGroups.length + 1
-                })
-              });
+                if (taskGroup) syncedGroups.add(taskGroup);
+                if (productType) syncedProducts.add(productType);
+
+                await fetch('/api/categories', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    code,
+                    name,
+                    type: 'TASK',
+                    properties: {
+                      taskGroup,
+                      score: isNaN(score) ? 10 : score,
+                      nature,
+                      productType,
+                      unit
+                    },
+                    status,
+                    order
+                  })
+                });
+                importedTasks++;
+              }
             }
           }
-
-          // Auto-sync Product Types
-          for (const pName of Array.from(syncedProducts)) {
-            const cleanPName = String(pName).trim();
-            if (!cleanPName) continue;
-
-            const existingProd = productTypes.find(p => p.name?.toLowerCase() === cleanPName.toLowerCase());
-            if (!existingProd) {
-              const pCode = `PROD_${cleanPName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 15)}_${Date.now() % 10000}`;
-              await fetch('/api/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code: pCode,
-                  name: cleanPName,
-                  type: 'PRODUCT_TYPE',
-                  status: 'Đang dùng',
-                  properties: { unit: cleanPName },
-                  order: productTypes.length + 1
-                })
-              });
-            }
-          }
-
-          showNotice(
-            'success', 
-            `Đã import thành công ${successTasks} nhiệm vụ và tự động đồng bộ ${syncedGroups.size} nhóm công việc liên quan!`
-          );
-        } else if (activeTab === 'TASK_GROUP') {
-          // 2. IMPORT TASK GROUPS
-          let groupCount = 0;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            const name = getVal(row, ['Tên nhóm công việc', 'Tên nhóm', 'Tên', 'GroupName', 'Name']);
-            if (!name) continue;
-
-            const code = getVal(row, ['Mã', 'Mã nhóm', 'GroupCode']) || `GRP_${Date.now()}_${i + 1}`;
-            const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
-            const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
-
-            await fetch('/api/categories', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                code,
-                name,
-                type: 'TASK_GROUP',
-                status,
-                order
-              })
-            });
-            groupCount++;
-          }
-          showNotice('success', `Đã import thành công ${groupCount} nhóm công việc.`);
-        } else if (activeTab === 'PRODUCT_TYPE') {
-          // 3. IMPORT PRODUCT TYPES
-          let prodCount = 0;
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            const name = getVal(row, ['Tên loại sản phẩm', 'Tên loại SP', 'Tên', 'ProductTypeName', 'Name']);
-            if (!name) continue;
-
-            const code = getVal(row, ['Mã', 'Mã loại SP', 'Mã SP', 'ProductCode']) || `PROD_${Date.now()}_${i + 1}`;
-            const unit = getVal(row, ['Đơn vị tính', 'Đơn vị', 'Unit']) || name;
-            const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
-            const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
-
-            await fetch('/api/categories', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                code,
-                name,
-                type: 'PRODUCT_TYPE',
-                status,
-                order,
-                properties: { unit }
-              })
-            });
-            prodCount++;
-          }
-          showNotice('success', `Đã import thành công ${prodCount} loại sản phẩm.`);
         }
+
+        // Auto-sync extracted Task Groups if any new
+        for (const gName of Array.from(syncedGroups)) {
+          const cleanGName = String(gName).trim();
+          if (!cleanGName) continue;
+          
+          const existingGroup = taskGroups.find(g => g.name?.toLowerCase() === cleanGName.toLowerCase());
+          if (!existingGroup) {
+            const gCode = `GRP_${cleanGName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 15)}_${Date.now() % 10000}`;
+            await fetch('/api/categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code: gCode,
+                name: cleanGName,
+                type: 'TASK_GROUP',
+                status: 'Đang dùng',
+                order: taskGroups.length + 1
+              })
+            });
+          }
+        }
+
+        // Auto-sync extracted Product Types if any new
+        for (const pName of Array.from(syncedProducts)) {
+          const cleanPName = String(pName).trim();
+          if (!cleanPName) continue;
+
+          const existingProd = productTypes.find(p => p.name?.toLowerCase() === cleanPName.toLowerCase());
+          if (!existingProd) {
+            const pCode = `PROD_${cleanPName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 15)}_${Date.now() % 10000}`;
+            await fetch('/api/categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code: pCode,
+                name: cleanPName,
+                type: 'PRODUCT_TYPE',
+                status: 'Đang dùng',
+                properties: { unit: cleanPName },
+                order: productTypes.length + 1
+              })
+            });
+          }
+        }
+
+        showNotice(
+          'success', 
+          `Đã import thành công: ${importedTasks} nhiệm vụ, ${importedGroups} nhóm việc, ${importedProducts} loại sản phẩm (và tự động liên kết dữ liệu)!`
+        );
 
         fetchCategories();
       } catch (err) {
@@ -418,35 +694,35 @@ export default function AdminSettings() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
+
       if (data.success) {
+        showNotice('success', id === 'new' ? 'Đã thêm mới danh mục thành công!' : 'Đã lưu thay đổi thành công!');
         setIsEditing(null);
-        showNotice('success', 'Đã lưu danh mục thành công!');
         fetchCategories();
       } else {
-        showNotice('error', 'Lỗi: ' + (data.error || 'Không thể lưu'));
+        showNotice('error', data.error || 'Lỗi khi lưu dữ liệu');
       }
-    } catch (e) {
-      console.error(e);
-      showNotice('error', 'Đã xảy ra lỗi khi lưu.');
+    } catch (e: any) {
+      showNotice('error', `Lỗi kết nối: ${e?.message || String(e)}`);
     }
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (!confirm(`Bạn có chắc chắn muốn xóa mục "${name}"?`)) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa mục "${name}" không?`)) return;
+
     try {
       const res = await fetch(`/api/categories/${id}`, {
         method: 'DELETE'
       });
       const data = await res.json();
       if (data.success) {
-        showNotice('success', `Đã xóa "${name}" thành công!`);
+        showNotice('success', `Đã xóa thành công mục "${name}"!`);
         fetchCategories();
       } else {
-        showNotice('error', 'Lỗi khi xóa: ' + (data.error || ''));
+        showNotice('error', data.error || 'Lỗi khi xóa');
       }
-    } catch (e) {
-      console.error(e);
-      showNotice('error', 'Lỗi mạng khi xóa.');
+    } catch (e: any) {
+      showNotice('error', `Lỗi kết nối: ${e?.message || String(e)}`);
     }
   };
 
@@ -490,22 +766,22 @@ export default function AdminSettings() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6 font-sans">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-[#1F4E78] bg-opacity-10 rounded-2xl">
-            <Settings className="w-8 h-8 text-[#1F4E78]" />
+          <div className="p-3 bg-[#1F4E78] bg-opacity-10 rounded-2xl text-[#1F4E78]">
+            <Settings className="w-8 h-8" />
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cài đặt danh mục hệ thống</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Quản lý chuẩn hóa danh mục nhiệm vụ, nhóm công việc, loại sản phẩm và cấu hình KPI
+              Quản lý chuẩn hóa danh mục nhiệm vụ, nhóm công việc, loại sản phẩm, sao lưu dự phòng JSON và xuất nhập Excel đa tầng.
             </p>
           </div>
         </div>
 
-        {/* Quick summary badges */}
+        {/* Quick summary badges & Quick Backup Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-blue-600" />
@@ -524,7 +800,7 @@ export default function AdminSettings() {
 
       {/* Notification Toast */}
       {notification && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between text-sm font-medium transition-all ${
+        <div className={`p-4 rounded-xl border flex items-center justify-between text-sm font-bold transition-all shadow-xs ${
           notification.type === 'success' 
             ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
             : notification.type === 'error'
@@ -539,7 +815,7 @@ export default function AdminSettings() {
             )}
             <span>{notification.message}</span>
           </div>
-          <button onClick={() => setNotification(null)} className="text-xs underline hover:opacity-80">
+          <button onClick={() => setNotification(null)} className="text-xs underline hover:opacity-80 cursor-pointer">
             Đóng
           </button>
         </div>
@@ -563,7 +839,7 @@ export default function AdminSettings() {
                 setIsEditing(null); 
                 setSearchTerm('');
               }}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-bold transition-all ${
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-bold transition-all cursor-pointer ${
                 activeTab === tab.id 
                   ? 'border-b-2 border-[#1F4E78] text-[#1F4E78] bg-white shadow-xs font-black' 
                   : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60'
@@ -583,7 +859,7 @@ export default function AdminSettings() {
           ) : (
             <>
               {/* Action Toolbar */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200">
                 <div>
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
                     <span>
@@ -602,36 +878,84 @@ export default function AdminSettings() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-xs border border-slate-200 transition-colors"
-                    title="Tải file Excel mẫu chuẩn"
-                  >
-                    <FileDown className="w-4 h-4 text-slate-600" />
-                    <span>Tải mẫu</span>
-                  </button>
+                  {/* JSON Backup & Restore for Categories */}
+                  <div className="flex items-center gap-1.5 bg-amber-50/70 p-1 rounded-xl border border-amber-200">
+                    <button
+                      type="button"
+                      onClick={handleExportCategoryJson}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-amber-900 rounded-lg hover:bg-amber-100 font-extrabold text-xs border border-amber-300 transition-colors shadow-2xs cursor-pointer"
+                      title="Tải về file sao lưu .JSON riêng cho toàn bộ Danh mục hệ thống"
+                    >
+                      <Archive className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Sao lưu JSON</span>
+                    </button>
 
-                  <button
-                    onClick={handleExport}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 font-bold text-xs border border-emerald-200 transition-colors"
-                    title="Xuất danh mục ra Excel"
-                  >
-                    <Download className="w-4 h-4 text-emerald-600" />
-                    <span>Xuất Excel</span>
-                  </button>
+                    <label 
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-extrabold text-xs cursor-pointer transition-colors shadow-2xs"
+                      title="Khôi phục danh mục từ file sao lưu .JSON"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 text-white ${restoringCat ? 'animate-spin' : ''}`} />
+                      <span>{restoringCat ? 'Đang nạp...' : 'Khôi phục JSON'}</span>
+                      <input type="file" accept=".json" className="hidden" onChange={handleImportCategoryJson} />
+                    </label>
+                  </div>
 
+                  {/* Single-Tab Actions */}
+                  <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-700 rounded-lg hover:bg-slate-100 font-bold text-xs border border-slate-200 transition-colors shadow-2xs cursor-pointer"
+                      title={`Tải file Excel mẫu chuẩn cho ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : 'Loại sản phẩm'}`}
+                    >
+                      <FileDown className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Mẫu riêng</span>
+                    </button>
+
+                    <button
+                      onClick={handleExport}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-bold text-xs border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
+                      title={`Xuất dữ liệu thật ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : 'Loại sản phẩm'} (#1F4E78)`}
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Xuất riêng</span>
+                    </button>
+                  </div>
+
+                  {/* Combo 3-in-1 Master Actions */}
+                  <div className="flex items-center gap-1.5 bg-blue-50/60 p-1 rounded-xl border border-blue-200">
+                    <button
+                      onClick={handleDownloadMasterTemplate}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-blue-700 rounded-lg hover:bg-blue-50 font-bold text-xs border border-blue-200 transition-colors shadow-2xs cursor-pointer"
+                      title="Tải bộ file mẫu chuẩn tổng hợp 3-in-1 (Nhiệm vụ, Nhóm việc, Loại SP)"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Mẫu chung 3-in-1</span>
+                    </button>
+
+                    <button
+                      onClick={handleExportAllMaster}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold text-xs transition-colors shadow-2xs cursor-pointer"
+                      title="Xuất toàn bộ 3 danh mục vào 1 file Excel đa trang (#1F4E78)"
+                    >
+                      <Download className="w-3.5 h-3.5 text-white" />
+                      <span>Xuất chung 3-in-1</span>
+                    </button>
+                  </div>
+
+                  {/* Import Excel */}
                   <label 
-                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 font-bold text-xs border border-blue-200 cursor-pointer transition-colors" 
-                    title="Import dữ liệu từ file Excel"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 font-bold text-xs border border-indigo-200 cursor-pointer transition-colors shadow-2xs" 
+                    title="Nạp dữ liệu từ file Excel (Tự động nhận diện file đơn hoặc file tổng hợp 3-in-1)"
                   >
-                    <Upload className="w-4 h-4 text-blue-600" />
+                    <Upload className="w-3.5 h-3.5 text-indigo-600" />
                     <span>Import Excel</span>
                     <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
                   </label>
 
+                  {/* Add New Item */}
                   <button
                     onClick={handleAddNew}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-[#1F4E78] text-white rounded-xl hover:bg-opacity-90 font-bold text-xs shadow-xs transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-[#1F4E78] text-white rounded-xl hover:bg-[#153654] font-bold text-xs shadow-xs transition-colors cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Thêm mới</span>
@@ -642,14 +966,24 @@ export default function AdminSettings() {
               {/* Filters & Search Bar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder={`Tìm kiếm ${activeTab === 'TASK' ? 'nhiệm vụ, mã, nhóm việc...' : 'tên hoặc mã...'}`}
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-[#1F4E78] w-64 text-slate-800"
+                    />
+                  </div>
+
                   {activeTab === 'TASK' && (
                     <div className="flex items-center gap-1.5">
-                      <Filter className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="text-xs font-bold text-slate-600">Lọc nhóm việc:</span>
+                      <Filter className="w-3.5 h-3.5 text-slate-500" />
                       <select
                         value={filterGroup}
-                        onChange={(e) => setFilterGroup(e.target.value)}
-                        className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                        onChange={e => setFilterGroup(e.target.value)}
+                        className="py-1.5 px-3 bg-white border border-slate-300 rounded-xl text-xs text-slate-700 font-semibold focus:outline-none focus:border-[#1F4E78]"
                       >
                         <option value="ALL">Tất cả nhóm việc ({tasks.length})</option>
                         {taskGroups.map(g => (
@@ -660,327 +994,406 @@ export default function AdminSettings() {
                   )}
                 </div>
 
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Tìm theo mã, tên, nhóm..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-8 pr-3 py-1 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-[#1F4E78] focus:outline-none w-56"
-                  />
+                <div className="text-xs text-slate-500 font-semibold">
+                  Hiển thị <strong className="text-slate-800">{filteredCategories.length}</strong> / {categories.filter(c => c.type === activeTab).length} bản ghi
                 </div>
               </div>
 
-              {/* Table */}
+              {/* Category Table */}
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-700 uppercase tracking-wider">
-                      <th className="p-3.5 w-24">Mã</th>
-                      <th className="p-3.5">Tên / Nội dung</th>
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3 w-12 text-center">STT</th>
+                      <th className="p-3 w-28">Mã</th>
+                      <th className="p-3">Tên mục / Mô tả nhiệm vụ</th>
                       {activeTab === 'TASK' && (
                         <>
-                          <th className="p-3.5">Nhóm công việc</th>
-                          <th className="p-3.5 text-center w-20">Điểm chuẩn</th>
-                          <th className="p-3.5">Tính chất</th>
-                          <th className="p-3.5">Loại sản phẩm</th>
+                          <th className="p-3 w-36">Nhóm công việc</th>
+                          <th className="p-3 w-24 text-center">Điểm chuẩn</th>
+                          <th className="p-3 w-28 text-center">Tính chất</th>
+                          <th className="p-3 w-32">Loại sản phẩm</th>
+                          <th className="p-3 w-24 text-center">ĐVT</th>
                         </>
                       )}
-                      {activeTab === 'PRODUCT_TYPE' && <th className="p-3.5">Đơn vị tính</th>}
-                      <th className="p-3.5 text-center w-28">Trạng thái</th>
-                      <th className="p-3.5 text-right w-24">Thao tác</th>
+                      {activeTab === 'PRODUCT_TYPE' && (
+                        <th className="p-3 w-32 text-center">Đơn vị tính mặc định</th>
+                      )}
+                      <th className="p-3 w-20 text-center">Thứ tự</th>
+                      <th className="p-3 w-28 text-center">Trạng thái</th>
+                      <th className="p-3 w-28 text-right">Thao tác</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 text-sm">
-                    {/* Add New Row Inline Form */}
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {/* Inline Add New Row */}
                     {isEditing === 'new' && (
-                      <tr className="bg-amber-50/70 border-b-2 border-amber-300">
+                      <tr className="bg-blue-50/70">
+                        <td className="p-3 text-center font-bold text-blue-600">Mới</td>
                         <td className="p-3">
-                          <input 
-                            type="text" 
-                            className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            placeholder="Mã..." 
-                            value={formData.code || ''} 
-                            onChange={e => setFormData({...formData, code: e.target.value})} 
+                          <input
+                            type="text"
+                            value={formData.code || ''}
+                            onChange={e => setFormData({ ...formData, code: e.target.value })}
+                            placeholder="Mã..."
+                            className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs"
                           />
                         </td>
                         <td className="p-3">
-                          <input 
-                            type="text" 
-                            className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            placeholder="Nhập tên..." 
-                            value={formData.name || ''} 
-                            onChange={e => setFormData({...formData, name: e.target.value})} 
+                          <input
+                            type="text"
+                            value={formData.name || ''}
+                            onChange={e => setFormData({ ...formData, name: e.target.value })}
+                            placeholder="Tên danh mục..."
+                            className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs font-semibold"
+                            autoFocus
                           />
                         </td>
                         {activeTab === 'TASK' && (
                           <>
                             <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.taskGroup || ''} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, taskGroup: e.target.value}})}
+                              <select
+                                value={formData.properties?.taskGroup || ''}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, taskGroup: e.target.value }
+                                })}
+                                className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs font-semibold"
                               >
-                                {taskGroups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
+                                {taskGroups.map(g => (
+                                  <option key={g.id} value={g.name}>{g.name}</option>
+                                ))}
                               </select>
                             </td>
                             <td className="p-3 text-center">
-                              <input 
-                                type="number" 
-                                className="w-16 p-2 bg-white border border-slate-300 rounded-lg text-xs font-black text-center text-[#1F4E78]" 
-                                placeholder="Đc" 
-                                value={formData.properties?.score ?? 10} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, score: Number(e.target.value)}})} 
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="1"
+                                max="100"
+                                value={formData.properties?.score || 10}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, score: parseFloat(e.target.value) || 0 }
+                                })}
+                                className="w-16 px-1 py-1 bg-white border border-blue-300 rounded text-xs text-center font-bold"
                               />
                             </td>
-                            <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.nature || 'Trung bình'} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, nature: e.target.value}})}
+                            <td className="p-3 text-center">
+                              <select
+                                value={formData.properties?.nature || 'Trung bình'}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, nature: e.target.value }
+                                })}
+                                className="w-full px-1 py-1 bg-white border border-blue-300 rounded text-xs text-center"
                               >
-                                {Object.keys(WORK_NATURE_COEFS).map(n => <option key={n} value={n}>{n}</option>)}
+                                {Object.keys(WORK_NATURE_COEFS).map(k => (
+                                  <option key={k} value={k}>{k}</option>
+                                ))}
                               </select>
                             </td>
                             <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.productType || ''} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, productType: e.target.value}})}
+                              <select
+                                value={formData.properties?.productType || ''}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, productType: e.target.value }
+                                })}
+                                className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs"
                               >
-                                {productTypes.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                {productTypes.map(p => (
+                                  <option key={p.id} value={p.name}>{p.name}</option>
+                                ))}
                               </select>
+                            </td>
+                            <td className="p-3 text-center">
+                              <input
+                                type="text"
+                                value={formData.properties?.unit || ''}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, unit: e.target.value }
+                                })}
+                                className="w-full px-1 py-1 bg-white border border-blue-300 rounded text-xs text-center"
+                              />
                             </td>
                           </>
                         )}
                         {activeTab === 'PRODUCT_TYPE' && (
-                          <td className="p-3">
-                            <input 
-                              type="text" 
-                              className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs" 
-                              placeholder="Đơn vị tính..." 
-                              value={formData.properties?.unit || ''} 
-                              onChange={e => setFormData({...formData, properties: {...formData.properties, unit: e.target.value}})} 
+                          <td className="p-3 text-center">
+                            <input
+                              type="text"
+                              value={formData.properties?.unit || ''}
+                              onChange={e => setFormData({
+                                ...formData,
+                                properties: { ...formData.properties, unit: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs text-center"
                             />
                           </td>
                         )}
                         <td className="p-3 text-center">
-                          <select 
-                            className="p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            value={formData.status} 
-                            onChange={e => setFormData({...formData, status: e.target.value})}
+                          <input
+                            type="number"
+                            value={formData.order || 0}
+                            onChange={e => setFormData({ ...formData, order: parseInt(e.target.value) || 0 })}
+                            className="w-12 px-1 py-1 bg-white border border-blue-300 rounded text-xs text-center"
+                          />
+                        </td>
+                        <td className="p-3 text-center">
+                          <select
+                            value={formData.status || 'Đang dùng'}
+                            onChange={e => setFormData({ ...formData, status: e.target.value })}
+                            className="w-full px-1 py-1 bg-white border border-blue-300 rounded text-xs text-center"
                           >
                             <option value="Đang dùng">Đang dùng</option>
-                            <option value="Ngừng dùng">Ngừng dùng</option>
+                            <option value="Tạm khóa">Tạm khóa</option>
                           </select>
                         </td>
                         <td className="p-3 text-right">
-                          <div className="flex justify-end gap-1.5">
-                            <button 
-                              onClick={() => handleSave('new')} 
-                              className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-xs" 
-                              title="Lưu"
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => handleSave('new')}
+                              className="p-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition shadow-2xs"
+                              title="Lưu mục mới"
                             >
-                              <Check className="w-4 h-4" />
+                              <Check className="w-3.5 h-3.5" />
                             </button>
-                            <button 
-                              onClick={() => setIsEditing(null)} 
-                              className="p-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300" 
+                            <button
+                              onClick={() => setIsEditing(null)}
+                              className="p-1.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 transition"
                               title="Hủy"
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
                       </tr>
                     )}
 
-                    {/* Category List */}
-                    {filteredCategories.map(cat => isEditing === cat.id ? (
-                      <tr key={cat.id} className="bg-amber-50/70">
-                        <td className="p-3">
-                          <input 
-                            type="text" 
-                            className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            value={formData.code || ''} 
-                            onChange={e => setFormData({...formData, code: e.target.value})} 
-                          />
-                        </td>
-                        <td className="p-3">
-                          <input 
-                            type="text" 
-                            className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            value={formData.name || ''} 
-                            onChange={e => setFormData({...formData, name: e.target.value})} 
-                          />
-                        </td>
-                        {activeTab === 'TASK' && (
-                          <>
-                            <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.taskGroup || ''} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, taskGroup: e.target.value}})}
-                              >
-                                {taskGroups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
-                              </select>
-                            </td>
-                            <td className="p-3 text-center">
-                              <input 
-                                type="number" 
-                                className="w-16 p-2 bg-white border border-slate-300 rounded-lg text-xs font-black text-center text-[#1F4E78]" 
-                                value={formData.properties?.score ?? 10} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, score: Number(e.target.value)}})} 
-                              />
-                            </td>
-                            <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.nature || 'Trung bình'} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, nature: e.target.value}})}
-                              >
-                                {Object.keys(WORK_NATURE_COEFS).map(n => <option key={n} value={n}>{n}</option>)}
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <select 
-                                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-medium" 
-                                value={formData.properties?.productType || ''} 
-                                onChange={e => setFormData({...formData, properties: {...formData.properties, productType: e.target.value}})}
-                              >
-                                {productTypes.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                              </select>
-                            </td>
-                          </>
-                        )}
-                        {activeTab === 'PRODUCT_TYPE' && (
-                          <td className="p-3">
-                            <input 
-                              type="text" 
-                              className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs" 
-                              value={formData.properties?.unit || ''} 
-                              onChange={e => setFormData({...formData, properties: {...formData.properties, unit: e.target.value}})} 
-                            />
-                          </td>
-                        )}
-                        <td className="p-3 text-center">
-                          <select 
-                            className="p-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold" 
-                            value={formData.status} 
-                            onChange={e => setFormData({...formData, status: e.target.value})}
-                          >
-                            <option value="Đang dùng">Đang dùng</option>
-                            <option value="Ngừng dùng">Ngừng dùng</option>
-                            <option value="Chờ duyệt">Chờ duyệt</option>
-                          </select>
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="flex justify-end gap-1.5">
-                            <button 
-                              onClick={() => handleSave(cat.id)} 
-                              className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-xs" 
-                              title="Lưu"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => setIsEditing(null)} 
-                              className="p-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300" 
-                              title="Hủy"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
+                    {/* Category List Rows */}
+                    {filteredCategories.length === 0 && isEditing !== 'new' ? (
+                      <tr>
+                        <td colSpan={activeTab === 'TASK' ? 10 : 6} className="p-8 text-center text-slate-400 font-semibold">
+                          Không tìm thấy bản ghi danh mục nào phù hợp.
                         </td>
                       </tr>
                     ) : (
-                      <tr key={cat.id} className={`hover:bg-slate-50/80 transition-colors ${cat.status === 'Chờ duyệt' ? 'bg-amber-50/40' : ''}`}>
-                        <td className="p-3.5 font-mono text-xs font-bold text-slate-700">{cat.code}</td>
-                        <td className="p-3.5 font-bold text-slate-900">
-                          {cat.name}
-                          {cat.status === 'Chờ duyệt' && (
-                            <div className="text-[11px] text-amber-600 font-bold mt-0.5 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" /> Đề xuất từ cán bộ
-                            </div>
-                          )}
-                        </td>
-                        {activeTab === 'TASK' && (
-                          <>
-                            <td className="p-3.5 text-slate-700 text-xs font-semibold">
-                              <span className="px-2 py-0.5 bg-slate-100 rounded-md border border-slate-200">
-                                {cat.properties?.taskGroup || '—'}
-                              </span>
+                      filteredCategories.map((c, idx) => {
+                        const isThisRowEditing = isEditing === c.id;
+                        return isThisRowEditing ? (
+                          <tr key={c.id} className="bg-amber-50/70">
+                            <td className="p-3 text-center font-bold text-amber-700">{idx + 1}</td>
+                            <td className="p-3">
+                              <input
+                                type="text"
+                                value={formData.code || ''}
+                                onChange={e => setFormData({ ...formData, code: e.target.value })}
+                                className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs"
+                              />
                             </td>
-                            <td className="p-3.5 text-center font-black text-sm text-[#1F4E78]">
-                              {cat.properties?.score ?? 10}
+                            <td className="p-3">
+                              <input
+                                type="text"
+                                value={formData.name || ''}
+                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs font-semibold"
+                              />
                             </td>
-                            <td className="p-3.5 text-xs text-slate-700">
-                              <span className={`px-2 py-0.5 rounded-md font-semibold text-[11px] ${
-                                cat.properties?.nature === 'Rất phức tạp' ? 'bg-rose-100 text-rose-800' :
-                                cat.properties?.nature === 'Phức tạp' ? 'bg-amber-100 text-amber-800' :
-                                cat.properties?.nature === 'Đơn giản' || cat.properties?.nature === 'Rất đơn giản' ? 'bg-emerald-100 text-emerald-800' :
-                                'bg-blue-100 text-blue-800'
-                              }`}>
-                                {cat.properties?.nature || 'Trung bình'}
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-xs text-slate-600 font-medium">
-                              {cat.properties?.productType || '—'}
-                            </td>
-                          </>
-                        )}
-                        {activeTab === 'PRODUCT_TYPE' && (
-                          <td className="p-3.5 text-xs text-slate-700 font-medium">{cat.properties?.unit || cat.name}</td>
-                        )}
-                        <td className="p-3.5 text-center">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 text-[11px] font-bold rounded-full ${
-                            cat.status === 'Đang dùng' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                            cat.status === 'Chờ duyệt' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                            'bg-slate-100 text-slate-500'
-                          }`}>
-                            {cat.status || 'Đang dùng'}
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-right">
-                          <div className="flex justify-end gap-1">
-                            {cat.status === 'Chờ duyệt' && (
-                              <button 
-                                onClick={() => handleApprove(cat)} 
-                                title="Phê duyệt đưa vào danh mục" 
-                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              >
-                                <Check className="w-4 h-4" />
-                              </button>
+                            {activeTab === 'TASK' && (
+                              <>
+                                <td className="p-3">
+                                  <select
+                                    value={formData.properties?.taskGroup || ''}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, taskGroup: e.target.value }
+                                    })}
+                                    className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs font-semibold"
+                                  >
+                                    {taskGroups.map(g => (
+                                      <option key={g.id} value={g.name}>{g.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min="1"
+                                    max="100"
+                                    value={formData.properties?.score || 10}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, score: parseFloat(e.target.value) || 0 }
+                                    })}
+                                    className="w-16 px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center font-bold"
+                                  />
+                                </td>
+                                <td className="p-3 text-center">
+                                  <select
+                                    value={formData.properties?.nature || 'Trung bình'}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, nature: e.target.value }
+                                    })}
+                                    className="w-full px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center"
+                                  >
+                                    {Object.keys(WORK_NATURE_COEFS).map(k => (
+                                      <option key={k} value={k}>{k}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-3">
+                                  <select
+                                    value={formData.properties?.productType || ''}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, productType: e.target.value }
+                                    })}
+                                    className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs"
+                                  >
+                                    {productTypes.map(p => (
+                                      <option key={p.id} value={p.name}>{p.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="text"
+                                    value={formData.properties?.unit || ''}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, unit: e.target.value }
+                                    })}
+                                    className="w-full px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center"
+                                  />
+                                </td>
+                              </>
                             )}
-                            <button 
-                              onClick={() => handleEdit(cat)} 
-                              title="Chỉnh sửa"
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(cat.id, cat.name)} 
-                              title="Xóa"
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredCategories.length === 0 && isEditing !== 'new' && (
-                      <tr>
-                        <td colSpan={10} className="p-12 text-center text-slate-400">
-                          <Layers className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-slate-600 text-sm">Chưa có danh mục phù hợp</p>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {searchTerm ? 'Không tìm thấy kết quả theo từ khóa.' : 'Bấm "+ Thêm mới" hoặc "Import Excel" để nạp dữ liệu.'}
-                          </p>
-                        </td>
-                      </tr>
+                            {activeTab === 'PRODUCT_TYPE' && (
+                              <td className="p-3 text-center">
+                                <input
+                                  type="text"
+                                  value={formData.properties?.unit || ''}
+                                  onChange={e => setFormData({
+                                    ...formData,
+                                    properties: { ...formData.properties, unit: e.target.value }
+                                  })}
+                                  className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs text-center"
+                                />
+                              </td>
+                            )}
+                            <td className="p-3 text-center">
+                              <input
+                                type="number"
+                                value={formData.order || 0}
+                                onChange={e => setFormData({ ...formData, order: parseInt(e.target.value) || 0 })}
+                                className="w-12 px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center"
+                              />
+                            </td>
+                            <td className="p-3 text-center">
+                              <select
+                                value={formData.status || 'Đang dùng'}
+                                onChange={e => setFormData({ ...formData, status: e.target.value })}
+                                className="w-full px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center"
+                              >
+                                <option value="Đang dùng">Đang dùng</option>
+                                <option value="Tạm khóa">Tạm khóa</option>
+                              </select>
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => handleSave(c.id)}
+                                  className="p-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition shadow-2xs"
+                                  title="Lưu"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setIsEditing(null)}
+                                  className="p-1.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 transition"
+                                  title="Hủy"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={c.id} className="hover:bg-slate-50 transition">
+                            <td className="p-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                            <td className="p-3 font-mono font-bold text-slate-800 text-[11px]">{c.code || '-'}</td>
+                            <td className="p-3 font-bold text-slate-900">{c.name}</td>
+                            {activeTab === 'TASK' && (
+                              <>
+                                <td className="p-3 font-semibold text-slate-700">
+                                  <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-[#1F4E78] font-bold text-[11px]">
+                                    {c.properties?.taskGroup || '-'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center font-black text-blue-700">
+                                  {c.properties?.score ?? 10}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    c.properties?.nature === 'Rất phức tạp' ? 'bg-rose-100 text-rose-800' :
+                                    c.properties?.nature === 'Phức tạp' ? 'bg-orange-100 text-orange-800' :
+                                    c.properties?.nature === 'Trung bình' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {c.properties?.nature || 'Trung bình'}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-medium text-slate-700">{c.properties?.productType || '-'}</td>
+                                <td className="p-3 text-center font-semibold text-slate-600">{c.properties?.unit || '-'}</td>
+                              </>
+                            )}
+                            {activeTab === 'PRODUCT_TYPE' && (
+                              <td className="p-3 text-center font-semibold text-slate-700">
+                                {c.properties?.unit || c.name}
+                              </td>
+                            )}
+                            <td className="p-3 text-center font-mono text-slate-500">{c.order || 0}</td>
+                            <td className="p-3 text-center">
+                              {c.status === 'Chờ duyệt' ? (
+                                <button
+                                  onClick={() => handleApprove(c)}
+                                  className="px-2 py-0.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-800 font-extrabold text-[10px] cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <Sparkles className="w-3 h-3 text-amber-600" />
+                                  Duyệt ngay
+                                </button>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  c.status === 'Đang dùng' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {c.status || 'Đang dùng'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => handleEdit(c)}
+                                  className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                                  title="Chỉnh sửa"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(c.id, c.name)}
+                                  className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 transition cursor-pointer"
+                                  title="Xóa"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

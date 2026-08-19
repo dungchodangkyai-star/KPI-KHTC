@@ -31,10 +31,11 @@ import {
   Sliders
 } from 'lucide-react';
 import { formatMonth, STANDARD_MONTHS } from '../utils';
+import { exportMultiSheetExcel, exportStyledExcel, downloadStyledTemplate, MultiSheetConfig, ExportColumn } from '../excelUtils';
 
 interface SheetData {
   name: string;
-  detectedType: 'works' | 'users' | 'categories' | 'assignments' | 'overtimes' | 'unknown';
+  detectedType: 'works' | 'users' | 'categories' | 'task_groups' | 'product_types' | 'assignments' | 'overtimes' | 'unknown';
   rows: any[];
   headers: string[];
 }
@@ -98,7 +99,7 @@ export default function AdminSync() {
   // --------------------------------------------------------------------------
   // 1. EXCEL IMPORT LOGIC
   // --------------------------------------------------------------------------
-  const detectSheetType = (sheetName: string, headers: string[]): 'works' | 'users' | 'categories' | 'assignments' | 'overtimes' | 'unknown' => {
+  const detectSheetType = (sheetName: string, headers: string[]): 'works' | 'users' | 'categories' | 'task_groups' | 'product_types' | 'assignments' | 'overtimes' | 'unknown' => {
     const sName = sheetName.toLowerCase().replace(/[\s\-_]/g, '');
     const hStr = headers.map(h => String(h).toLowerCase()).join(' ');
 
@@ -114,10 +115,16 @@ export default function AdminSync() {
       return 'unknown';
     }
 
+    if (sName.includes('nhomviec') || sName.includes('taskgroup') || (hStr.includes('mã nhóm') && hStr.includes('tên nhóm'))) {
+      return 'task_groups';
+    }
+    if (sName.includes('loaisanpham') || sName.includes('producttype') || (hStr.includes('loại sản phẩm') && (hStr.includes('đơn vị tính') || hStr.includes('dvt')))) {
+      return 'product_types';
+    }
     if (sName.includes('nhansu') || sName.includes('users') || sName.includes('nhân sự') || (hStr.includes('email') && (hStr.includes('chức vụ') || hStr.includes('họ tên') || hStr.includes('họ và tên')))) {
       return 'users';
     }
-    if (sName.includes('danhmuc') || sName.includes('categories') || (hStr.includes('mã danh mục') && hStr.includes('tên danh mục'))) {
+    if (sName.includes('danhmuc') || sName.includes('categories') || (hStr.includes('mã danh mục') && hStr.includes('tên danh mục')) || (hStr.includes('mã chuẩn') && hStr.includes('điểm chuẩn'))) {
       return 'categories';
     }
     if (sName.includes('giaoviec') || sName.includes('assignments') || sName.includes('nhiệm vụ') || (hStr.includes('người giao') && (hStr.includes('người nhận') || hStr.includes('nội dung yêu cầu')))) {
@@ -241,7 +248,9 @@ export default function AdminSync() {
   const getTypeLabel = (type: string) => {
     switch (type) {
       case 'users': return '👤 Danh sách Nhân sự';
-      case 'categories': return '📁 Danh mục Hệ thống';
+      case 'categories': return '📁 Danh mục Công việc chuẩn';
+      case 'task_groups': return '🗂️ Nhóm công việc';
+      case 'product_types': return '📦 Loại sản phẩm & ĐVT';
       case 'works': return '📝 Khai báo Công việc';
       case 'assignments': return '🎯 Phân công Giao việc';
       case 'overtimes': return '⏰ Làm thêm ngoài giờ (OT)';
@@ -309,6 +318,22 @@ export default function AdminSync() {
           payloadSheets.users.push(...sheet.rows);
         } else if (sheet.detectedType === 'categories') {
           payloadSheets.categories.push(...sheet.rows);
+        } else if (sheet.detectedType === 'task_groups') {
+          // Normalize task_groups into categories format with type 'TASK_GROUP'
+          const formatted = sheet.rows.map((r: any) => ({
+            ...r,
+            'Loại danh mục': 'TASK_GROUP',
+            'type': 'TASK_GROUP'
+          }));
+          payloadSheets.categories.push(...formatted);
+        } else if (sheet.detectedType === 'product_types') {
+          // Normalize product_types into categories format with type 'PRODUCT_TYPE'
+          const formatted = sheet.rows.map((r: any) => ({
+            ...r,
+            'Loại danh mục': 'PRODUCT_TYPE',
+            'type': 'PRODUCT_TYPE'
+          }));
+          payloadSheets.categories.push(...formatted);
         } else if (sheet.detectedType === 'assignments') {
           payloadSheets.assignments.push(...sheet.rows);
         } else if (sheet.detectedType === 'overtimes') {
@@ -359,167 +384,464 @@ export default function AdminSync() {
   };
 
   // --------------------------------------------------------------------------
+  // 2. BACKUP & EXPORT REAL DATA (MULTI-SHEET & SINGLE-SHEET)
+  // --------------------------------------------------------------------------
+  const handleExportSingleRealData = async (targetType: 'users' | 'categories' | 'task_groups' | 'product_types' | 'works' | 'assignments' | 'overtimes') => {
+    setIsExporting(true);
+    setExportMessage(`Đang trích xuất và định dạng bảng dữ liệu thật [${targetType}] từ Cloud SQL...`);
+    try {
+      const res = await fetch('/api/sync/backup-data');
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || 'Không thể lấy dữ liệu');
+      const { data } = result;
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      if (targetType === 'users') {
+        const cols: ExportColumn[] = [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã ID', key: 'id', width: 10, align: 'center' },
+          { header: 'Họ và tên', key: 'name', width: 26, align: 'left' },
+          { header: 'Email', key: 'email', width: 32, align: 'left' },
+          { header: 'Số điện thoại', key: 'phone', width: 16, align: 'center' },
+          { header: 'Zalo', key: 'zalo', width: 16, align: 'center' },
+          { header: 'Chức vụ', key: 'position', width: 22, align: 'left' },
+          { header: 'Nhóm / Phòng ban', key: 'group', width: 24, align: 'left' },
+          { header: 'Vai trò', key: 'role', width: 14, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+          { header: 'Lần đăng nhập cuối', key: 'lastLogin', width: 22, align: 'center' },
+        ];
+        const formatted = (data.users || []).map((u: any, idx: number) => ({
+          stt: idx + 1,
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone || '',
+          zalo: u.zalo || '',
+          position: u.position || '',
+          group: u.group || '',
+          role: u.role,
+          status: u.status,
+          lastLogin: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('vi-VN') : 'Chưa đăng nhập',
+        }));
+        await exportStyledExcel(formatted, cols, `DS_Nhan_Su_CloudSQL_${dateStr}.xlsx`, 'DS_Nhan_Su');
+        setExportMessage(`✅ Đã tải file Excel Nhân sự thật: DS_Nhan_Su_CloudSQL_${dateStr}.xlsx`);
+      } else if (targetType === 'task_groups') {
+        const cols: ExportColumn[] = [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã nhóm việc', key: 'code', width: 20, align: 'center' },
+          { header: 'Tên nhóm công việc', key: 'name', width: 40, align: 'left' },
+          { header: 'Loại danh mục', key: 'type', width: 18, align: 'center' },
+          { header: 'Thứ tự hiển thị', key: 'order', width: 14, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ];
+        const filtered = (data.categories || [])
+          .filter((c: any) => c.type === 'TASK_GROUP' || !c.type || c.type === 'GROUP')
+          .map((c: any, idx: number) => ({
+            stt: idx + 1,
+            code: c.code,
+            name: c.name,
+            type: 'TASK_GROUP',
+            order: c.order || idx + 1,
+            status: c.status || 'Đang dùng',
+          }));
+        await exportStyledExcel(filtered, cols, `DM_Nhom_Cong_Viec_${dateStr}.xlsx`, 'Nhom_Cong_Viec');
+        setExportMessage(`✅ Đã tải file Excel Nhóm công việc: DM_Nhom_Cong_Viec_${dateStr}.xlsx`);
+      } else if (targetType === 'product_types') {
+        const cols: ExportColumn[] = [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã loại sản phẩm', key: 'code', width: 20, align: 'center' },
+          { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+          { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+          { header: 'Loại danh mục', key: 'type', width: 18, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ];
+        const filtered = (data.categories || [])
+          .filter((c: any) => c.type === 'PRODUCT_TYPE')
+          .map((c: any, idx: number) => ({
+            stt: idx + 1,
+            code: c.code,
+            name: c.name,
+            unit: c.properties?.unit || '',
+            type: 'PRODUCT_TYPE',
+            order: c.order || idx + 1,
+            status: c.status || 'Đang dùng',
+          }));
+        await exportStyledExcel(filtered, cols, `DM_Loai_San_Pham_${dateStr}.xlsx`, 'Loai_San_Pham');
+        setExportMessage(`✅ Đã tải file Excel Loại sản phẩm & ĐVT: DM_Loai_San_Pham_${dateStr}.xlsx`);
+      } else if (targetType === 'categories') {
+        const cols: ExportColumn[] = [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã chuẩn', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên danh mục công việc', key: 'name', width: 42, align: 'left' },
+          { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+          { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất mặc định', key: 'nature', width: 20, align: 'center' },
+          { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ];
+        const filtered = (data.categories || [])
+          .filter((c: any) => c.type === 'TASK' || (!c.type && c.properties?.score))
+          .map((c: any, idx: number) => ({
+            stt: idx + 1,
+            code: c.code,
+            name: c.name,
+            taskGroup: c.properties?.taskGroup || '',
+            score: c.properties?.score ?? 10,
+            nature: c.properties?.nature || 'Trung bình',
+            productType: c.properties?.productType || '',
+            unit: c.properties?.unit || '',
+            order: c.order || idx + 1,
+            status: c.status || 'Đang dùng',
+          }));
+        await exportStyledExcel(filtered, cols, `DM_Cong_Viec_Chuan_${dateStr}.xlsx`, 'DM_Cong_Viec');
+        setExportMessage(`✅ Đã tải file Excel Danh mục công việc chuẩn: DM_Cong_Viec_Chuan_${dateStr}.xlsx`);
+      } else if (targetType === 'works') {
+        const cols: ExportColumn[] = [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã việc', key: 'workId', width: 24, align: 'center' },
+          { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+          { header: 'Nhân viên', key: 'userName', width: 26, align: 'left' },
+          { header: 'Email', key: 'userEmail', width: 30, align: 'left' },
+          { header: 'Nhóm việc', key: 'taskGroup', width: 24, align: 'left' },
+          { header: 'Tên công việc', key: 'taskName', width: 40, align: 'left' },
+          { header: 'Mã chuẩn', key: 'taskCode', width: 14, align: 'center' },
+          { header: 'Nội dung chi tiết', key: 'detail', width: 45, align: 'left' },
+          { header: 'Ngày bắt đầu', key: 'startDate', width: 14, align: 'center' },
+          { header: 'Hạn chót', key: 'endDate', width: 14, align: 'center' },
+          { header: 'Số giờ', key: 'hours', width: 12, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất đề xuất', key: 'proposedNature', width: 18, align: 'center' },
+          { header: 'Tính chất duyệt', key: 'approvedNature', width: 18, align: 'center' },
+          { header: 'Hệ số K', key: 'coef', width: 12, align: 'center', numFmt: '0.00' },
+          { header: 'Điểm chuẩn (Đc)', key: 'baseScore', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Điểm quy đổi (Đqđ)', key: 'convertedScore', width: 18, align: 'center', numFmt: '#,##0.00' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+          { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+          { header: 'Số lượng SP', key: 'productQty', width: 14, align: 'center', numFmt: '#,##0' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Dự án', key: 'project', width: 26, align: 'left' },
+          { header: 'Minh chứng', key: 'evidence', width: 35, align: 'left' },
+          { header: 'Lãnh đạo duyệt', key: 'leaderApproval', width: 16, align: 'center' },
+          { header: 'Ghi chú Lãnh đạo', key: 'leaderNote', width: 30, align: 'left' },
+        ];
+        const formatted = (data.works || []).map((w: any, idx: number) => ({
+          stt: idx + 1,
+          workId: w.workId,
+          month: w.month,
+          userName: w.user?.name || w.userId,
+          userEmail: w.user?.email || '',
+          taskGroup: w.taskGroup || '',
+          taskName: w.taskName || '',
+          taskCode: w.taskCode || '',
+          detail: w.detail || '',
+          startDate: w.startDate ? new Date(w.startDate).toLocaleDateString('vi-VN') : '',
+          endDate: w.endDate ? new Date(w.endDate).toLocaleDateString('vi-VN') : '',
+          hours: Number(w.hours) || 8,
+          proposedNature: w.proposedNature || '',
+          approvedNature: w.approvedNature || '',
+          coef: Number(w.coef) || 0.8,
+          baseScore: Number(w.baseScore) || 10,
+          convertedScore: Number(w.convertedScore) || 8,
+          status: w.status,
+          productType: w.productType || '',
+          productQty: Number(w.productQty) || 1,
+          unit: w.unit || '',
+          project: w.project || '',
+          evidence: w.evidence || '',
+          leaderApproval: w.leaderApproval || 'Chưa duyệt',
+          leaderNote: w.leaderNote || '',
+        }));
+        await exportStyledExcel(formatted, cols, `Khai_Bao_Cong_Viec_CloudSQL_${dateStr}.xlsx`, 'Khai_Bao_Cong_Viec');
+        setExportMessage(`✅ Đã tải file Excel Khai báo công việc: Khai_Bao_Cong_Viec_CloudSQL_${dateStr}.xlsx`);
+      }
+    } catch (e) {
+      setExportMessage(`❌ Lỗi xuất dữ liệu: ${String(e)}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
   // 2. BACKUP & EXPORT REAL DATA
   // --------------------------------------------------------------------------
   const handleExportFullExcel = async () => {
     setIsExporting(true);
-    setExportMessage('Đang lấy dữ liệu thực tế từ Cloud SQL...');
+    setExportMessage('Đang lấy và định dạng dữ liệu thực tế từ Cloud SQL...');
     try {
       const res = await fetch('/api/sync/backup-data');
       const result = await res.json();
       if (!result.success) throw new Error(result.error || 'Không thể lấy dữ liệu');
 
       const { data, timestamp } = result;
-      const wb = XLSX.utils.book_new();
 
-      // Sheet 1: Nhân sự
-      const wsUsers = XLSX.utils.json_to_sheet(
-        (data.users || []).map((u: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã ID': u.id,
-          'Họ và tên': u.name,
-          'Email': u.email,
-          'Số điện thoại': u.phone || '',
-          'Zalo': u.zalo || '',
-          'Chức vụ': u.position || '',
-          'Nhóm / Phòng ban': u.group || '',
-          'Vai trò': u.role,
-          'Trạng thái': u.status,
-          'Quyền hạn': u.permissions || '',
-          'Lần đăng nhập cuối': u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('vi-VN') : 'Chưa đăng nhập',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsUsers, '1_DM_Nhan_Su');
+      const sheets: MultiSheetConfig[] = [
+        // Sheet 1: Nhân sự
+        {
+          sheetName: '1_DM_Nhan_Su',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã ID', key: 'id', width: 10, align: 'center' },
+            { header: 'Họ và tên', key: 'name', width: 26, align: 'left' },
+            { header: 'Email', key: 'email', width: 32, align: 'left' },
+            { header: 'Số điện thoại', key: 'phone', width: 16, align: 'center' },
+            { header: 'Zalo', key: 'zalo', width: 16, align: 'center' },
+            { header: 'Chức vụ', key: 'position', width: 22, align: 'left' },
+            { header: 'Nhóm / Phòng ban', key: 'group', width: 24, align: 'left' },
+            { header: 'Vai trò', key: 'role', width: 14, align: 'center' },
+            { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+            { header: 'Quyền hạn', key: 'permissions', width: 30, align: 'left' },
+            { header: 'Lần đăng nhập cuối', key: 'lastLogin', width: 22, align: 'center' },
+          ],
+          data: (data.users || []).map((u: any, idx: number) => ({
+            stt: idx + 1,
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            phone: u.phone || '',
+            zalo: u.zalo || '',
+            position: u.position || '',
+            group: u.group || '',
+            role: u.role,
+            status: u.status,
+            permissions: u.permissions || '',
+            lastLogin: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('vi-VN') : 'Chưa đăng nhập',
+          }))
+        },
 
-      // Sheet 2: Danh mục
-      const wsCats = XLSX.utils.json_to_sheet(
-        (data.categories || []).map((c: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã danh mục': c.code,
-          'Tên danh mục': c.name,
-          'Loại': c.type,
-          'Nhóm việc': c.properties?.taskGroup || '',
-          'Điểm chuẩn (Đc)': c.properties?.score || '',
-          'Tính chất': c.properties?.nature || '',
-          'Loại sản phẩm': c.properties?.productType || '',
-          'Đơn vị tính': c.properties?.unit || '',
-          'Thứ tự': c.order || idx + 1,
-          'Trạng thái': c.status,
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsCats, '2_DM_DanhMuc');
+        // Sheet 2: Danh mục
+        {
+          sheetName: '2_DM_DanhMuc',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã danh mục', key: 'code', width: 18, align: 'center' },
+            { header: 'Tên danh mục', key: 'name', width: 38, align: 'left' },
+            { header: 'Loại danh mục', key: 'type', width: 18, align: 'center' },
+            { header: 'Nhóm việc', key: 'taskGroup', width: 24, align: 'left' },
+            { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Tính chất', key: 'nature', width: 18, align: 'center' },
+            { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+            { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+            { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+            { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+          ],
+          data: (data.categories || []).map((c: any, idx: number) => ({
+            stt: idx + 1,
+            code: c.code,
+            name: c.name,
+            type: c.type,
+            taskGroup: c.properties?.taskGroup || '',
+            score: c.properties?.score ?? '',
+            nature: c.properties?.nature || '',
+            productType: c.properties?.productType || '',
+            unit: c.properties?.unit || '',
+            order: c.order || idx + 1,
+            status: c.status,
+          }))
+        },
 
-      // Sheet 3: Công việc thực hiện
-      const wsWorks = XLSX.utils.json_to_sheet(
-        (data.works || []).map((w: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã việc': w.workId,
-          'Tháng': w.month,
-          'Nhân viên': w.user?.name || w.userId,
-          'Email': w.user?.email || '',
-          'Nhóm việc': w.taskGroup || '',
-          'Tên công việc': w.taskName || '',
-          'Mã chuẩn': w.taskCode || '',
-          'Nội dung chi tiết': w.detail || '',
-          'Ngày bắt đầu': w.startDate ? new Date(w.startDate).toLocaleDateString('vi-VN') : '',
-          'Hạn chót': w.endDate ? new Date(w.endDate).toLocaleDateString('vi-VN') : '',
-          'Số giờ': w.hours || '8',
-          'Tính chất đề xuất': w.proposedNature || '',
-          'Tính chất duyệt': w.approvedNature || '',
-          'Hệ số K': w.coef || '0.8',
-          'Điểm chuẩn (Đc)': w.baseScore || '10',
-          'Điểm quy đổi (Đqđ)': w.convertedScore || '8',
-          'Trạng thái': w.status,
-          'Loại sản phẩm': w.productType || '',
-          'Số lượng SP': w.productQty || 1,
-          'Đơn vị tính': w.unit || '',
-          'Dự án': w.project || '',
-          'Minh chứng': w.evidence || '',
-          'Lãnh đạo duyệt': w.leaderApproval || 'Chưa duyệt',
-          'Ghi chú Lãnh đạo': w.leaderNote || '',
-          'Nguồn tạo': w.source || 'WEBAPP',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsWorks, '3_Cong_Viec_Thuc_Hien');
+        // Sheet 3: Công việc thực hiện
+        {
+          sheetName: '3_Cong_Viec_Thuc_Hien',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã việc', key: 'workId', width: 24, align: 'center' },
+            { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+            { header: 'Nhân viên', key: 'userName', width: 26, align: 'left' },
+            { header: 'Email', key: 'userEmail', width: 30, align: 'left' },
+            { header: 'Nhóm việc', key: 'taskGroup', width: 24, align: 'left' },
+            { header: 'Tên công việc', key: 'taskName', width: 40, align: 'left' },
+            { header: 'Mã chuẩn', key: 'taskCode', width: 14, align: 'center' },
+            { header: 'Nội dung chi tiết', key: 'detail', width: 45, align: 'left' },
+            { header: 'Ngày bắt đầu', key: 'startDate', width: 14, align: 'center' },
+            { header: 'Hạn chót', key: 'endDate', width: 14, align: 'center' },
+            { header: 'Số giờ', key: 'hours', width: 12, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Tính chất đề xuất', key: 'proposedNature', width: 18, align: 'center' },
+            { header: 'Tính chất duyệt', key: 'approvedNature', width: 18, align: 'center' },
+            { header: 'Hệ số K', key: 'coef', width: 12, align: 'center', numFmt: '0.00' },
+            { header: 'Điểm chuẩn (Đc)', key: 'baseScore', width: 16, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Điểm quy đổi (Đqđ)', key: 'convertedScore', width: 18, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+            { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+            { header: 'Số lượng SP', key: 'productQty', width: 14, align: 'center', numFmt: '#,##0' },
+            { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+            { header: 'Dự án', key: 'project', width: 26, align: 'left' },
+            { header: 'Minh chứng', key: 'evidence', width: 35, align: 'left' },
+            { header: 'Lãnh đạo duyệt', key: 'leaderApproval', width: 16, align: 'center' },
+            { header: 'Ghi chú Lãnh đạo', key: 'leaderNote', width: 30, align: 'left' },
+            { header: 'Nguồn tạo', key: 'source', width: 14, align: 'center' },
+          ],
+          data: (data.works || []).map((w: any, idx: number) => ({
+            stt: idx + 1,
+            workId: w.workId,
+            month: w.month,
+            userName: w.user?.name || w.userId,
+            userEmail: w.user?.email || '',
+            taskGroup: w.taskGroup || '',
+            taskName: w.taskName || '',
+            taskCode: w.taskCode || '',
+            detail: w.detail || '',
+            startDate: w.startDate ? new Date(w.startDate).toLocaleDateString('vi-VN') : '',
+            endDate: w.endDate ? new Date(w.endDate).toLocaleDateString('vi-VN') : '',
+            hours: Number(w.hours) || 8,
+            proposedNature: w.proposedNature || '',
+            approvedNature: w.approvedNature || '',
+            coef: Number(w.coef) || 0.8,
+            baseScore: Number(w.baseScore) || 10,
+            convertedScore: Number(w.convertedScore) || 8,
+            status: w.status,
+            productType: w.productType || '',
+            productQty: Number(w.productQty) || 1,
+            unit: w.unit || '',
+            project: w.project || '',
+            evidence: w.evidence || '',
+            leaderApproval: w.leaderApproval || 'Chưa duyệt',
+            leaderNote: w.leaderNote || '',
+            source: w.source || 'WEBAPP',
+          }))
+        },
 
-      // Sheet 4: Giao việc
-      const wsAssign = XLSX.utils.json_to_sheet(
-        (data.assignments || []).map((a: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã giao việc': a.assignmentId,
-          'Tháng': a.month,
-          'Người giao': a.assigner?.name || a.assignerId,
-          'Người nhận': a.receiver?.name || a.receiverId,
-          'Email người nhận': a.receiver?.email || '',
-          'Nhóm việc': a.taskGroup || '',
-          'Tên nhiệm vụ': a.taskName || '',
-          'Mã việc': a.taskCode || '',
-          'Điểm chuẩn': a.baseScore || '',
-          'Tính chất': a.suggestedNature || '',
-          'Nội dung yêu cầu': a.detail || '',
-          'Ngày giao': a.assignDate ? new Date(a.assignDate).toLocaleDateString('vi-VN') : '',
-          'Hạn chót': a.deadline ? new Date(a.deadline).toLocaleDateString('vi-VN') : '',
-          'Sản phẩm yêu cầu': a.productRequired || '',
-          'Mức độ ưu tiên': a.priority || 'Bình thường',
-          'Trạng thái tiếp nhận': a.receiveStatus || '',
-          'Ngày nhận việc': a.receiveDate ? new Date(a.receiveDate).toLocaleDateString('vi-VN') : '',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsAssign, '4_Nhiem_Vu_Giao_Viec');
+        // Sheet 4: Giao việc
+        {
+          sheetName: '4_Nhiem_Vu_Giao_Viec',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã giao việc', key: 'assignmentId', width: 22, align: 'center' },
+            { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+            { header: 'Người giao', key: 'assigner', width: 24, align: 'left' },
+            { header: 'Người nhận', key: 'receiver', width: 24, align: 'left' },
+            { header: 'Email người nhận', key: 'receiverEmail', width: 30, align: 'left' },
+            { header: 'Nhóm việc', key: 'taskGroup', width: 24, align: 'left' },
+            { header: 'Tên nhiệm vụ', key: 'taskName', width: 40, align: 'left' },
+            { header: 'Mã việc', key: 'taskCode', width: 14, align: 'center' },
+            { header: 'Điểm chuẩn', key: 'baseScore', width: 14, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Tính chất', key: 'suggestedNature', width: 18, align: 'center' },
+            { header: 'Nội dung yêu cầu', key: 'detail', width: 45, align: 'left' },
+            { header: 'Ngày giao', key: 'assignDate', width: 14, align: 'center' },
+            { header: 'Hạn chót', key: 'deadline', width: 14, align: 'center' },
+            { header: 'Sản phẩm yêu cầu', key: 'productRequired', width: 26, align: 'left' },
+            { header: 'Mức độ ưu tiên', key: 'priority', width: 16, align: 'center' },
+            { header: 'Trạng thái tiếp nhận', key: 'receiveStatus', width: 20, align: 'center' },
+            { header: 'Ngày nhận việc', key: 'receiveDate', width: 14, align: 'center' },
+          ],
+          data: (data.assignments || []).map((a: any, idx: number) => ({
+            stt: idx + 1,
+            assignmentId: a.assignmentId,
+            month: a.month,
+            assigner: a.assigner?.name || a.assignerId,
+            receiver: a.receiver?.name || a.receiverId,
+            receiverEmail: a.receiver?.email || '',
+            taskGroup: a.taskGroup || '',
+            taskName: a.taskName || '',
+            taskCode: a.taskCode || '',
+            baseScore: a.baseScore ? Number(a.baseScore) : '',
+            suggestedNature: a.suggestedNature || '',
+            detail: a.detail || '',
+            assignDate: a.assignDate ? new Date(a.assignDate).toLocaleDateString('vi-VN') : '',
+            deadline: a.deadline ? new Date(a.deadline).toLocaleDateString('vi-VN') : '',
+            productRequired: a.productRequired || '',
+            priority: a.priority || 'Bình thường',
+            receiveStatus: a.receiveStatus || '',
+            receiveDate: a.receiveDate ? new Date(a.receiveDate).toLocaleDateString('vi-VN') : '',
+          }))
+        },
 
-      // Sheet 5: Làm thêm giờ
-      const wsOt = XLSX.utils.json_to_sheet(
-        (data.overtimes || []).map((o: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã OT': o.otId,
-          'Tháng': o.month,
-          'Nhân sự': o.user?.name || o.userId,
-          'Email': o.user?.email || '',
-          'Ngày làm thêm': o.otDate ? new Date(o.otDate).toLocaleDateString('vi-VN') : '',
-          'Giờ bắt đầu': o.startTime || '',
-          'Giờ kết thúc': o.endTime || '',
-          'Số giờ đăng ký': o.totalRegHours || '',
-          'Nội dung công việc': o.content || '',
-          'Lý do làm thêm': o.reason || '',
-          'Dự án': o.project || '',
-          'Kết quả dự kiến': o.expectedResult || '',
-          'Kết quả thực tế': o.actualResult || '',
-          'Trạng thái duyệt': o.approvalStatus || '',
-          'Số giờ được duyệt': o.approvedHours || '',
-          'Người duyệt': o.approver?.name || '',
-          'Ý kiến người duyệt': o.approverNote || '',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsOt, '5_Dang_Ky_Lam_Them_Gio');
+        // Sheet 5: Làm thêm giờ
+        {
+          sheetName: '5_Dang_Ky_Lam_Them_Gio',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã OT', key: 'otId', width: 22, align: 'center' },
+            { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+            { header: 'Nhân sự', key: 'userName', width: 24, align: 'left' },
+            { header: 'Email', key: 'userEmail', width: 30, align: 'left' },
+            { header: 'Ngày làm thêm', key: 'otDate', width: 14, align: 'center' },
+            { header: 'Giờ bắt đầu', key: 'startTime', width: 14, align: 'center' },
+            { header: 'Giờ kết thúc', key: 'endTime', width: 14, align: 'center' },
+            { header: 'Số giờ đăng ký', key: 'totalRegHours', width: 16, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Nội dung công việc', key: 'content', width: 40, align: 'left' },
+            { header: 'Lý do làm thêm', key: 'reason', width: 35, align: 'left' },
+            { header: 'Dự án', key: 'project', width: 25, align: 'left' },
+            { header: 'Kết quả dự kiến', key: 'expectedResult', width: 30, align: 'left' },
+            { header: 'Kết quả thực tế', key: 'actualResult', width: 30, align: 'left' },
+            { header: 'Trạng thái duyệt', key: 'approvalStatus', width: 16, align: 'center' },
+            { header: 'Số giờ được duyệt', key: 'approvedHours', width: 18, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Người duyệt', key: 'approverName', width: 24, align: 'left' },
+            { header: 'Ý kiến người duyệt', key: 'approverNote', width: 30, align: 'left' },
+          ],
+          data: (data.overtimes || []).map((o: any, idx: number) => ({
+            stt: idx + 1,
+            otId: o.otId,
+            month: o.month,
+            userName: o.user?.name || o.userId,
+            userEmail: o.user?.email || '',
+            otDate: o.otDate ? new Date(o.otDate).toLocaleDateString('vi-VN') : '',
+            startTime: o.startTime || '',
+            endTime: o.endTime || '',
+            totalRegHours: Number(o.totalRegHours) || 0,
+            content: o.content || '',
+            reason: o.reason || '',
+            project: o.project || '',
+            expectedResult: o.expectedResult || '',
+            actualResult: o.actualResult || '',
+            approvalStatus: o.approvalStatus || '',
+            approvedHours: Number(o.approvedHours) || 0,
+            approverName: o.approver?.name || '',
+            approverNote: o.approverNote || '',
+          }))
+        },
 
-      // Sheet 6: Kết quả KPI
-      const wsKpi = XLSX.utils.json_to_sheet(
-        (data.kpiResults || []).map((k: any, idx: number) => ({
-          'STT': idx + 1,
-          'Mã KPI': k.kpiId,
-          'Tháng': k.month,
-          'Nhân sự': k.user?.name || k.userId,
-          'Email': k.user?.email || '',
-          'Số việc đăng ký': k.registeredWorks || 0,
-          'Số việc duyệt': k.approvedWorks || 0,
-          'Giờ làm việc': k.approvedHours || 0,
-          'Điểm quy đổi': k.convertedScore || 0,
-          'Điểm A (Chuyên môn)': k.aScore || 0,
-          'Điểm B1 (Thời gian)': k.b1Score || 0,
-          'Điểm B2 (Làm thêm)': k.b2Score || 0,
-          'Điểm B (Hiệu suất)': k.bScore || 0,
-          'Điểm C (Chấp hành)': k.cScore || 0,
-          'Điểm D (Lãnh đạo)': k.dScore || 0,
-          'TỔNG ĐIỂM KPI': k.totalKpi || 0,
-          'XẾP LOẠI': k.rank || 'B',
-          'Trạng thái chốt': k.lockedStatus || 'Chưa chốt',
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsKpi, '6_Ket_Qua_KPI');
+        // Sheet 6: Kết quả KPI
+        {
+          sheetName: '6_Ket_Qua_KPI',
+          columns: [
+            { header: 'STT', key: 'stt', width: 8, align: 'center' },
+            { header: 'Mã KPI', key: 'kpiId', width: 20, align: 'center' },
+            { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+            { header: 'Nhân sự', key: 'userName', width: 24, align: 'left' },
+            { header: 'Email', key: 'userEmail', width: 30, align: 'left' },
+            { header: 'Số việc đăng ký', key: 'regWorks', width: 16, align: 'center', numFmt: '#,##0' },
+            { header: 'Số việc duyệt', key: 'appWorks', width: 16, align: 'center', numFmt: '#,##0' },
+            { header: 'Giờ làm việc', key: 'appHours', width: 16, align: 'center', numFmt: '#,##0.0' },
+            { header: 'Điểm quy đổi', key: 'convertedScore', width: 16, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm A (Chuyên môn)', key: 'aScore', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm B1 (Thời gian)', key: 'b1Score', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm B2 (Làm thêm)', key: 'b2Score', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm B (Hiệu suất)', key: 'bScore', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm C (Chấp hành)', key: 'cScore', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'Điểm D (Lãnh đạo)', key: 'dScore', width: 20, align: 'center', numFmt: '#,##0.00' },
+            { header: 'TỔNG ĐIỂM KPI', key: 'totalKpi', width: 18, align: 'center', numFmt: '#,##0.00' },
+            { header: 'XẾP LOẠI', key: 'rank', width: 14, align: 'center' },
+            { header: 'Trạng thái chốt', key: 'lockedStatus', width: 16, align: 'center' },
+          ],
+          data: (data.kpiResults || []).map((k: any, idx: number) => ({
+            stt: idx + 1,
+            kpiId: k.kpiId,
+            month: k.month,
+            userName: k.user?.name || k.userId,
+            userEmail: k.user?.email || '',
+            regWorks: Number(k.registeredWorks) || 0,
+            appWorks: Number(k.approvedWorks) || 0,
+            appHours: Number(k.approvedHours) || 0,
+            convertedScore: Number(k.convertedScore) || 0,
+            aScore: Number(k.aScore) || 0,
+            b1Score: Number(k.b1Score) || 0,
+            b2Score: Number(k.b2Score) || 0,
+            bScore: Number(k.bScore) || 0,
+            cScore: Number(k.cScore) || 0,
+            dScore: Number(k.dScore) || 0,
+            totalKpi: Number(k.totalKpi) || 0,
+            rank: k.rank || 'B',
+            lockedStatus: k.lockedStatus || 'Chưa chốt',
+          }))
+        }
+      ];
 
       const fileName = `Backup_He_Thong_KPI_That_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setExportMessage(`✅ Đã tải về file sao lưu dữ liệu thật: ${fileName}`);
+      await exportMultiSheetExcel(sheets, fileName);
+      setExportMessage(`✅ Đã tải về file sao lưu Excel chuẩn thương hiệu (#1F4E78): ${fileName}`);
     } catch (e) {
       setExportMessage(`❌ Lỗi xuất dữ liệu: ${String(e)}`);
     } finally {
@@ -550,131 +872,330 @@ export default function AdminSync() {
   // --------------------------------------------------------------------------
   // 3. STANDARD TEMPLATES
   // --------------------------------------------------------------------------
-  const handleDownloadFullTemplate = () => {
-    const wb = XLSX.utils.book_new();
-
-    // 1. Sheet Khai báo công việc
-    const sampleWorks = [
+  const handleDownloadFullTemplate = async () => {
+    const sheets: MultiSheetConfig[] = [
+      // Sheet 1: Mẫu Khai báo công việc
       {
-        'Mã việc': 'W8-2026-001',
-        'Tháng': '08-2026',
-        'Nhân viên': 'Huỳnh Trọng Hiếu',
-        'Email': 'huynhtronghieu260495@gmail.com',
-        'Nhóm việc': 'Kế hoạch vốn',
-        'Tên công việc': 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
-        'Mã danh mục': 'KH01',
-        'Chi tiết': 'Rà soát bảng tổng hợp phân bổ kế hoạch vốn đầu tư công năm 2026 cho 5 dự án giao thông trọng điểm.',
-        'Ngày bắt đầu': '01/08/2026',
-        'Hạn chót': '15/08/2026',
-        'Số giờ': 8,
-        'Tính chất': 'Trung bình',
-        'Hệ số K': 0.8,
-        'Điểm chuẩn (Đc)': 10,
-        'Điểm quy đổi (Đqđ)': 8,
-        'Trạng thái': 'Hoàn thành',
-        'Loại sản phẩm': 'Bảng tổng hợp',
-        'Số lượng SP': 1,
-        'Đơn vị tính': 'Bảng',
-        'Dự án': 'Kế hoạch vốn 2026',
-        'Minh chứng': 'https://drive.google.com/sample_doc_1',
-        'Lãnh đạo duyệt': 'Đã duyệt',
-        'Ý kiến lãnh đạo': 'Đạt yêu cầu',
+        sheetName: 'KH_Cong_Viec_Ngay',
+        isTemplate: true,
+        protectHeader: true,
+        columns: [
+          { header: 'Mã việc', key: 'workId', width: 20, align: 'center' },
+          { header: 'Tháng', key: 'month', width: 14, align: 'center' },
+          { header: 'Nhân viên', key: 'name', width: 24, align: 'left' },
+          { header: 'Email', key: 'email', width: 30, align: 'left' },
+          { header: 'Nhóm việc', key: 'group', width: 24, align: 'left' },
+          { header: 'Tên công việc', key: 'task', width: 40, align: 'left' },
+          { header: 'Mã danh mục', key: 'code', width: 16, align: 'center' },
+          { header: 'Chi tiết', key: 'detail', width: 45, align: 'left' },
+          { header: 'Ngày bắt đầu', key: 'start', width: 14, align: 'center' },
+          { header: 'Hạn chót', key: 'end', width: 14, align: 'center' },
+          { header: 'Số giờ', key: 'hours', width: 12, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất', key: 'nature', width: 16, align: 'center' },
+          { header: 'Hệ số K', key: 'coef', width: 12, align: 'center', numFmt: '0.00' },
+          { header: 'Điểm chuẩn (Đc)', key: 'base', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Điểm quy đổi (Đqđ)', key: 'score', width: 18, align: 'center', numFmt: '#,##0.00' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+          { header: 'Loại sản phẩm', key: 'product', width: 20, align: 'left' },
+          { header: 'Số lượng SP', key: 'qty', width: 14, align: 'center', numFmt: '#,##0' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Dự án', key: 'project', width: 25, align: 'left' },
+          { header: 'Minh chứng', key: 'evidence', width: 35, align: 'left' },
+          { header: 'Lãnh đạo duyệt', key: 'approval', width: 16, align: 'center' },
+          { header: 'Ý kiến lãnh đạo', key: 'note', width: 30, align: 'left' },
+        ],
+        data: [
+          {
+            workId: 'W8-2026-001',
+            month: '08-2026',
+            name: 'Huỳnh Trọng Hiếu',
+            email: 'huynhtronghieu260495@gmail.com',
+            group: 'Kế hoạch vốn',
+            task: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
+            code: 'KH01',
+            detail: 'Rà soát bảng tổng hợp phân bổ kế hoạch vốn đầu tư công năm 2026 cho 5 dự án giao thông trọng điểm.',
+            start: '01/08/2026',
+            end: '15/08/2026',
+            hours: 8,
+            nature: 'Trung bình',
+            coef: 0.8,
+            base: 10,
+            score: 8,
+            status: 'Hoàn thành',
+            product: 'Bảng tổng hợp',
+            qty: 1,
+            unit: 'Bảng',
+            project: 'Kế hoạch vốn 2026',
+            evidence: 'https://drive.google.com/sample_doc_1',
+            approval: 'Đã duyệt',
+            note: 'Đạt yêu cầu',
+          },
+          {
+            workId: 'W8-2026-002',
+            month: '08-2026',
+            name: 'Đường Thị Ngọc Hà',
+            email: 'duongngocha200990@gmail.com',
+            group: 'Thanh toán, giải ngân',
+            task: 'Lập hồ sơ thanh toán, giải ngân gửi Kho bạc',
+            code: 'B2.2',
+            detail: 'Hoàn thiện hồ sơ thanh toán khối lượng xây lắp đợt 3 tuyến đường tránh Đông Buôn Ma Thuột.',
+            start: '05/08/2026',
+            end: '15/08/2026',
+            hours: 12,
+            nature: 'Phức tạp',
+            coef: 1.0,
+            base: 12,
+            score: 12,
+            status: 'Hoàn thành',
+            product: 'Hồ sơ thanh toán',
+            qty: 2,
+            unit: 'Hồ sơ',
+            project: 'Đường tránh Đông BMT',
+            evidence: 'https://drive.google.com/sample_doc_2',
+            approval: 'Đã duyệt',
+            note: 'Đã kiểm tra khớp số liệu KBNN',
+          }
+        ]
       },
+
+      // Sheet 2: Mẫu Danh mục Nhân sự
       {
-        'Mã việc': 'W8-2026-002',
-        'Tháng': '08-2026',
-        'Nhân viên': 'Đường Thị Ngọc Hà',
-        'Email': 'duongngocha200990@gmail.com',
-        'Nhóm việc': 'Thanh toán, giải ngân',
-        'Tên công việc': 'Lập hồ sơ thanh toán, giải ngân gửi Kho bạc',
-        'Mã danh mục': 'B2.2',
-        'Chi tiết': 'Hoàn thiện hồ sơ thanh toán khối lượng xây lắp đợt 3 tuyến đường tránh Đông Buôn Ma Thuột.',
-        'Ngày bắt đầu': '05/08/2026',
-        'Hạn chót': '15/08/2026',
-        'Số giờ': 12,
-        'Tính chất': 'Phức tạp',
-        'Hệ số K': 1.0,
-        'Điểm chuẩn (Đc)': 12,
-        'Điểm quy đổi (Đqđ)': 12,
-        'Trạng thái': 'Hoàn thành',
-        'Loại sản phẩm': 'Hồ sơ thanh toán',
-        'Số lượng SP': 2,
-        'Đơn vị tính': 'Hồ sơ',
-        'Dự án': 'Đường tránh Đông BMT',
-        'Minh chứng': 'https://drive.google.com/sample_doc_2',
-        'Lãnh đạo duyệt': 'Đã duyệt',
-        'Ý kiến lãnh đạo': 'Đã kiểm tra khớp số liệu KBNN',
+        sheetName: 'DM_Nhan_Su',
+        isTemplate: true,
+        protectHeader: true,
+        columns: [
+          { header: 'Họ và tên', key: 'name', width: 26, align: 'left' },
+          { header: 'Email', key: 'email', width: 32, align: 'left' },
+          { header: 'Số điện thoại', key: 'phone', width: 16, align: 'center' },
+          { header: 'Chức vụ', key: 'position', width: 22, align: 'left' },
+          { header: 'Nhóm / Phòng ban', key: 'group', width: 24, align: 'left' },
+          { header: 'Vai trò', key: 'role', width: 14, align: 'center' },
+        ],
+        data: [
+          { name: 'Khuất Văn Sơn', email: 'khvanson@gmail.com', phone: '0906234585', position: 'Phó Trưởng phòng', group: 'Ban Lãnh đạo', role: 'ADMIN' },
+          { name: 'Nguyễn Thị Hải Hà', email: 'nguyenhaiha.bmt@gmail.com', phone: '0913456789', position: 'Phó phòng', group: 'Ban Lãnh đạo', role: 'LEADER' },
+          { name: 'Trần Anh Tuấn', email: 'tuandabmt@gmail.com', phone: '0912345601', position: 'Kế toán trưởng', group: 'Tài chính - Kế toán', role: 'STAFF' },
+          { name: 'Huỳnh Trọng Hiếu', email: 'huynhtronghieu260495@gmail.com', phone: '0912345602', position: 'Chuyên viên', group: 'Kế hoạch vốn', role: 'STAFF' },
+          { name: 'Đường Thị Ngọc Hà', email: 'duongngocha200990@gmail.com', phone: '0912345603', position: 'Chuyên viên', group: 'Thanh toán, giải ngân', role: 'STAFF' },
+        ]
       },
-    ];
-    const ws1 = XLSX.utils.json_to_sheet(sampleWorks);
-    XLSX.utils.book_append_sheet(wb, ws1, 'KH_Cong_Viec_Ngay');
 
-    // 2. Sheet Danh mục Nhân sự
-    const sampleUsers = [
-      { 'Họ và tên': 'Khuất Văn Sơn', 'Email': 'khvanson@gmail.com', 'Số điện thoại': '0906234585', 'Chức vụ': 'Phó Trưởng phòng', 'Nhóm': 'Ban Lãnh đạo', 'Vai trò': 'ADMIN' },
-      { 'Họ và tên': 'Nguyễn Thị Hải Hà', 'Email': 'nguyenhaiha.bmt@gmail.com', 'Số điện thoại': '0913456789', 'Chức vụ': 'Phó phòng', 'Nhóm': 'Ban Lãnh đạo', 'Vai trò': 'LEADER' },
-      { 'Họ và tên': 'Trần Anh Tuấn', 'Email': 'tuandabmt@gmail.com', 'Số điện thoại': '0912345601', 'Chức vụ': 'Kế toán trưởng', 'Nhóm': 'Tài chính - Kế toán', 'Vai trò': 'STAFF' },
-      { 'Họ và tên': 'Huỳnh Trọng Hiếu', 'Email': 'huynhtronghieu260495@gmail.com', 'Số điện thoại': '0912345602', 'Chức vụ': 'Chuyên viên', 'Nhóm': 'Kế hoạch vốn', 'Vai trò': 'STAFF' },
-      { 'Họ và tên': 'Đường Thị Ngọc Hà', 'Email': 'duongngocha200990@gmail.com', 'Số điện thoại': '0912345603', 'Chức vụ': 'Chuyên viên', 'Nhóm': 'Thanh toán, giải ngân', 'Vai trò': 'STAFF' },
-    ];
-    const ws2 = XLSX.utils.json_to_sheet(sampleUsers);
-    XLSX.utils.book_append_sheet(wb, ws2, 'DM_Nhan_Su');
-
-    // 3. Sheet Danh mục Chuẩn
-    const sampleCats = [
-      { 'Mã': 'GRP_VON', 'Tên': 'Kế hoạch vốn', 'Loại': 'TASK_GROUP', 'Nhóm việc': '', 'Điểm chuẩn': '', 'Tính chất': '', 'Đơn vị': '', 'Thứ tự': 1 },
-      { 'Mã': 'GRP_THANHTOAN', 'Tên': 'Thanh toán, giải ngân', 'Loại': 'TASK_GROUP', 'Nhóm việc': '', 'Điểm chuẩn': '', 'Tính chất': '', 'Đơn vị': '', 'Thứ tự': 2 },
-      { 'Mã': 'KH01', 'Tên': 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', 'Loại': 'TASK', 'Nhóm việc': 'Kế hoạch vốn', 'Điểm chuẩn': 10, 'Tính chất': 'Trung bình', 'Đơn vị': 'Bảng', 'Thứ tự': 3 },
-      { 'Mã': 'B2.2', 'Tên': 'Lập hồ sơ thanh toán, giải ngân gửi Kho bạc', 'Loại': 'TASK', 'Nhóm việc': 'Thanh toán, giải ngân', 'Điểm chuẩn': 12, 'Tính chất': 'Phức tạp', 'Đơn vị': 'Hồ sơ', 'Thứ tự': 4 },
-      { 'Mã': 'PROD_BAOCAO', 'Tên': 'Báo cáo', 'Loại': 'PRODUCT_TYPE', 'Nhóm việc': '', 'Điểm chuẩn': '', 'Tính chất': '', 'Đơn vị': 'Báo cáo', 'Thứ tự': 5 },
-    ];
-    const ws3 = XLSX.utils.json_to_sheet(sampleCats);
-    XLSX.utils.book_append_sheet(wb, ws3, 'DM_DanhMuc');
-
-    // 4. Sheet Giao việc
-    const sampleAssign = [
+      // Sheet 3: Mẫu Danh mục Chuẩn
       {
-        'Mã giao việc': 'A8-GV-2026-001',
-        'Tháng': '08-2026',
-        'Người giao': 'Khuất Văn Sơn',
-        'Người nhận': 'Huỳnh Trọng Hiếu',
-        'Nhóm việc': 'Kế hoạch vốn',
-        'Tên nhiệm vụ': 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
-        'Mã chuẩn': 'KH01',
-        'Điểm chuẩn': 10,
-        'Tính chất': 'Trung bình',
-        'Nội dung yêu cầu': 'Rà soát bảng tổng hợp phân bổ kế hoạch vốn đầu tư công năm 2026 cho 5 dự án giao thông trọng điểm.',
-        'Hạn chót': '15/08/2026',
-        'Sản phẩm yêu cầu': 'Bảng tổng hợp kế hoạch vốn dự án',
-        'Loại sản phẩm': 'Bảng tổng hợp',
-        'Mức độ ưu tiên': 'Cao',
+        sheetName: 'DM_DanhMuc',
+        isTemplate: true,
+        protectHeader: true,
+        columns: [
+          { header: 'Mã', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên danh mục', key: 'name', width: 38, align: 'left' },
+          { header: 'Loại danh mục', key: 'type', width: 18, align: 'center' },
+          { header: 'Nhóm việc', key: 'group', width: 24, align: 'left' },
+          { header: 'Điểm chuẩn', key: 'score', width: 14, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất', key: 'nature', width: 16, align: 'center' },
+          { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+          { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+        ],
+        data: [
+          { code: 'GRP_VON', name: 'Kế hoạch vốn', type: 'TASK_GROUP', group: '', score: '', nature: '', unit: '', order: 1 },
+          { code: 'GRP_THANHTOAN', name: 'Thanh toán, giải ngân', type: 'TASK_GROUP', group: '', score: '', nature: '', unit: '', order: 2 },
+          { code: 'KH01', name: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', type: 'TASK', group: 'Kế hoạch vốn', score: 10, nature: 'Trung bình', unit: 'Bảng', order: 3 },
+          { code: 'B2.2', name: 'Lập hồ sơ thanh toán, giải ngân gửi Kho bạc', type: 'TASK', group: 'Thanh toán, giải ngân', score: 12, nature: 'Phức tạp', unit: 'Hồ sơ', order: 4 },
+          { code: 'PROD_BAOCAO', name: 'Báo cáo', type: 'PRODUCT_TYPE', group: '', score: '', nature: '', unit: 'Báo cáo', order: 5 },
+        ]
+      },
+
+      // Sheet 4: Mẫu Giao việc
+      {
+        sheetName: 'Nhiem_Vu_Giao_Viec',
+        isTemplate: true,
+        protectHeader: true,
+        columns: [
+          { header: 'Mã giao việc', key: 'code', width: 22, align: 'center' },
+          { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+          { header: 'Người giao', key: 'assigner', width: 24, align: 'left' },
+          { header: 'Người nhận', key: 'receiver', width: 24, align: 'left' },
+          { header: 'Nhóm việc', key: 'group', width: 24, align: 'left' },
+          { header: 'Tên nhiệm vụ', key: 'task', width: 40, align: 'left' },
+          { header: 'Mã chuẩn', key: 'taskCode', width: 14, align: 'center' },
+          { header: 'Điểm chuẩn', key: 'score', width: 14, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Tính chất', key: 'nature', width: 16, align: 'center' },
+          { header: 'Nội dung yêu cầu', key: 'detail', width: 45, align: 'left' },
+          { header: 'Hạn chót', key: 'deadline', width: 14, align: 'center' },
+          { header: 'Sản phẩm yêu cầu', key: 'product', width: 26, align: 'left' },
+          { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+          { header: 'Mức độ ưu tiên', key: 'priority', width: 16, align: 'center' },
+        ],
+        data: [
+          {
+            code: 'A8-GV-2026-001',
+            month: '08-2026',
+            assigner: 'Khuất Văn Sơn',
+            receiver: 'Huỳnh Trọng Hiếu',
+            group: 'Kế hoạch vốn',
+            task: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
+            taskCode: 'KH01',
+            score: 10,
+            nature: 'Trung bình',
+            detail: 'Rà soát bảng tổng hợp phân bổ kế hoạch vốn đầu tư công năm 2026 cho 5 dự án giao thông trọng điểm.',
+            deadline: '15/08/2026',
+            product: 'Bảng tổng hợp kế hoạch vốn dự án',
+            productType: 'Bảng tổng hợp',
+            priority: 'Cao',
+          }
+        ]
+      },
+
+      // Sheet 5: Mẫu Làm thêm giờ
+      {
+        sheetName: 'Dang_Ky_Lam_Them',
+        isTemplate: true,
+        protectHeader: true,
+        columns: [
+          { header: 'Mã OT', key: 'code', width: 22, align: 'center' },
+          { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+          { header: 'Nhân sự', key: 'name', width: 24, align: 'left' },
+          { header: 'Ngày làm thêm', key: 'date', width: 14, align: 'center' },
+          { header: 'Giờ bắt đầu', key: 'startTime', width: 14, align: 'center' },
+          { header: 'Giờ kết thúc', key: 'endTime', width: 14, align: 'center' },
+          { header: 'Số giờ đăng ký', key: 'hours', width: 16, align: 'center', numFmt: '#,##0.0' },
+          { header: 'Nội dung công việc', key: 'content', width: 40, align: 'left' },
+          { header: 'Lý do làm thêm', key: 'reason', width: 35, align: 'left' },
+          { header: 'Dự án', key: 'project', width: 25, align: 'left' },
+          { header: 'Kết quả dự kiến', key: 'expected', width: 30, align: 'left' },
+          { header: 'Trạng thái duyệt', key: 'status', width: 16, align: 'center' },
+          { header: 'Số giờ được duyệt', key: 'approvedHours', width: 18, align: 'center', numFmt: '#,##0.0' },
+        ],
+        data: [
+          {
+            code: 'OT-2026-08-001',
+            month: '08-2026',
+            name: 'Huỳnh Trọng Hiếu',
+            date: '11/08/2026',
+            startTime: '17:00',
+            endTime: '20:30',
+            hours: 3.5,
+            content: 'Tổng hợp số liệu điều chỉnh kế hoạch vốn đợt 3 trình UBND tỉnh',
+            reason: 'Hồ sơ gấp theo chỉ đạo hỏa tốc của UBND tỉnh phục vụ phiên họp thường kỳ',
+            project: 'Kế hoạch vốn đầu tư công năm 2026',
+            expected: 'Dự thảo Tờ trình và Bảng tổng hợp chi tiết',
+            status: 'Đã duyệt',
+            approvedHours: 3.5,
+          }
+        ]
       }
     ];
-    const ws4 = XLSX.utils.json_to_sheet(sampleAssign);
-    XLSX.utils.book_append_sheet(wb, ws4, 'Nhiem_Vu_Giao_Viec');
 
-    // 5. Sheet Làm thêm giờ
-    const sampleOt = [
-      {
-        'Mã OT': 'OT-2026-08-001',
-        'Tháng': '08-2026',
-        'Nhân sự': 'Huỳnh Trọng Hiếu',
-        'Ngày làm thêm': '11/08/2026',
-        'Giờ bắt đầu': '17:00',
-        'Giờ kết thúc': '20:30',
-        'Số giờ đăng ký': 3.5,
-        'Nội dung công việc': 'Tổng hợp số liệu điều chỉnh kế hoạch vốn đợt 3 trình UBND tỉnh',
-        'Lý do làm thêm': 'Hồ sơ gấp theo chỉ đạo hỏa tốc của UBND tỉnh phục vụ phiên họp thường kỳ',
-        'Dự án': 'Kế hoạch vốn đầu tư công năm 2026',
-        'Kết quả dự kiến': 'Dự thảo Tờ trình và Bảng tổng hợp chi tiết',
-        'Trạng thái duyệt': 'Đã duyệt',
-        'Số giờ được duyệt': 3.5,
-      }
-    ];
-    const ws5 = XLSX.utils.json_to_sheet(sampleOt);
-    XLSX.utils.book_append_sheet(wb, ws5, 'Dang_Ky_Lam_Them');
+    await exportMultiSheetExcel(sheets, 'Mau_Chuan_Dong_Bo_Du_Lieu_KPI_V8.xlsx');
+  };
 
-    XLSX.writeFile(wb, 'Mau_Chuan_Dong_Bo_Du_Lieu_KPI_V8.xlsx');
+  const handleDownloadSingleTemplate = async (templateKey: 'task_groups' | 'product_types' | 'categories' | 'users' | 'works' | 'assignments' | 'overtimes') => {
+    if (templateKey === 'task_groups') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã nhóm', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên nhóm công việc', key: 'name', width: 38, align: 'left' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        { header: 'Ghi chú mô tả', key: 'note', width: 35, align: 'left' },
+      ];
+      const sample = [
+        { code: 'GRP_VON', name: 'Kế hoạch vốn', order: 1, note: 'Theo dõi, phân bổ kế hoạch vốn đầu tư công' },
+        { code: 'GRP_THANHTOAN', name: 'Thanh toán, giải ngân', order: 2, note: 'Hồ sơ thanh toán, kiểm soát chi Kho bạc' },
+        { code: 'GRP_DUDAN', name: 'Quyết toán dự án', order: 3, note: 'Quyết toán vốn đầu tư công dự án hoàn thành' },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Nhom_Cong_Viec.xlsx', 'Nhom_Cong_Viec');
+    } else if (templateKey === 'product_types') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã loại SP', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên loại sản phẩm', key: 'name', width: 38, align: 'left' },
+        { header: 'Đơn vị tính (ĐVT)', key: 'unit', width: 18, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+      ];
+      const sample = [
+        { code: 'PROD_BAOCAO', name: 'Báo cáo', unit: 'Báo cáo', order: 1 },
+        { code: 'PROD_TOTRINH', name: 'Tờ trình', unit: 'Tờ trình', order: 2 },
+        { code: 'PROD_HOSO', name: 'Hồ sơ thanh toán', unit: 'Bộ hồ sơ', order: 3 },
+        { code: 'PROD_VANBAN', name: 'Văn bản hướng dẫn / công văn', unit: 'Văn bản', order: 4 },
+        { code: 'PROD_BANGTONGHOP', name: 'Bảng tổng hợp', unit: 'Bảng', order: 5 },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Loai_San_Pham_DVT.xlsx', 'Loai_San_Pham');
+    } else if (templateKey === 'categories') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã chuẩn', key: 'code', width: 16, align: 'center' },
+        { header: 'Tên danh mục công việc', key: 'name', width: 42, align: 'left' },
+        { header: 'Nhóm công việc', key: 'taskGroup', width: 26, align: 'left' },
+        { header: 'Điểm chuẩn (Đc)', key: 'score', width: 16, align: 'center', numFmt: '#,##0.0' },
+        { header: 'Tính chất mặc định', key: 'nature', width: 18, align: 'center' },
+        { header: 'Loại sản phẩm', key: 'productType', width: 22, align: 'left' },
+        { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+        { header: 'Thứ tự', key: 'order', width: 10, align: 'center' },
+      ];
+      const sample = [
+        { code: 'KH01', name: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', taskGroup: 'Kế hoạch vốn', score: 10, nature: 'Trung bình', productType: 'Bảng tổng hợp', unit: 'Bảng', order: 1 },
+        { code: 'B2.2', name: 'Lập hồ sơ thanh toán, giải ngân gửi Kho bạc', taskGroup: 'Thanh toán, giải ngân', score: 12, nature: 'Phức tạp', productType: 'Hồ sơ thanh toán', unit: 'Hồ sơ', order: 2 },
+        { code: 'QT01', name: 'Thẩm tra quyết toán dự án hoàn thành', taskGroup: 'Quyết toán dự án', score: 15, nature: 'Rất phức tạp', productType: 'Báo cáo kết quả thẩm tra', unit: 'Báo cáo', order: 3 },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Danh_Muc_Cong_Viec.xlsx', 'DanhMuc_CongViec');
+    } else if (templateKey === 'users') {
+      const cols: ExportColumn[] = [
+        { header: 'Họ và tên', key: 'name', width: 24, align: 'left' },
+        { header: 'Email Google', key: 'email', width: 30, align: 'left' },
+        { header: 'Số điện thoại', key: 'phone', width: 16, align: 'center' },
+        { header: 'Zalo', key: 'zalo', width: 16, align: 'center' },
+        { header: 'Chức vụ', key: 'position', width: 20, align: 'left' },
+        { header: 'Nhóm / Phòng ban', key: 'group', width: 24, align: 'left' },
+        { header: 'Vai trò (STAFF/LEADER/ADMIN)', key: 'role', width: 22, align: 'center' },
+      ];
+      const sample = [
+        { name: 'Khuất Văn Sơn', email: 'khvanson@gmail.com', phone: '0906234585', zalo: '0906234585', position: 'Phó Trưởng phòng', group: 'Ban Lãnh đạo', role: 'ADMIN' },
+        { name: 'Huỳnh Trọng Hiếu', email: 'huynhtronghieu260495@gmail.com', phone: '0912345602', zalo: '0912345602', position: 'Chuyên viên', group: 'Kế hoạch vốn', role: 'STAFF' },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Danh_Sach_Nhan_Su.xlsx', 'Nhan_Su');
+    } else if (templateKey === 'works') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã việc', key: 'code', width: 20, align: 'center' },
+        { header: 'Tháng', key: 'month', width: 12, align: 'center' },
+        { header: 'Nhân viên', key: 'name', width: 24, align: 'left' },
+        { header: 'Nhóm việc', key: 'group', width: 24, align: 'left' },
+        { header: 'Tên công việc', key: 'task', width: 40, align: 'left' },
+        { header: 'Mã chuẩn', key: 'taskCode', width: 14, align: 'center' },
+        { header: 'Nội dung chi tiết', key: 'detail', width: 45, align: 'left' },
+        { header: 'Ngày bắt đầu', key: 'startDate', width: 14, align: 'center' },
+        { header: 'Hạn chót', key: 'endDate', width: 14, align: 'center' },
+        { header: 'Số giờ', key: 'hours', width: 12, align: 'center', numFmt: '#,##0.0' },
+        { header: 'Tính chất đề xuất', key: 'nature', width: 18, align: 'center' },
+        { header: 'Hệ số K', key: 'coef', width: 12, align: 'center', numFmt: '0.00' },
+        { header: 'Điểm chuẩn', key: 'baseScore', width: 14, align: 'center', numFmt: '#,##0.0' },
+        { header: 'Điểm quy đổi', key: 'convertedScore', width: 16, align: 'center', numFmt: '#,##0.00' },
+        { header: 'Loại sản phẩm', key: 'productType', width: 20, align: 'left' },
+        { header: 'Số lượng SP', key: 'productQty', width: 14, align: 'center', numFmt: '#,##0' },
+        { header: 'Đơn vị tính', key: 'unit', width: 14, align: 'center' },
+        { header: 'Dự án', key: 'project', width: 26, align: 'left' },
+        { header: 'Minh chứng', key: 'evidence', width: 35, align: 'left' },
+      ];
+      const sample = [
+        {
+          code: 'CV-2026-08-001',
+          month: '08-2026',
+          name: 'Huỳnh Trọng Hiếu',
+          group: 'Kế hoạch vốn',
+          task: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
+          taskCode: 'KH01',
+          detail: 'Rà soát kế hoạch vốn 5 dự án giao thông trọng điểm',
+          startDate: '01/08/2026',
+          endDate: '15/08/2026',
+          hours: 8,
+          nature: 'Trung bình',
+          coef: 0.8,
+          baseScore: 10,
+          convertedScore: 8,
+          productType: 'Bảng tổng hợp',
+          productQty: 1,
+          unit: 'Bảng',
+          project: 'Đường vành đai phía Tây',
+          evidence: 'Link Drive / Báo cáo nội bộ',
+        }
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Khai_Bao_Cong_Viec.xlsx', 'KH_CongViec');
+    }
   };
 
   const isConfirmed = confirmCode.trim().toUpperCase() === 'XACNHAN' || confirmCode.trim().toUpperCase() === 'CONFIRM';
@@ -1162,7 +1683,9 @@ export default function AdminSync() {
                       <option value="overtimes">Làm thêm ngoài giờ (OT)</option>
                       <option value="assignments">Giao việc lãnh đạo</option>
                       <option value="users">Danh sách nhân sự</option>
-                      <option value="categories">Danh mục chuẩn</option>
+                      <option value="categories">Danh mục công việc chuẩn</option>
+                      <option value="task_groups">Nhóm công việc</option>
+                      <option value="product_types">Loại sản phẩm & ĐVT</option>
                       <option value="unknown">Bỏ qua (Trang tổng hợp / Cảnh báo / Khác)</option>
                     </select>
                   </div>
@@ -1226,7 +1749,7 @@ export default function AdminSync() {
                 Sao lưu & Tải dữ liệu thật từ Cơ sở dữ liệu Cloud SQL
               </h2>
               <p className="text-sm text-slate-500 mt-1">
-                Xuất toàn bộ các bảng dữ liệu thực tế thành tệp Excel tổng hợp nhiều trang tính hoặc tệp Snapshot JSON hoàn chỉnh để lưu trữ và phát hành.
+                Xuất toàn bộ hoặc tải riêng từng bảng dữ liệu thực tế thành tệp Excel định dạng chuẩn thương hiệu (#1F4E78, khóa tiêu đề, co giãn cột tự động).
               </p>
             </div>
 
@@ -1236,6 +1759,7 @@ export default function AdminSync() {
               </div>
             )}
 
+            {/* Master Downloads */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Card 1: Multi-sheet Excel Backup */}
               <div className="p-6 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white flex flex-col justify-between gap-6 hover:shadow-md transition-shadow">
@@ -1244,7 +1768,7 @@ export default function AdminSync() {
                     <FileSpreadsheet className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-black text-slate-900 text-base">Bản sao lưu Excel Toàn diện (.xlsx)</h3>
+                    <h3 className="font-black text-slate-900 text-base">Bản sao lưu Excel Toàn diện 6-in-1 (.xlsx)</h3>
                     <p className="text-xs text-slate-500 mt-1">
                       Bao gồm đầy đủ 6 Sheet: Nhân sự, Danh mục, Khai báo công việc, Giao việc, Làm thêm giờ và Kết quả đánh giá KPI.
                     </p>
@@ -1257,7 +1781,7 @@ export default function AdminSync() {
                   className="py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all"
                 >
                   <Download className="w-4 h-4" />
-                  Tải về Toàn bộ Dữ liệu Excel
+                  Tải về Toàn bộ Dữ liệu (1 File Tổng hợp)
                 </button>
               </div>
 
@@ -1285,6 +1809,103 @@ export default function AdminSync() {
                 </button>
               </div>
             </div>
+
+            {/* Granular Individual Real Data Exports */}
+            <div className="flex flex-col gap-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 text-sm uppercase tracking-wider flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  Tải về file Excel riêng từng bảng dữ liệu thực tế:
+                </h3>
+                <span className="text-xs text-slate-500 font-medium">Định dạng Navy #1F4E78 chuẩn hóa</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Export 1: Nhom cong viec */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 flex flex-col justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-slate-800 text-xs">
+                      <Layers className="w-4 h-4 text-blue-600" />
+                      Nhóm công việc
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Bảng phân loại nhóm công việc phòng ban (Kế hoạch vốn, Giải ngân, Quyết toán...)
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleExportSingleRealData('task_groups')}
+                    disabled={isExporting}
+                    className="py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải riêng Nhóm việc (.xlsx)
+                  </button>
+                </div>
+
+                {/* Export 2: Loai san pham */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-400 flex flex-col justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-slate-800 text-xs">
+                      <Briefcase className="w-4 h-4 text-indigo-600" />
+                      Loại sản phẩm & ĐVT
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Danh mục loại sản phẩm giao nộp (Báo cáo, Tờ trình, Hồ sơ...) kèm Đơn vị tính
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleExportSingleRealData('product_types')}
+                    disabled={isExporting}
+                    className="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải riêng Loại SP (.xlsx)
+                  </button>
+                </div>
+
+                {/* Export 3: Danh muc chuan */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-emerald-400 flex flex-col justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-slate-800 text-xs">
+                      <Award className="w-4 h-4 text-emerald-600" />
+                      Danh mục chuẩn & Điểm
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Danh mục công việc chuẩn ban hành kèm điểm chuẩn (Đc), tính chất, ĐVT
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleExportSingleRealData('categories')}
+                    disabled={isExporting}
+                    className="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải riêng Danh mục (.xlsx)
+                  </button>
+                </div>
+
+                {/* Export 4: Nhan su */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-amber-400 flex flex-col justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-slate-800 text-xs">
+                      <Users className="w-4 h-4 text-amber-600" />
+                      Danh sách Nhân sự
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Toàn bộ tài khoản nhân sự, chức vụ, email Google, số Zalo, nhóm công tác
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleExportSingleRealData('users')}
+                    disabled={isExporting}
+                    className="py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải riêng Nhân sự (.xlsx)
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1302,7 +1923,7 @@ export default function AdminSync() {
                   Tải File Mẫu Chuẩn hóa Dữ liệu Hệ thống
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  Sử dụng các file mẫu này để chuẩn bị dữ liệu từ các nền tảng khác trước khi nhập vào hệ thống.
+                  Được thiết kế chuyên nghiệp chuẩn thương hiệu (#1F4E78, khóa tiêu đề, co giãn cột tự động). Bạn có thể tải gói 5-in-1 hoặc tải riêng từng bảng để nạp độc lập.
                 </p>
               </div>
 
@@ -1311,40 +1932,117 @@ export default function AdminSync() {
                 className="py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all self-start md:self-auto"
               >
                 <Download className="w-4 h-4" />
-                Tải Bộ File Mẫu Chuẩn (Toàn diện 5-in-1)
+                Tải Bộ File Mẫu Toàn Diện (Gói 5-in-1)
               </button>
             </div>
 
-            {/* Template breakdown cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2">
-                <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
-                  <Briefcase className="w-4 h-4 text-blue-600" />
-                  1. Mẫu Khai báo Công việc
-                </div>
-                <p className="text-xs text-slate-500">
-                  Chứa các cột chuẩn: Mã việc, Tháng, Nhân viên, Nhóm việc, Tên việc, Mã chuẩn, Điểm chuẩn, Tính chất, Hệ số K, Điểm quy đổi, Minh chứng...
-                </p>
-              </div>
+            {/* Individual Standard Templates */}
+            <div className="flex flex-col gap-3 pt-2">
+              <h3 className="font-black text-slate-800 text-sm uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                Tải file mẫu riêng từng phân hệ danh mục & dữ liệu:
+              </h3>
 
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2">
-                <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
-                  <Users className="w-4 h-4 text-emerald-600" />
-                  2. Mẫu Danh mục Nhân sự
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {/* 1. Nhom cong viec */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50/40 hover:border-blue-300 transition-all flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                      <Layers className="w-4 h-4 text-blue-600" />
+                      1. Mẫu Nhóm công việc
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Mã nhóm, Tên nhóm công việc, Thứ tự hiển thị, Ghi chú mô tả.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSingleTemplate('task_groups')}
+                    className="py-2 px-3 bg-white hover:bg-blue-600 hover:text-white text-blue-700 border border-blue-200 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải mẫu Nhóm việc
+                  </button>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Chứa các cột chuẩn: Họ và tên, Email (@gmail.com), Số điện thoại, Zalo, Chức vụ, Nhóm/Phòng ban, Vai trò (STAFF, LEADER, ADMIN)...
-                </p>
-              </div>
 
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-2">
-                <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
-                  <Layers className="w-4 h-4 text-indigo-600" />
-                  3. Mẫu Danh mục Chuẩn
+                {/* 2. Loai san pham */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-indigo-50/40 hover:border-indigo-300 transition-all flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                      <Briefcase className="w-4 h-4 text-indigo-600" />
+                      2. Mẫu Loại SP & ĐVT
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Mã loại sản phẩm, Tên loại sản phẩm, Đơn vị tính (ĐVT), Thứ tự.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSingleTemplate('product_types')}
+                    className="py-2 px-3 bg-white hover:bg-indigo-600 hover:text-white text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải mẫu Loại SP
+                  </button>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Chứa danh sách nhóm việc, danh mục công việc chuẩn ban hành kèm điểm chuẩn, loại sản phẩm và đơn vị tính...
-                </p>
+
+                {/* 3. Danh muc cong viec */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-emerald-50/40 hover:border-emerald-300 transition-all flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                      <Award className="w-4 h-4 text-emerald-600" />
+                      3. Mẫu Danh mục chuẩn
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Mã chuẩn, Tên việc chuẩn, Nhóm việc, Điểm chuẩn (Đc), Tính chất, Loại SP.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSingleTemplate('categories')}
+                    className="py-2 px-3 bg-white hover:bg-emerald-600 hover:text-white text-emerald-700 border border-emerald-200 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải mẫu Danh mục
+                  </button>
+                </div>
+
+                {/* 4. Nhan su */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-amber-50/40 hover:border-amber-300 transition-all flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                      <Users className="w-4 h-4 text-amber-600" />
+                      4. Mẫu Danh sách Nhân sự
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Họ tên, Email Google, Điện thoại, Zalo, Chức vụ, Nhóm, Vai trò.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSingleTemplate('users')}
+                    className="py-2 px-3 bg-white hover:bg-amber-600 hover:text-white text-amber-700 border border-amber-200 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải mẫu Nhân sự
+                  </button>
+                </div>
+
+                {/* 5. Khai bao cong viec */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-purple-50/40 hover:border-purple-300 transition-all flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+                      <Briefcase className="w-4 h-4 text-purple-600" />
+                      5. Mẫu Kế hoạch việc
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Mã việc, Tháng, Nhân viên, Nhóm, Tên việc, Điểm chuẩn, Hệ số K...
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSingleTemplate('works')}
+                    className="py-2 px-3 bg-white hover:bg-purple-600 hover:text-white text-purple-700 border border-purple-200 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-2xs transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Tải mẫu Công việc
+                  </button>
+                </div>
               </div>
             </div>
           </div>

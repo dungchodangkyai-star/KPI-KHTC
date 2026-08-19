@@ -168,6 +168,22 @@ export default function AdminUsers() {
       const data = await res.json();
       if (data.success) {
         setIsEditing(null);
+        // If current logged-in user was modified, sync localStorage
+        try {
+          const storedUserStr = localStorage.getItem('kpi_logged_in_user');
+          if (storedUserStr && data.data) {
+            const stored = JSON.parse(storedUserStr);
+            if (stored.id === data.data.id || stored.email?.toLowerCase() === data.data.email?.toLowerCase()) {
+              localStorage.setItem('kpi_logged_in_user', JSON.stringify({
+                ...stored,
+                ...data.data
+              }));
+              window.dispatchEvent(new Event('kpi_user_changed'));
+            }
+          }
+        } catch (err) {
+          console.error("Sync current user error:", err);
+        }
         fetchUsers();
       } else {
         alert('Lỗi: ' + data.error);
