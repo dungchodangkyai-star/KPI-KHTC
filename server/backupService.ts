@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { sql } from 'drizzle-orm';
 import { db } from '../src/db/index.ts';
 import { users, works, assignments, overtimes, categories, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 
@@ -32,6 +33,9 @@ export interface BackupMetadata {
     assignments: number;
     overtimes: number;
     categories: number;
+    kpiResults: number;
+    notifications: number;
+    logs: number;
   };
   triggerType: 'auto_scheduled' | 'manual';
   offsiteSynced?: boolean;
@@ -108,26 +112,19 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
   try {
     ensureDir(BACKUP_DIR);
 
-    // 1. Fetch all data from database
+    // Read all tables from one consistent, read-only snapshot.
     const [
-      allUsers,
-      allWorks,
-      allAssignments,
-      allOvertimes,
-      allCategories,
-      allKpiResults,
-      allNotifications,
-      allLogs
-    ] = await Promise.all([
-      db.query.users.findMany(),
-      db.query.works.findMany(),
-      db.query.assignments.findMany(),
-      db.query.overtimes.findMany(),
-      db.query.categories.findMany(),
-      db.query.kpiResults.findMany(),
-      db.query.notifications.findMany(),
-      db.query.systemLogs.findMany()
-    ]);
+      allUsers, allWorks, allAssignments, allOvertimes,
+      allCategories, allKpiResults, allNotifications, allLogs
+    ] = await db.transaction(async (tx) => {
+      await tx.execute(sql.raw('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'));
+      return Promise.all([
+        tx.query.users.findMany(), tx.query.works.findMany(),
+        tx.query.assignments.findMany(), tx.query.overtimes.findMany(),
+        tx.query.categories.findMany(), tx.query.kpiResults.findMany(),
+        tx.query.notifications.findMany(), tx.query.systemLogs.findMany()
+      ]);
+    });
 
     const timestamp = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -136,11 +133,20 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
     const filename = `${id}.json`;
     const filePath = path.join(BACKUP_DIR, filename);
 
+    const recordCounts = {
+      users: allUsers.length, works: allWorks.length,
+      assignments: allAssignments.length, overtimes: allOvertimes.length,
+      categories: allCategories.length, kpiResults: allKpiResults.length,
+      notifications: allNotifications.length, logs: allLogs.length
+    };
+
     const backupPayload = {
-      version: '2.0',
+      formatVersion: '2.1',
+      version: '2.1',
       system: 'PMO1 Task & KPI Management',
       createdAt: timestamp.toISOString(),
       triggerType,
+      counts: recordCounts,
       data: {
         users: allUsers,
         works: allWorks,
@@ -162,13 +168,7 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
       filename,
       createdAt: timestamp.toISOString(),
       sizeBytes: stats.size,
-      recordCounts: {
-        users: allUsers.length,
-        works: allWorks.length,
-        assignments: allAssignments.length,
-        overtimes: allOvertimes.length,
-        categories: allCategories.length
-      },
+      recordCounts,
       triggerType,
       offsiteSynced: false
     };
@@ -290,7 +290,10 @@ export function listBackups(): BackupMetadata[] {
             works: parsed.data?.works?.length || 0,
             assignments: parsed.data?.assignments?.length || 0,
             overtimes: parsed.data?.overtimes?.length || 0,
-            categories: parsed.data?.categories?.length || 0
+            categories: parsed.data?.categories?.length || 0,
+            kpiResults: parsed.data?.kpiResults?.length || 0,
+            notifications: parsed.data?.notifications?.length || 0,
+            logs: parsed.data?.logs?.length || 0
           },
           triggerType: parsed.triggerType || 'manual'
         });
@@ -365,96 +368,138 @@ export function getBackupContent(filename: string): any {
  * Restore system data from a backup snapshot
  */
 export async function restoreFromBackup(backupData: any): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
+  success: boolean; message?: string; error?: string; statusCode?: number;
 }> {
-  try {
-    if (!backupData || !backupData.data) {
-      return { success: false, error: 'Dữ liệu file sao lưu không hợp lệ hoặc thiếu cấu trúc data.' };
-    }
+  const groups = ['users','categories','works','assignments','overtimes','kpiResults','notifications','logs'] as const;
+  const object = (v: any) => v && typeof v === 'object' && !Array.isArray(v);
+  if (!object(backupData)) return { success:false, statusCode:400, error:'Dữ liệu sao lưu phải là JSON object.' };
 
-    const { users: bUsers, works: bWorks, assignments: bAssignments, overtimes: bOvertimes, categories: bCategories } = backupData.data;
+  let bytes = 0;
+  try { bytes = Buffer.byteLength(JSON.stringify(backupData), 'utf8'); }
+  catch { return { success:false, statusCode:400, error:'JSON sao lưu không hợp lệ.' }; }
+  if (bytes > 25 * 1024 * 1024) return { success:false, statusCode:413, error:'File sao lưu vượt giới hạn 25 MB.' };
 
-    // 1. Restore Categories
-    if (Array.isArray(bCategories) && bCategories.length > 0) {
-      for (const cat of bCategories) {
-        await db.insert(categories).values(cat).onConflictDoNothing();
+  const version = String(backupData.formatVersion || backupData.version || '');
+  if (version !== '2.0' && version !== '2.1')
+    return { success:false, statusCode:400, error:'Phiên bản sao lưu không được hỗ trợ: ' + (version || 'không xác định') };
+  if (!object(backupData.data)) return { success:false, statusCode:400, error:'File sao lưu thiếu data.' };
+
+  const keys: Record<string,string[]> = {
+    users:['id','name','email'], categories:['id','code','name','type'], works:['id','workId','month','userId'],
+    assignments:['id','assignmentId','month','assignerId','receiverId'], overtimes:['id','otId','month','userId','otDate'],
+    kpiResults:['id','kpiId','month','userId'], notifications:['id','notifyId','receiverId'], logs:['id','logId']
+  };
+  for (const group of groups) {
+    const rows = backupData.data[group];
+    if (!Array.isArray(rows)) return { success:false, statusCode:400, error:'Thiếu hoặc sai kiểu data.' + group };
+    for (let i=0;i<rows.length;i++) {
+      if (!object(rows[i])) return { success:false, statusCode:400, error:'Bản ghi ' + group + '[' + i + '] không hợp lệ.' };
+      for (const key of keys[group]) {
+        if (rows[i][key] === undefined || rows[i][key] === null || rows[i][key] === '')
+          return { success:false, statusCode:400, error:'Bản ghi ' + group + '[' + i + '] thiếu ' + key };
       }
     }
+    if (object(backupData.counts) && backupData.counts[group] !== undefined &&
+        Number(backupData.counts[group]) !== rows.length)
+      return { success:false, statusCode:400, error:'Metadata count của ' + group + ' không khớp.' };
+  }
 
-    // 2. Restore Users
-    if (Array.isArray(bUsers) && bUsers.length > 0) {
-      for (const u of bUsers) {
-        await db.insert(users).values({
-          ...u,
-          updatedAt: new Date()
-        }).onConflictDoUpdate({
-          target: users.email,
-          set: {
-            name: u.name,
-            phone: u.phone,
-            zalo: u.zalo,
-            position: u.position,
-            group: u.group,
-            role: u.role,
-            status: u.status,
-            permissions: u.permissions,
-            updatedAt: new Date()
-          }
-        });
-      }
+  // Validate primary/natural keys and foreign-key references before opening a write transaction.
+  const validationErrors: string[] = [];
+  const unique = (group: typeof groups[number], field: string) => {
+    const seen = new Set<string>();
+    for (const row of backupData.data[group]) {
+      const value = String(row[field]);
+      if (seen.has(value)) validationErrors.push('Trùng ' + group + '.' + field + ': ' + value);
+      seen.add(value);
     }
+  };
+  for (const group of groups) unique(group, 'id');
+  unique('users','email'); unique('categories','code'); unique('works','workId');
+  unique('assignments','assignmentId'); unique('overtimes','otId'); unique('kpiResults','kpiId');
+  unique('notifications','notifyId'); unique('logs','logId');
 
-    // 3. Restore Works
-    if (Array.isArray(bWorks) && bWorks.length > 0) {
-      for (const w of bWorks) {
-        await db.insert(works).values({
-          ...w,
-          startDate: w.startDate ? new Date(w.startDate) : null,
-          endDate: w.endDate ? new Date(w.endDate) : null,
-          actualEndDate: w.actualEndDate ? new Date(w.actualEndDate) : null,
-          approvalDate: w.approvalDate ? new Date(w.approvalDate) : null,
-          createdAt: w.createdAt ? new Date(w.createdAt) : new Date(),
-          updatedAt: new Date()
-        }).onConflictDoNothing();
-      }
+  for (const group of groups) {
+    for (const row of backupData.data[group]) {
+      const id = Number(row.id);
+      if (!Number.isInteger(id) || id <= 0) validationErrors.push(group + '.id không hợp lệ: ' + row.id);
     }
+  }
 
-    // 4. Restore Assignments
-    if (Array.isArray(bAssignments) && bAssignments.length > 0) {
-      for (const a of bAssignments) {
-        await db.insert(assignments).values({
-          ...a,
-          assignedDate: a.assignedDate ? new Date(a.assignedDate) : new Date(),
-          deadline: a.deadline ? new Date(a.deadline) : null,
-          completedDate: a.completedDate ? new Date(a.completedDate) : null,
-          createdAt: a.createdAt ? new Date(a.createdAt) : new Date(),
-          updatedAt: new Date()
-        }).onConflictDoNothing();
-      }
+  const ids = (group: typeof groups[number]) =>
+    new Set<number>(backupData.data[group].map((row:any) => Number(row.id)));
+  const userIds = ids('users');
+  const workIds = ids('works');
+  const foreignKey = (group: typeof groups[number], field: string, validIds: Set<number>, optional=false) => {
+    for (const row of backupData.data[group]) {
+      const value = row[field];
+      if (optional && (value === null || value === undefined || value === '')) continue;
+      const id = Number(value);
+      if (!Number.isInteger(id) || !validIds.has(id))
+        validationErrors.push(group + '.' + field + ' tham chiếu mã không tồn tại: ' + value);
     }
+  };
+  foreignKey('works','userId',userIds);
+  foreignKey('works','approverId',userIds,true);
+  foreignKey('assignments','assignerId',userIds);
+  foreignKey('assignments','receiverId',userIds);
+  foreignKey('assignments','workId',workIds,true);
+  foreignKey('overtimes','userId',userIds);
+  foreignKey('overtimes','approverId',userIds,true);
+  foreignKey('kpiResults','userId',userIds);
+  foreignKey('notifications','senderId',userIds,true);
+  foreignKey('notifications','receiverId',userIds);
+  foreignKey('logs','userId',userIds,true);
 
-    // 5. Restore Overtimes
-    if (Array.isArray(bOvertimes) && bOvertimes.length > 0) {
-      for (const ot of bOvertimes) {
-        await db.insert(overtimes).values({
-          ...ot,
-          date: ot.date ? new Date(ot.date) : new Date(),
-          approvalDate: ot.approvalDate ? new Date(ot.approvalDate) : null,
-          createdAt: ot.createdAt ? new Date(ot.createdAt) : new Date(),
-          updatedAt: new Date()
-        }).onConflictDoNothing();
-      }
-    }
-
+  if (validationErrors.length) {
     return {
-      success: true,
-      message: `Khôi phục thành công! Đã phục hồi ${bWorks?.length || 0} công việc, ${bUsers?.length || 0} nhân sự, ${bAssignments?.length || 0} phân công.`
+      success:false,
+      statusCode:400,
+      error:'File sao lưu không toàn vẹn: ' + validationErrors.slice(0,10).join('; ') +
+        (validationErrors.length > 10 ? '; và ' + (validationErrors.length - 10) + ' lỗi khác.' : '')
     };
-  } catch (e: any) {
-    console.error('Error restoring backup:', e);
-    return { success: false, error: e?.message || String(e) };
+  }
+
+  const dates = (source:any, fields:string[]) => {
+    const row={...source};
+    for(const field of fields) {
+      if(row[field]===null || row[field]===undefined || row[field]==='') { row[field]=null; continue; }
+      const d=row[field] instanceof Date ? row[field] : new Date(row[field]);
+      if(Number.isNaN(d.getTime())) throw new Error('Ngày không hợp lệ tại ' + field);
+      row[field]=d;
+    }
+    return row;
+  };
+  const upsert = async(tx:any, table:any, rows:any[], target:any, unique:string, fields:string[]=[]) => {
+    for(const source of rows) {
+      const row=dates(source,fields), set={...row};
+      delete set.id; delete set[unique];
+      await tx.insert(table).values(row).onConflictDoUpdate({target,set});
+    }
+  };
+
+  try {
+    const d=backupData.data;
+    await db.transaction(async(tx)=>{
+      await upsert(tx,categories,d.categories,categories.code,'code');
+      await upsert(tx,users,d.users,users.email,'email',['lastLoginAt','createdAt','updatedAt']);
+      await upsert(tx,works,d.works,works.workId,'workId',['startDate','endDate','actualEndDate','approvalDate','createdAt','updatedAt']);
+      await upsert(tx,assignments,d.assignments,assignments.assignmentId,'assignmentId',['assignDate','startDate','deadline','viewDate','receiveDate','updatedAt']);
+      await upsert(tx,overtimes,d.overtimes,overtimes.otId,'otId',['regDate','otDate','approvalDate','updatedAt']);
+      await upsert(tx,kpiResults,d.kpiResults,kpiResults.kpiId,'kpiId',['updatedAt']);
+      await upsert(tx,notifications,d.notifications,notifications.notifyId,'notifyId',['createdAt','viewDate']);
+      await upsert(tx,systemLogs,d.logs,systemLogs.logId,'logId',['createdAt']);
+
+      const tables=['users','categories','works','assignments','overtimes','kpi_results','notifications','system_logs'];
+      for(const name of tables) {
+        const q="SELECT setval(pg_get_serial_sequence('" + name + "','id'),COALESCE((SELECT MAX(id) FROM " + name + "),1),(SELECT COUNT(*)>0 FROM " + name + "))";
+        await tx.execute(sql.raw(q));
+      }
+    });
+    return {success:true,message:'Khôi phục giao dịch thành công đủ 8 nhóm dữ liệu.'};
+  } catch(e:any) {
+    console.error('Restore transaction rolled back:',e);
+    return {success:false,statusCode:500,error:'Khôi phục thất bại; toàn bộ giao dịch đã rollback: ' + (e?.message || String(e))};
   }
 }
 

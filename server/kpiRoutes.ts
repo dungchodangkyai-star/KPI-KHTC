@@ -6,6 +6,21 @@ import { DEFAULT_KPI_CONFIG, DEFAULT_ORG_CONFIG, calculateTotalKpi, evaluateKpiR
 
 export const kpiRouter = express.Router();
 
+const getCurrentMonth = (): string => {
+  const nowVn = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  return `${String(nowVn.getUTCMonth() + 1).padStart(2, '0')}-${nowVn.getUTCFullYear()}`;
+};
+
+
+const isActiveWorkRecord = (work: any): boolean => {
+  const status = String(work?.dataStatus || '').toLowerCase();
+  return !status.includes('xóa') &&
+    !status.includes('xoá') &&
+    !status.includes('xoa') &&
+    !status.includes('thu hồi') &&
+    !status.includes('thu hoi');
+};
+
 export async function getEffectiveOrgConfig(): Promise<any> {
   try {
     const orgCat = await db.query.categories.findFirst({
@@ -58,9 +73,17 @@ kpiRouter.get('/', async (req, res) => {
   try {
     const all = await db.query.kpiResults.findMany({
       with: { user: true },
-      orderBy: (results, { desc }) => [desc(results.totalKpi)]
+      orderBy: (results, { desc }) => [desc(results.updatedAt)]
     });
-    res.json({ success: true, data: all });
+    const latestByMonthAndUser = new Map<string, any>();
+    for (const row of all) {
+      const key = row.userId ? `${row.month}:${row.userId}` : row.kpiId;
+      if (!latestByMonthAndUser.has(key)) latestByMonthAndUser.set(key, row);
+    }
+    const data = Array.from(latestByMonthAndUser.values()).sort(
+      (a, b) => (Number(b.totalKpi) || 0) - (Number(a.totalKpi) || 0)
+    );
+    res.json({ success: true, data });
   } catch (error) {
     console.error("Error fetching KPI results:", error);
     res.status(500).json({ error: String(error) });
@@ -273,7 +296,7 @@ kpiRouter.post('/config/reset', async (req, res) => {
 kpiRouter.get('/detail', async (req, res) => {
   try {
     const { month, userId, userName } = req.query;
-    const targetMonth = String(month || '08-2026');
+    const targetMonth = String(month || getCurrentMonth());
     
     let targetUser = null;
     if (userId) {
@@ -296,10 +319,7 @@ kpiRouter.get('/detail', async (req, res) => {
     const allWorksInMonth = await db.query.works.findMany({
       where: (w, { eq }) => eq(w.month, targetMonth)
     });
-    const validWorksInMonth = allWorksInMonth.filter(w => {
-      const ds = String(w.dataStatus || '').toLowerCase();
-      return !ds.includes('xóa') && !ds.includes('xoa');
-    });
+    const validWorksInMonth = allWorksInMonth.filter(isActiveWorkRecord);
 
     const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
     const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
@@ -470,7 +490,7 @@ kpiRouter.get('/detail', async (req, res) => {
 kpiRouter.post('/self-score-a', async (req, res) => {
   try {
     const { month, userId, userName, scores, note } = req.body;
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
 
     let targetUser = null;
     if (userId) {
@@ -489,7 +509,26 @@ kpiRouter.post('/self-score-a', async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const totalSelf = Object.keys(scores || {}).reduce((s, k) => s + (parseFloat(scores[k]) || 0), 0);
+    const criterionMax: Record<string, number> = {
+      A1: 5, A2: 5, A3: 5, A4: 4, A5: 4, A6: 4, A7: 3
+    };
+    const submittedScores = scores && typeof scores === 'object' ? scores : {};
+    const unknownCode = Object.keys(submittedScores).find((code) => !(code in criterionMax));
+    if (unknownCode) {
+      return res.status(400).json({ success: false, message: `Mã tiêu chí A không hợp lệ: ${unknownCode}.` });
+    }
+    for (const [code, max] of Object.entries(criterionMax)) {
+      const raw = submittedScores[code];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0 || value > max) {
+        return res.status(400).json({ success: false, message: `Điểm ${code} phải là số từ 0 đến ${max}.` });
+      }
+    }
+    const totalSelf = Object.keys(criterionMax).reduce(
+      (sum, code) => sum + Number(submittedScores[code] ?? 0),
+      0
+    );
     const kpiId = `${targetMonth}♦${targetUser.name}`;
 
     const existingKpi = await db.query.kpiResults.findFirst({
@@ -550,7 +589,7 @@ kpiRouter.post('/self-score-a', async (req, res) => {
 kpiRouter.post('/approve-acd', async (req, res) => {
   try {
     const { month, userId, userName, detailsA, detailsC, detailsD, approverName } = req.body;
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
 
     let targetUser = null;
     if (userId) {
@@ -566,23 +605,43 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     if (!targetUser) return res.status(404).json({ error: "User not found" });
 
     const kpiId = `${targetMonth}♦${targetUser.name}`;
-    const approvedA = parseFloat(detailsA?.approvedTotal || '0') || 0;
-    const c1Score = parseFloat(detailsC?.c1 || '0') || 0;
-    const c2Score = parseFloat(detailsC?.c2 || '0') || 0;
-    const cScore = Math.min(10, c1Score + c2Score);
+    const kpiConfig = await getEffectiveKpiConfig();
+    const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
 
-    const dItems = detailsD?.items || [];
-    const totalOfficialD = dItems.reduce((s: number, item: any) => {
-      const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
-      return s + (isNaN(val) ? 0 : val);
-    }, 0);
+    const readScore = (value: unknown) =>
+      value === undefined || value === null || value === '' ? 0 : Number(value);
+    const approvedA = readScore(detailsA?.approvedTotal);
+    const c1Score = readScore(detailsC?.c1);
+    const c2Score = readScore(detailsC?.c2);
+
+    const invalidMainScore =
+      !Number.isFinite(approvedA) || approvedA < 0 || approvedA > Number(alloc.maxA ?? 30) ||
+      !Number.isFinite(c1Score) || c1Score < 0 || c1Score > Number(alloc.maxC1 ?? 6) ||
+      !Number.isFinite(c2Score) || c2Score < 0 || c2Score > Number(alloc.maxC2 ?? 4);
+    if (invalidMainScore) {
+      return res.status(400).json({
+        success: false,
+        message: 'Điểm A, C1 hoặc C2 không hợp lệ hoặc vượt mức điểm tối đa.'
+      });
+    }
+    const cScore = c1Score + c2Score;
+
+    const dItems = detailsD?.items;
+    if (dItems !== undefined && !Array.isArray(dItems)) {
+      return res.status(400).json({ success: false, message: 'Danh sách điểm trừ D không hợp lệ.' });
+    }
+    let totalOfficialD = 0;
+    for (const item of dItems || []) {
+      const val = readScore(item?.officialD !== undefined ? item.officialD : item?.autoD);
+      if (!Number.isFinite(val) || val < 0) {
+        return res.status(400).json({ success: false, message: 'Điểm trừ D phải là số không âm.' });
+      }
+      totalOfficialD += val;
+    }
 
     const existingKpi = await db.query.kpiResults.findFirst({
       where: (r, { eq }) => eq(r.kpiId, kpiId)
     });
-
-    const kpiConfig = await getEffectiveKpiConfig();
-    const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
 
     const bScore = parseFloat(existingKpi?.bScore || '0') || 0;
     const dScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
@@ -635,7 +694,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
 kpiRouter.post('/calculate', async (req, res) => {
   try {
     const { month, userId, userName } = req.body;
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
     
     let targetUser = null;
     if (userId) {
@@ -657,7 +716,7 @@ kpiRouter.post('/calculate', async (req, res) => {
 kpiRouter.post('/recalculate-all', async (req, res) => {
   try {
     const { month } = req.body;
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
 
     const allUsers = await db.query.users.findMany();
     const activeUsers = allUsers.filter(u => {
@@ -687,7 +746,7 @@ kpiRouter.post('/recalculate-all', async (req, res) => {
 kpiRouter.get('/department-summary', async (req, res) => {
   try {
     const { month } = req.query;
-    const targetMonth = String(month || '08-2026');
+    const targetMonth = String(month || getCurrentMonth());
 
     const allUsers = await db.query.users.findMany({
       orderBy: (u, { asc }) => [asc(u.id)]
@@ -703,10 +762,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
       with: { user: true }
     });
 
-    const validWorksInMonth = allWorksInMonth.filter(w => {
-      const ds = String(w.dataStatus || '').toLowerCase();
-      return !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi');
-    });
+    const validWorksInMonth = allWorksInMonth.filter(isActiveWorkRecord);
 
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
     const deptConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
@@ -745,15 +801,17 @@ kpiRouter.get('/department-summary', async (req, res) => {
 
     // Fetch all KPI results for this month
     const allKpiResultsInMonth = await db.query.kpiResults.findMany({
-      where: (r, { eq }) => eq(r.month, targetMonth)
+      where: (r, { eq }) => eq(r.month, targetMonth),
+      orderBy: (r, { desc }) => [desc(r.updatedAt)]
     });
     const kpiMapByUserId = new Map<number, any>();
     const kpiMapByUserName = new Map<string, any>();
     allKpiResultsInMonth.forEach(r => {
-      if (r.userId) kpiMapByUserId.set(r.userId, r);
+      if (r.userId && !kpiMapByUserId.has(r.userId)) kpiMapByUserId.set(r.userId, r);
       if (r.kpiId) {
         const parts = r.kpiId.split('♦');
-        if (parts.length > 1) kpiMapByUserName.set(parts[1].trim(), r);
+        const userName = parts.length > 1 ? parts[1].trim() : '';
+        if (userName && !kpiMapByUserName.has(userName)) kpiMapByUserName.set(userName, r);
       }
     });
 
@@ -1003,10 +1061,7 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
   const allWorksInMonth = await db.query.works.findMany({
     where: (w, { eq }) => eq(w.month, targetMonth)
   });
-  const validWorksInMonth = allWorksInMonth.filter(w => {
-    const ds = String(w.dataStatus || '').toLowerCase();
-    return !ds.includes('xóa') && !ds.includes('xoa');
-  });
+  const validWorksInMonth = allWorksInMonth.filter(isActiveWorkRecord);
 
   const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
   const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
