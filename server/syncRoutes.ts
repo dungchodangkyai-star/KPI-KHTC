@@ -1041,53 +1041,52 @@ syncRouter.post('/reset-data', async (req, res) => {
     let summary = '';
 
     if (action === 'reset_month' && month) {
-      await db.transaction(async (tx) => {
-        await tx.delete(assignments).where(eq(assignments.month, month));
-        await tx.delete(works).where(eq(works.month, month));
-        await tx.delete(overtimes).where(eq(overtimes.month, month));
-        await tx.delete(kpiResults).where(eq(kpiResults.month, month));
-      });
+      // Clear data for specific month
+      await db.delete(works).where(eq(works.month, month));
+      await db.delete(assignments).where(eq(assignments.month, month));
+      await db.delete(overtimes).where(eq(overtimes.month, month));
+      await db.delete(kpiResults).where(eq(kpiResults.month, month));
       summary = `Đã xóa sạch dữ liệu phát sinh (Công việc, Giao việc, Làm thêm giờ, KPI) của kỳ tháng ${month}. Danh mục và Nhân sự được giữ nguyên 100%.`;
     } else if (action === 'reset_all_works') {
-      await db.transaction(async (tx) => {
-        await tx.delete(kpiResults);
-        await tx.delete(assignments);
-        await tx.delete(works);
-        await tx.delete(overtimes);
-        await tx.delete(notifications);
-      });
+      // Clear all works, assignments, overtime, kpi records across all months
+      await db.delete(kpiResults);
+      await db.delete(assignments);
+      await db.delete(works);
+      await db.delete(overtimes);
+      await db.delete(notifications);
       summary = 'Đã làm mới sạch sẽ toàn bộ công việc, giao việc, làm thêm giờ và kết quả KPI. Sẵn sàng phát hành hệ thống đi vào hoạt động thật!';
     } else if (action === 'reseed_official') {
-      await db.transaction(async (tx) => {
-        await tx.delete(kpiResults);
-        await tx.delete(assignments);
-        await tx.delete(works);
-        await tx.delete(overtimes);
-        await tx.delete(notifications);
+      // Pristine standard reset to 19 official staff and standard categories
+      await db.delete(kpiResults);
+      await db.delete(assignments);
+      await db.delete(works);
+      await db.delete(overtimes);
+      await db.delete(notifications);
 
-        const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
+      const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
 
-        for (const u of OFFICIAL_USERS) {
-          await tx.insert(users).values({
-            ...u,
-            password: defaultPwdHash,
-            mustChangePassword: true,
-          }).onConflictDoUpdate({
-            target: users.email,
-            set: {
-              name: u.name,
-              phone: u.phone,
-              zalo: u.zalo,
-              position: u.position,
-              group: u.group,
-              role: u.role,
-              status: u.status,
-              permissions: u.permissions,
-              updatedAt: new Date(),
-            },
-          });
-        }
-      });
+      // Upsert/Standardize all 19 users
+      for (const u of OFFICIAL_USERS) {
+        await db.insert(users).values({
+          ...u,
+          password: defaultPwdHash,
+          mustChangePassword: true,
+        }).onConflictDoUpdate({
+          target: users.email,
+          set: {
+            name: u.name,
+            phone: u.phone,
+            zalo: u.zalo,
+            position: u.position,
+            group: u.group,
+            role: u.role,
+            status: u.status,
+            permissions: u.permissions,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
       summary = 'Đã chuẩn hóa toàn bộ 19 tài khoản nhân sự chính thức của đơn vị, khôi phục phân quyền Admin cho Khuất Văn Sơn và làm mới cấu hình hệ thống chuẩn!';
     } else {
       return res.status(400).json({ success: false, message: 'Hành động làm mới không hợp lệ.' });

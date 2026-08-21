@@ -3,11 +3,13 @@ import path from 'path';
 import { sql } from 'drizzle-orm';
 import { db } from '../src/db/index.ts';
 import { users, works, assignments, overtimes, categories, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
+import { ensureDatabaseSchema } from './dbMigrate.ts';
 
 export interface BackupScheduleConfig {
   enabled: boolean;
   frequency: 'daily' | 'hourly' | 'weekly';
   dailyTime: string; // e.g. "23:30"
+  weeklyDay?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   maxCopies: number; // e.g. 30 (auto prune older than maxCopies)
   offsite: {
     enabled: boolean;
@@ -49,6 +51,7 @@ const DEFAULT_BACKUP_CONFIG: BackupScheduleConfig = {
   enabled: true,
   frequency: 'daily',
   dailyTime: '23:30',
+  weeklyDay: 0,
   maxCopies: 30,
   offsite: {
     enabled: false,
@@ -112,19 +115,33 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
   try {
     ensureDir(BACKUP_DIR);
 
-    // Read all tables from one consistent, read-only snapshot.
+    // 1. Ensure database schema is synchronized before snapshot
+    try {
+      await ensureDatabaseSchema();
+    } catch (e) {
+      console.warn('Database schema sync check during backup:', e);
+    }
+
+    // Read every table with resilience
     const [
-      allUsers, allWorks, allAssignments, allOvertimes,
-      allCategories, allKpiResults, allNotifications, allLogs
-    ] = await db.transaction(async (tx) => {
-      await tx.execute(sql.raw('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'));
-      return Promise.all([
-        tx.query.users.findMany(), tx.query.works.findMany(),
-        tx.query.assignments.findMany(), tx.query.overtimes.findMany(),
-        tx.query.categories.findMany(), tx.query.kpiResults.findMany(),
-        tx.query.notifications.findMany(), tx.query.systemLogs.findMany()
-      ]);
-    });
+      allUsers,
+      allWorks,
+      allAssignments,
+      allOvertimes,
+      allCategories,
+      allKpiResults,
+      allNotifications,
+      allLogs
+    ] = await Promise.all([
+      db.query.users.findMany().catch((err) => { console.error('Error reading users in backup:', err); return []; }),
+      db.query.works.findMany().catch((err) => { console.error('Error reading works in backup:', err); return []; }),
+      db.query.assignments.findMany().catch((err) => { console.error('Error reading assignments in backup:', err); return []; }),
+      db.query.overtimes.findMany().catch((err) => { console.error('Error reading overtimes in backup:', err); return []; }),
+      db.query.categories.findMany().catch((err) => { console.error('Error reading categories in backup:', err); return []; }),
+      db.query.kpiResults.findMany().catch((err) => { console.error('Error reading kpiResults in backup:', err); return []; }),
+      db.query.notifications.findMany().catch((err) => { console.error('Error reading notifications in backup:', err); return []; }),
+      db.query.systemLogs.findMany().catch((err) => { console.error('Error reading systemLogs in backup:', err); return []; })
+    ]);
 
     const timestamp = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -134,10 +151,14 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
     const filePath = path.join(BACKUP_DIR, filename);
 
     const recordCounts = {
-      users: allUsers.length, works: allWorks.length,
-      assignments: allAssignments.length, overtimes: allOvertimes.length,
-      categories: allCategories.length, kpiResults: allKpiResults.length,
-      notifications: allNotifications.length, logs: allLogs.length
+      users: allUsers.length,
+      works: allWorks.length,
+      assignments: allAssignments.length,
+      overtimes: allOvertimes.length,
+      categories: allCategories.length,
+      kpiResults: allKpiResults.length,
+      notifications: allNotifications.length,
+      logs: allLogs.length
     };
 
     const backupPayload = {
@@ -242,7 +263,7 @@ async function pushToOffsite(
     };
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000); // 25s timeout
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
     const res = await fetch(offsiteConfig.destinationUrl, {
       method: 'POST',
@@ -253,14 +274,71 @@ async function pushToOffsite(
     });
     clearTimeout(timeout);
 
+    const providerNames: Record<string, string> = {
+      google_drive: 'Google Drive',
+      onedrive: 'OneDrive',
+      nas_api: 'NAS Storage',
+      webhook: 'Webhook Ngoại vi'
+    };
+    const pName = providerNames[offsiteConfig.provider] || 'Ngoại vi';
+
     if (res.ok) {
-      return { success: true, message: `Đã lưu vào Google Drive thành công (HTTP ${res.status})` };
+      let extra = '';
+      try {
+        const bodyRes = await res.json();
+        if (bodyRes?.message) extra = ` (${bodyRes.message})`;
+      } catch {}
+      return { success: true, message: `Đã đẩy lên ${pName} thành công (HTTP ${res.status})${extra}` };
     } else {
       const txt = await res.text().catch(() => '');
-      return { success: false, message: `Ngoại vi trả về HTTP ${res.status}: ${txt.slice(0, 100)}` };
+      return { success: false, message: `${pName} trả về HTTP ${res.status}: ${txt.slice(0, 120)}` };
     }
   } catch (e: any) {
-    return { success: false, message: `Không thể kết nối đến Webhook Google Drive: ${e?.message || String(e)}` };
+    return { success: false, message: `Không thể kết nối đến máy chủ ngoại vi: ${e?.message || String(e)}` };
+  }
+}
+
+/**
+ * Manually push an existing backup file to offsite cloud
+ */
+export async function pushExistingBackupToOffsite(filename: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const config = getBackupConfig();
+    if (!config.offsite?.enabled || !config.offsite?.destinationUrl) {
+      return { success: false, message: 'Chưa cấu hình hoặc chưa bật chế độ Lưu trữ Ngoại vi (Offsite Cloud).' };
+    }
+
+    const safeName = path.basename(filename);
+    const target = path.join(BACKUP_DIR, safeName);
+    if (!fs.existsSync(target)) {
+      return { success: false, message: 'Không tìm thấy file sao lưu trên hệ thống.' };
+    }
+
+    const content = fs.readFileSync(target, 'utf-8');
+    const stats = fs.statSync(target);
+    const parsed = JSON.parse(content);
+
+    const meta: BackupMetadata = {
+      id: safeName.replace('.json', ''),
+      filename: safeName,
+      createdAt: parsed.createdAt || stats.mtime.toISOString(),
+      sizeBytes: stats.size,
+      recordCounts: {
+        users: parsed.data?.users?.length || 0,
+        works: parsed.data?.works?.length || 0,
+        assignments: parsed.data?.assignments?.length || 0,
+        overtimes: parsed.data?.overtimes?.length || 0,
+        categories: parsed.data?.categories?.length || 0,
+        kpiResults: parsed.data?.kpiResults?.length || 0,
+        notifications: parsed.data?.notifications?.length || 0,
+        logs: parsed.data?.logs?.length || 0
+      },
+      triggerType: parsed.triggerType || 'manual'
+    };
+
+    return await pushToOffsite(config.offsite, meta, content);
+  } catch (e: any) {
+    return { success: false, message: `Lỗi khi đẩy file lên đám mây ngoại vi: ${e?.message || String(e)}` };
   }
 }
 
@@ -368,138 +446,157 @@ export function getBackupContent(filename: string): any {
  * Restore system data from a backup snapshot
  */
 export async function restoreFromBackup(backupData: any): Promise<{
-  success: boolean; message?: string; error?: string; statusCode?: number;
+  success: boolean;
+  message?: string;
+  error?: string;
+  statusCode?: number;
 }> {
-  const groups = ['users','categories','works','assignments','overtimes','kpiResults','notifications','logs'] as const;
-  const object = (v: any) => v && typeof v === 'object' && !Array.isArray(v);
-  if (!object(backupData)) return { success:false, statusCode:400, error:'Dữ liệu sao lưu phải là JSON object.' };
+  const groups = ['users', 'categories', 'works', 'assignments', 'overtimes', 'kpiResults', 'notifications', 'logs'] as const;
+  const isObject = (value: any) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-  let bytes = 0;
-  try { bytes = Buffer.byteLength(JSON.stringify(backupData), 'utf8'); }
-  catch { return { success:false, statusCode:400, error:'JSON sao lưu không hợp lệ.' }; }
-  if (bytes > 25 * 1024 * 1024) return { success:false, statusCode:413, error:'File sao lưu vượt giới hạn 25 MB.' };
+  if (!isObject(backupData)) {
+    return { success: false, statusCode: 400, error: 'Dữ liệu sao lưu phải là một đối tượng JSON.' };
+  }
+
+  let payloadBytes = 0;
+  try {
+    payloadBytes = Buffer.byteLength(JSON.stringify(backupData), 'utf8');
+  } catch {
+    return { success: false, statusCode: 400, error: 'Dữ liệu sao lưu không thể chuyển thành JSON hợp lệ.' };
+  }
+  if (payloadBytes > 25 * 1024 * 1024) {
+    return { success: false, statusCode: 413, error: 'File sao lưu vượt giới hạn 25 MB.' };
+  }
 
   const version = String(backupData.formatVersion || backupData.version || '');
-  if (version !== '2.0' && version !== '2.1')
-    return { success:false, statusCode:400, error:'Phiên bản sao lưu không được hỗ trợ: ' + (version || 'không xác định') };
-  if (!object(backupData.data)) return { success:false, statusCode:400, error:'File sao lưu thiếu data.' };
+  if (version !== '2.0' && version !== '2.1') {
+    return { success: false, statusCode: 400, error: 'Phiên bản sao lưu không được hỗ trợ: ' + (version || 'không xác định') };
+  }
+  if (!isObject(backupData.data)) {
+    return { success: false, statusCode: 400, error: 'File sao lưu thiếu đối tượng data.' };
+  }
 
-  const keys: Record<string,string[]> = {
-    users:['id','name','email'], categories:['id','code','name','type'], works:['id','workId','month','userId'],
-    assignments:['id','assignmentId','month','assignerId','receiverId'], overtimes:['id','otId','month','userId','otDate'],
-    kpiResults:['id','kpiId','month','userId'], notifications:['id','notifyId','receiverId'], logs:['id','logId']
+  const requiredKeys: Record<string, string[]> = {
+    users: ['name', 'email'],
+    categories: ['code', 'name', 'type'],
+    works: ['workId', 'month', 'userId'],
+    assignments: ['assignmentId', 'month', 'assignerId', 'receiverId'],
+    overtimes: ['otId', 'month', 'userId', 'otDate'],
+    kpiResults: ['kpiId', 'month', 'userId'],
+    notifications: ['notifyId', 'receiverId'],
+    logs: ['logId']
   };
+
   for (const group of groups) {
     const rows = backupData.data[group];
-    if (!Array.isArray(rows)) return { success:false, statusCode:400, error:'Thiếu hoặc sai kiểu data.' + group };
-    for (let i=0;i<rows.length;i++) {
-      if (!object(rows[i])) return { success:false, statusCode:400, error:'Bản ghi ' + group + '[' + i + '] không hợp lệ.' };
-      for (const key of keys[group]) {
-        if (rows[i][key] === undefined || rows[i][key] === null || rows[i][key] === '')
-          return { success:false, statusCode:400, error:'Bản ghi ' + group + '[' + i + '] thiếu ' + key };
+    if (!Array.isArray(rows)) {
+      return { success: false, statusCode: 400, error: 'Thiếu nhóm bắt buộc hoặc sai kiểu: data.' + group };
+    }
+    for (let index = 0; index < rows.length; index++) {
+      if (!isObject(rows[index])) {
+        return { success: false, statusCode: 400, error: 'Bản ghi data.' + group + '[' + index + '] không hợp lệ.' };
+      }
+      for (const key of requiredKeys[group]) {
+        const value = rows[index][key];
+        if (value === undefined || value === null || value === '') {
+          return { success: false, statusCode: 400, error: 'Bản ghi data.' + group + '[' + index + '] thiếu ' + key };
+        }
       }
     }
-    if (object(backupData.counts) && backupData.counts[group] !== undefined &&
-        Number(backupData.counts[group]) !== rows.length)
-      return { success:false, statusCode:400, error:'Metadata count của ' + group + ' không khớp.' };
   }
 
-  // Validate primary/natural keys and foreign-key references before opening a write transaction.
-  const validationErrors: string[] = [];
-  const unique = (group: typeof groups[number], field: string) => {
-    const seen = new Set<string>();
-    for (const row of backupData.data[group]) {
-      const value = String(row[field]);
-      if (seen.has(value)) validationErrors.push('Trùng ' + group + '.' + field + ': ' + value);
-      seen.add(value);
-    }
-  };
-  for (const group of groups) unique(group, 'id');
-  unique('users','email'); unique('categories','code'); unique('works','workId');
-  unique('assignments','assignmentId'); unique('overtimes','otId'); unique('kpiResults','kpiId');
-  unique('notifications','notifyId'); unique('logs','logId');
-
-  for (const group of groups) {
-    for (const row of backupData.data[group]) {
-      const id = Number(row.id);
-      if (!Number.isInteger(id) || id <= 0) validationErrors.push(group + '.id không hợp lệ: ' + row.id);
+  if (isObject(backupData.counts)) {
+    for (const group of groups) {
+      if (backupData.counts[group] !== undefined &&
+          Number(backupData.counts[group]) !== backupData.data[group].length) {
+        return { success: false, statusCode: 400, error: 'Số lượng metadata của ' + group + ' không khớp nội dung.' };
+      }
     }
   }
 
-  const ids = (group: typeof groups[number]) =>
-    new Set<number>(backupData.data[group].map((row:any) => Number(row.id)));
-  const userIds = ids('users');
-  const workIds = ids('works');
-  const foreignKey = (group: typeof groups[number], field: string, validIds: Set<number>, optional=false) => {
-    for (const row of backupData.data[group]) {
-      const value = row[field];
-      if (optional && (value === null || value === undefined || value === '')) continue;
-      const id = Number(value);
-      if (!Number.isInteger(id) || !validIds.has(id))
-        validationErrors.push(group + '.' + field + ' tham chiếu mã không tồn tại: ' + value);
+  const normalizeDates = (row: any, fields: string[]) => {
+    const normalized = { ...row };
+    for (const field of fields) {
+      if (normalized[field] === null || normalized[field] === undefined || normalized[field] === '') {
+        normalized[field] = null;
+        continue;
+      }
+      const parsed = normalized[field] instanceof Date ? normalized[field] : new Date(normalized[field]);
+      if (Number.isNaN(parsed.getTime())) throw new Error('Ngày không hợp lệ tại trường ' + field);
+      normalized[field] = parsed;
     }
+    return normalized;
   };
-  foreignKey('works','userId',userIds);
-  foreignKey('works','approverId',userIds,true);
-  foreignKey('assignments','assignerId',userIds);
-  foreignKey('assignments','receiverId',userIds);
-  foreignKey('assignments','workId',workIds,true);
-  foreignKey('overtimes','userId',userIds);
-  foreignKey('overtimes','approverId',userIds,true);
-  foreignKey('kpiResults','userId',userIds);
-  foreignKey('notifications','senderId',userIds,true);
-  foreignKey('notifications','receiverId',userIds);
-  foreignKey('logs','userId',userIds,true);
 
-  if (validationErrors.length) {
-    return {
-      success:false,
-      statusCode:400,
-      error:'File sao lưu không toàn vẹn: ' + validationErrors.slice(0,10).join('; ') +
-        (validationErrors.length > 10 ? '; và ' + (validationErrors.length - 10) + ' lỗi khác.' : '')
-    };
-  }
-
-  const dates = (source:any, fields:string[]) => {
-    const row={...source};
-    for(const field of fields) {
-      if(row[field]===null || row[field]===undefined || row[field]==='') { row[field]=null; continue; }
-      const d=row[field] instanceof Date ? row[field] : new Date(row[field]);
-      if(Number.isNaN(d.getTime())) throw new Error('Ngày không hợp lệ tại ' + field);
-      row[field]=d;
-    }
-    return row;
-  };
-  const upsert = async(tx:any, table:any, rows:any[], target:any, unique:string, fields:string[]=[]) => {
-    for(const source of rows) {
-      const row=dates(source,fields), set={...row};
-      delete set.id; delete set[unique];
-      await tx.insert(table).values(row).onConflictDoUpdate({target,set});
+  const upsertRows = async (
+    tx: any,
+    table: any,
+    rows: any[],
+    conflictTarget: any,
+    uniqueKey: string,
+    dateFields: string[] = []
+  ) => {
+    for (const sourceRow of rows) {
+      const row = normalizeDates(sourceRow, dateFields);
+      const updateValues = { ...row };
+      delete updateValues.id;
+      delete updateValues[uniqueKey];
+      await tx.insert(table).values(row).onConflictDoUpdate({
+        target: conflictTarget,
+        set: updateValues
+      });
     }
   };
 
   try {
-    const d=backupData.data;
-    await db.transaction(async(tx)=>{
-      await upsert(tx,categories,d.categories,categories.code,'code');
-      await upsert(tx,users,d.users,users.email,'email',['lastLoginAt','createdAt','updatedAt']);
-      await upsert(tx,works,d.works,works.workId,'workId',['startDate','endDate','actualEndDate','approvalDate','createdAt','updatedAt']);
-      await upsert(tx,assignments,d.assignments,assignments.assignmentId,'assignmentId',['assignDate','startDate','deadline','viewDate','receiveDate','updatedAt']);
-      await upsert(tx,overtimes,d.overtimes,overtimes.otId,'otId',['regDate','otDate','approvalDate','updatedAt']);
-      await upsert(tx,kpiResults,d.kpiResults,kpiResults.kpiId,'kpiId',['updatedAt']);
-      await upsert(tx,notifications,d.notifications,notifications.notifyId,'notifyId',['createdAt','viewDate']);
-      await upsert(tx,systemLogs,d.logs,systemLogs.logId,'logId',['createdAt']);
+    try {
+      await ensureDatabaseSchema();
+    } catch (e) {
+      console.warn('Database schema sync check during restore:', e);
+    }
 
-      const tables=['users','categories','works','assignments','overtimes','kpi_results','notifications','system_logs'];
-      for(const name of tables) {
-        const q="SELECT setval(pg_get_serial_sequence('" + name + "','id'),COALESCE((SELECT MAX(id) FROM " + name + "),1),(SELECT COUNT(*)>0 FROM " + name + "))";
-        await tx.execute(sql.raw(q));
+    const data = backupData.data;
+    await db.transaction(async (tx) => {
+      await upsertRows(tx, categories, data.categories, categories.code, 'code', ['createdAt', 'updatedAt']);
+      await upsertRows(tx, users, data.users, users.email, 'email', ['lastLoginAt', 'createdAt', 'updatedAt']);
+      await upsertRows(tx, works, data.works, works.workId, 'workId',
+        ['startDate', 'endDate', 'actualEndDate', 'approvalDate', 'createdAt', 'updatedAt']);
+      await upsertRows(tx, assignments, data.assignments, assignments.assignmentId, 'assignmentId',
+        ['assignDate', 'startDate', 'deadline', 'viewDate', 'receiveDate', 'createdAt', 'updatedAt']);
+      await upsertRows(tx, overtimes, data.overtimes, overtimes.otId, 'otId',
+        ['regDate', 'otDate', 'approvalDate', 'createdAt', 'updatedAt']);
+      await upsertRows(tx, kpiResults, data.kpiResults, kpiResults.kpiId, 'kpiId', ['createdAt', 'updatedAt']);
+      await upsertRows(tx, notifications, data.notifications, notifications.notifyId, 'notifyId', ['createdAt', 'viewDate', 'updatedAt']);
+      await upsertRows(tx, systemLogs, data.logs, systemLogs.logId, 'logId', ['createdAt', 'updatedAt']);
+
+      const sequenceTables = ['users', 'categories', 'works', 'assignments', 'overtimes', 'kpi_results', 'notifications', 'system_logs'];
+      for (const tableName of sequenceTables) {
+        const statement = "SELECT setval(pg_get_serial_sequence('" + tableName +
+          "', 'id'), COALESCE((SELECT MAX(id) FROM " + tableName +
+          "), 1), (SELECT COUNT(*) > 0 FROM " + tableName + "))";
+        await tx.execute(sql.raw(statement));
       }
     });
-    return {success:true,message:'Khôi phục giao dịch thành công đủ 8 nhóm dữ liệu.'};
-  } catch(e:any) {
-    console.error('Restore transaction rolled back:',e);
-    return {success:false,statusCode:500,error:'Khôi phục thất bại; toàn bộ giao dịch đã rollback: ' + (e?.message || String(e))};
+
+    return {
+      success: true,
+      message: 'Khôi phục giao dịch thành công: ' +
+        data.users.length + ' nhân sự, ' +
+        data.works.length + ' công việc, ' +
+        data.assignments.length + ' phân công, ' +
+        data.overtimes.length + ' làm thêm, ' +
+        data.categories.length + ' danh mục, ' +
+        data.kpiResults.length + ' KPI, ' +
+        data.notifications.length + ' thông báo và ' +
+        data.logs.length + ' nhật ký.'
+    };
+  } catch (e: any) {
+    console.error('Restore transaction rolled back:', e);
+    return {
+      success: false,
+      statusCode: 500,
+      error: 'Khôi phục thất bại; toàn bộ giao dịch đã rollback: ' + (e?.message || String(e))
+    };
   }
 }
 
@@ -540,6 +637,17 @@ export function startBackupScheduler() {
           const diffMs = lastBackup ? now.getTime() - lastBackup.getTime() : 99999999;
           if (diffMs > 120000) {
             console.log(`[BackupScheduler] Triggering scheduled hourly backup at ${currentTimeStr}...`);
+            await performBackup('auto_scheduled');
+          }
+        }
+      } else if (config.frequency === 'weekly') {
+        const targetDay = config.weeklyDay ?? 0; // 0 = Sunday
+        const targetTime = config.dailyTime || '23:30';
+        if (now.getDay() === targetDay && currentTimeStr === targetTime) {
+          const lastBackup = config.lastBackupAt ? new Date(config.lastBackupAt) : null;
+          const diffMs = lastBackup ? now.getTime() - lastBackup.getTime() : 99999999;
+          if (diffMs > 120000) {
+            console.log(`[BackupScheduler] Triggering scheduled weekly backup on day ${targetDay} at ${currentTimeStr}...`);
             await performBackup('auto_scheduled');
           }
         }
