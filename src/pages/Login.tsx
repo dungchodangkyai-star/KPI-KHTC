@@ -100,8 +100,6 @@ export default function Login() {
         return;
       }
 
-
-
       // Check if user must change password (first time login with default password)
       if (data.mustChangePassword) {
         setPendingUser(data.user);

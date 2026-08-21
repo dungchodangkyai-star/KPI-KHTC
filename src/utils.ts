@@ -564,97 +564,6 @@ export const calculateTotalKpi = (
   return Math.round(bounded * 100) / 100;
 };
 
-export const calculateKpiB = (
-  hasApprovedWorks: boolean,
-  convertedScore: number,
-  personalShare: number,
-  averageShare: number,
-  allocation: any
-) => {
-  const maxB1 = Number(allocation?.maxB1 ?? 45);
-  const maxB2 = Number(allocation?.maxB2 ?? 15);
-  const maxB = Number(allocation?.maxB ?? 60);
-  const b1 = hasApprovedWorks
-    ? Math.round(Math.min(maxB1, (convertedScore / 100) * maxB1) * 100) / 100
-    : 0;
-  const b2 = hasApprovedWorks && averageShare > 0
-    ? Math.round(Math.min(maxB2, (personalShare / averageShare) * maxB2) * 100) / 100
-    : 0;
-  const total = Math.round(Math.min(maxB, b1 + b2) * 100) / 100;
-  return { b1, b2, total };
-};
-
-export const calculateKpiC = (
-  personalNatureTotal: number,
-  departmentNatureTotal: number,
-  activeEmployeeCount: number,
-  c2: number,
-  allocation: any
-) => {
-  const maxC1 = Number(allocation?.maxC1 ?? 6);
-  const maxC = Number(allocation?.maxC ?? 10);
-  const averageDepartmentNature = activeEmployeeCount > 0
-    ? departmentNatureTotal / activeEmployeeCount
-    : 0;
-  const c1 = averageDepartmentNature > 0
-    ? Math.round(Math.min(maxC1, (personalNatureTotal * maxC1) / averageDepartmentNature))
-    : 0;
-  const safeC2 = Number.isFinite(Number(c2)) ? Number(c2) : 0;
-  return {
-    c1,
-    c2: safeC2,
-    total: Math.min(maxC, c1 + safeC2),
-    averageDepartmentNature
-  };
-};
-
-export const calculateKpiD = (works: any[], savedDetails: any, maxD?: number | null) => {
-  const autoItems = works.flatMap((work: any) => {
-    const status = String(work?.status || '').toLowerCase();
-    let autoD = 0;
-    let reason = '';
-    if (status.includes('không hoàn thành') || status.includes('không đạt')) {
-      autoD = 3;
-      reason = status.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
-    } else if (status === 'chậm' || status === 'quá hạn' || status.includes('chậm tiến độ') || status.includes('quá hạn')) {
-      autoD = 2;
-      reason = 'Chậm tiến độ';
-    } else if (status.includes('bổ sung nhiều lần')) {
-      autoD = 1;
-      reason = 'Bổ sung nhiều lần';
-    }
-    if (autoD <= 0) return [];
-    return [{
-      id: `work-${work.id}`,
-      group: 'Công việc chuyên môn',
-      content: `Nhiệm vụ: ${work.taskName || work.taskCode} - Trạng thái: ${work.status}`,
-      autoD,
-      officialD: autoD,
-      decision: 'Giữ nguyên',
-      note: reason
-    }];
-  });
-
-  const safeSavedDetails = savedDetails && typeof savedDetails === 'object' ? savedDetails : {};
-  const savedItems = Array.isArray(safeSavedDetails.items) ? safeSavedDetails.items : [];
-  const mergedAutoItems = autoItems.map((autoItem: any) => {
-    const saved = savedItems.find((item: any) => item.id === autoItem.id);
-    return saved ? { ...autoItem, ...saved, autoD: autoItem.autoD, content: autoItem.content } : autoItem;
-  });
-  const manualItems = savedItems.filter((item: any) => !String(item.id || '').startsWith('work-'));
-  const items = [...mergedAutoItems, ...manualItems];
-  const totalAutoD = items.reduce((sum: number, item: any) => sum + (Number(item.autoD) || 0), 0);
-  const totalOfficialD = items.reduce((sum: number, item: any) => {
-    const value = item.officialD !== undefined ? Number(item.officialD) : Number(item.autoD || 0);
-    return sum + (Number.isFinite(value) && value >= 0 ? value : 0);
-  }, 0);
-  const score = maxD ? Math.min(Number(maxD), totalOfficialD) : totalOfficialD;
-  return {
-    score,
-    details: { ...safeSavedDetails, items, totalAutoD, totalOfficialD }
-  };
-};
-
 /**
  * Evaluates ranking classification based on dynamic ranking tiers
  */
@@ -963,3 +872,5 @@ export async function safeFetchJson<T = any>(
     return { success: false, error: err?.message || 'Failed to fetch' };
   }
 }
+
+

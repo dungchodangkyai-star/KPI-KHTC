@@ -11,6 +11,7 @@ import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
 import { backupRouter } from "./server/backupRoutes.ts";
 import { startBackupScheduler } from "./server/backupService.ts";
+import { ensureDatabaseSchema } from "./server/dbMigrate.ts";
 import { runSeeder } from "./server/seeder.ts";
 import { 
   getZaloConfig, 
@@ -27,11 +28,18 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Seed data on startup
-  setTimeout(() => {
-    runSeeder().then((res) => console.log("Init seed result:", res));
-    startBackupScheduler();
-  }, 1000);
+  // Migrate schema and seed data on startup
+  setTimeout(async () => {
+    try {
+      const migResult = await ensureDatabaseSchema();
+      console.log("Schema sync result:", migResult);
+      const seedResult = await runSeeder();
+      console.log("Init seed result:", seedResult);
+      startBackupScheduler();
+    } catch (e) {
+      console.error("Startup migration/seed error:", e);
+    }
+  }, 200);
 
   // --- API Routes ---
 

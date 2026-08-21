@@ -7,7 +7,8 @@ import {
   deleteBackupFile, 
   getBackupContent, 
   restoreFromBackup,
-  autoPruneBackups
+  autoPruneBackups,
+  pushExistingBackupToOffsite
 } from './backupService.ts';
 
 export const backupRouter = Router();
@@ -177,6 +178,21 @@ backupRouter.post('/prune', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/backups/sync-offsite/:filename
+backupRouter.post('/sync-offsite/:filename', async (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const result = await pushExistingBackupToOffsite(filename);
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ success: false, error: result.message });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
 // POST /api/backups/restore
 backupRouter.post('/restore', async (req: Request, res: Response) => {
   try {
@@ -195,7 +211,7 @@ backupRouter.post('/restore', async (req: Request, res: Response) => {
     if (result.success) {
       res.json({ success: true, message: result.message });
     } else {
-      res.status(result.statusCode || 500).json({ success: false, error: result.error });
+      res.status(500).json({ success: false, error: result.error });
     }
   } catch (error) {
     res.status(500).json({ success: false, error: String(error) });

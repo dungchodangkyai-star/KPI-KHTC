@@ -29,10 +29,12 @@ CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    properties JSONB,
+    type TEXT NOT NULL DEFAULT 'TASK',
+    properties JSONB DEFAULT '{}'::jsonb,
     status TEXT NOT NULL DEFAULT 'Đang dùng',
-    "order" INTEGER DEFAULT 0
+    "order" INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- 3. BẢNG WORKS (Nhật ký công việc hàng ngày)
@@ -88,18 +90,18 @@ CREATE TABLE IF NOT EXISTS assignments (
     task_group TEXT,
     task_name TEXT,
     task_code TEXT,
-    base_score NUMERIC,
-    suggested_nature TEXT,
-    suggested_coef NUMERIC,
-    expected_converted_score NUMERIC,
+    base_score NUMERIC DEFAULT 10,
+    suggested_nature TEXT DEFAULT 'Trung bình',
+    suggested_coef NUMERIC DEFAULT 0.8,
+    expected_converted_score NUMERIC DEFAULT 8,
     detail TEXT,
     assign_date TIMESTAMP DEFAULT NOW(),
     start_date TIMESTAMP,
     deadline TIMESTAMP,
     product_required TEXT,
-    product_type TEXT,
-    product_qty INTEGER,
-    unit TEXT,
+    product_type TEXT DEFAULT 'Báo cáo',
+    product_qty INTEGER DEFAULT 1,
+    unit TEXT DEFAULT 'Sản phẩm',
     priority TEXT DEFAULT 'Bình thường',
     receive_status TEXT DEFAULT 'Chưa xem',
     view_date TIMESTAMP,
@@ -107,6 +109,7 @@ CREATE TABLE IF NOT EXISTS assignments (
     work_id INTEGER REFERENCES works(id) ON DELETE SET NULL,
     leader_note TEXT,
     receiver_note TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -117,13 +120,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP DEFAULT NOW(),
     sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type TEXT,
-    title TEXT,
-    content TEXT,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
     related_target TEXT,
     status TEXT DEFAULT 'Chưa xem',
     view_date TIMESTAMP,
-    note TEXT
+    note TEXT,
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- 6. BẢNG OVERTIMES (Đăng ký làm thêm giờ)
@@ -134,10 +138,10 @@ CREATE TABLE IF NOT EXISTS overtimes (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reg_date TIMESTAMP DEFAULT NOW(),
     ot_date TIMESTAMP NOT NULL,
-    start_time TEXT,
-    end_time TEXT,
+    start_time TEXT DEFAULT '17:00',
+    end_time TEXT DEFAULT '20:30',
     break_minutes INTEGER DEFAULT 0,
-    total_reg_hours NUMERIC,
+    total_reg_hours NUMERIC DEFAULT 3.5,
     content TEXT,
     reason TEXT,
     project TEXT,
@@ -152,6 +156,7 @@ CREATE TABLE IF NOT EXISTS overtimes (
     approval_date TIMESTAMP,
     allow_edit BOOLEAN DEFAULT FALSE,
     data_status TEXT DEFAULT 'OK',
+    created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -161,30 +166,33 @@ CREATE TABLE IF NOT EXISTS kpi_results (
     kpi_id TEXT UNIQUE NOT NULL,
     month TEXT NOT NULL,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    registered_works INTEGER,
-    approved_works INTEGER,
-    pending_works INTEGER,
-    supplement_works INTEGER,
-    rejected_works INTEGER,
+    registered_works INTEGER DEFAULT 0,
+    approved_works INTEGER DEFAULT 0,
+    pending_works INTEGER DEFAULT 0,
+    supplement_works INTEGER DEFAULT 0,
+    rejected_works INTEGER DEFAULT 0,
     approved_hours NUMERIC,
     converted_score NUMERIC,
     personal_share NUMERIC,
     a_score NUMERIC,
     b1_score NUMERIC,
     b2_score NUMERIC,
+    b3_score NUMERIC,
     b_score NUMERIC,
     c1_score NUMERIC,
     c2_score NUMERIC,
     c_score NUMERIC,
     d_score NUMERIC,
     total_kpi NUMERIC,
-    rank TEXT,
+    rank TEXT DEFAULT 'Chưa chốt',
     warning TEXT,
     locked_status TEXT DEFAULT 'Chưa chốt',
     note TEXT,
-    details_a JSONB,
-    details_c JSONB,
-    details_d JSONB,
+    details_a JSONB DEFAULT '{}'::jsonb,
+    details_b JSONB DEFAULT '{}'::jsonb,
+    details_c JSONB DEFAULT '{}'::jsonb,
+    details_d JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -194,11 +202,12 @@ CREATE TABLE IF NOT EXISTS system_logs (
     log_id TEXT UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action TEXT,
+    action TEXT NOT NULL,
     target TEXT,
-    result TEXT,
+    result TEXT DEFAULT 'Thành công',
     note TEXT,
-    details JSONB
+    details JSONB DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- TẠO CHỈ MỤC (INDEXES) TỐI ƯU HÓA TỐC ĐỘ TRUY VẤN
@@ -206,6 +215,6 @@ CREATE INDEX IF NOT EXISTS idx_works_user_month ON works(user_id, month);
 CREATE INDEX IF NOT EXISTS idx_works_status ON works(status);
 CREATE INDEX IF NOT EXISTS idx_assignments_receiver_month ON assignments(receiver_id, month);
 CREATE INDEX IF NOT EXISTS idx_overtimes_user_month ON overtimes(user_id, month);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_results_month_user_unique ON kpi_results(month, user_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_results_user_month ON kpi_results(user_id, month);
 CREATE INDEX IF NOT EXISTS idx_notifications_receiver ON notifications(receiver_id, status);
 `;
