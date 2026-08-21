@@ -828,6 +828,8 @@ export const clearActiveLoggedInUser = () => {
   try {
     localStorage.removeItem('kpi_logged_in_user');
     localStorage.removeItem('kpi_current_user_id');
+    localStorage.removeItem('kpi_session_token');
+    sessionStorage.removeItem('kpi_session_token');
     window.dispatchEvent(new Event('kpi_user_changed'));
   } catch (e) {
     console.error("Error clearing user session:", e);

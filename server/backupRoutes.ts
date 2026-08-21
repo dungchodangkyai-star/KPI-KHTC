@@ -195,7 +195,7 @@ backupRouter.post('/restore', async (req: Request, res: Response) => {
     if (result.success) {
       res.json({ success: true, message: result.message });
     } else {
-      res.status(500).json({ success: false, error: result.error });
+      res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
   } catch (error) {
     res.status(500).json({ success: false, error: String(error) });

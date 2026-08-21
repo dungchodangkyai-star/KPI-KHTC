@@ -5,7 +5,7 @@ import {
   Clock, CheckCircle2, Printer, 
   Edit, Award, FileText, 
   Send, CheckSquare, Settings, 
-  Database, Users, LayoutDashboard, BarChart3, Radio, ChevronDown, UserCheck,
+  Database, Users, LayoutDashboard, BarChart3, Radio,
   Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock, Server
 } from 'lucide-react';
 import { 
@@ -16,8 +16,7 @@ import {
   canAccessRoute, 
   formatDate,
   DEFAULT_INITIAL_PASSWORD,
-  ADMIN_EMAIL,
-  cleanPosition
+  ADMIN_EMAIL
 } from '../../utils';
 import { useOrgConfig } from '../../contexts/OrgContext';
 
@@ -89,7 +88,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { orgConfig } = useOrgConfig();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userList, setUserList] = useState<any[]>([]);
-  const [showSwitchMenu, setShowSwitchMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
   const [pendingAssignmentsCount, setPendingAssignmentsCount] = useState(0);
   const [pendingOvertimesCount, setPendingOvertimesCount] = useState(0);
@@ -316,13 +314,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleSelectUser = (u: any) => {
-    setActiveLoggedInUser(u);
-    setCurrentUser(u);
-    setShowSwitchMenu(false);
-    fetchLayoutData(u);
-  };
-
   const getInitials = (name: string) => {
     if (!name) return 'U';
     const parts = name.trim().split(' ');
@@ -543,11 +534,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
-            <div 
-              onClick={() => setShowSwitchMenu(!showSwitchMenu)}
-              className="flex items-center gap-3 pl-2 cursor-pointer group hover:bg-white p-1 rounded-xl transition border border-transparent hover:border-slate-300 shadow-2xs"
-              title="Nhấn để xem / chuyển tài khoản"
-            >
+            <div className="flex items-center gap-3 pl-2 p-1 rounded-xl border border-transparent shadow-2xs">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] shadow-sm flex items-center justify-center text-white font-black text-sm border border-blue-900">
                 {getInitials(currentUser?.name)}
               </div>
@@ -563,42 +550,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   }`}>
                     {isAdmin ? 'Quản trị' : currentUser?.role === 'LEADER' ? 'Lãnh đạo' : 'Chuyên viên'}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-800" />
                 </div>
                 <span className="text-xs text-slate-600 font-medium mt-1 leading-none">
                   {currentUser?.email || 'Chưa đăng nhập'}
                 </span>
               </div>
             </div>
-
-            {/* Switch User Dropdown */}
-            {showSwitchMenu && userList.length > 0 && (
-              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-300 p-2 z-50 animate-in fade-in zoom-in-95">
-                <div className="text-xs font-black text-slate-500 px-3 py-1.5 uppercase tracking-wider">Chuyển đổi tài khoản</div>
-                <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1">
-                  {userList.map(u => (
-                    <button
-                      key={u.id}
-                      onClick={() => handleSelectUser(u)}
-                      className={cn(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm font-medium transition",
-                        currentUser?.id === u.id 
-                          ? "bg-blue-50 text-[#1F4E78] font-bold border border-blue-200" 
-                          : "hover:bg-slate-100 text-slate-800"
-                      )}
-                    >
-                      <div>
-                        <div className="font-bold text-[13px] text-slate-900">{u.name}</div>
-                        <div className="text-[11px] text-slate-600 font-medium">{cleanPosition(u.position)} ({u.email})</div>
-                      </div>
-                      {currentUser?.id === u.id && (
-                        <UserCheck className="w-4 h-4 text-[#1F4E78]" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="h-8 w-px bg-slate-300 mx-1"></div>
             <div className="flex items-center gap-2 pr-1">
