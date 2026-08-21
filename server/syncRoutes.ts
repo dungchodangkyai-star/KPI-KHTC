@@ -1042,8 +1042,8 @@ syncRouter.post('/reset-data', async (req, res) => {
 
     if (action === 'reset_month' && month) {
       await db.transaction(async (tx) => {
-        await tx.delete(works).where(eq(works.month, month));
         await tx.delete(assignments).where(eq(assignments.month, month));
+        await tx.delete(works).where(eq(works.month, month));
         await tx.delete(overtimes).where(eq(overtimes.month, month));
         await tx.delete(kpiResults).where(eq(kpiResults.month, month));
       });
