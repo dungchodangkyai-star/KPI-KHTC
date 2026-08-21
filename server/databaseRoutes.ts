@@ -44,14 +44,14 @@ databaseRouter.get('/stats', async (req: Request, res: Response) => {
       }
     });
   } catch (error) {
-    res.json({
-      success: true,
+    console.error('Database stats error:', error);
+    res.status(503).json({
+      success: false,
+      error: 'Không thể đọc thống kê từ cơ sở dữ liệu đang hoạt động.',
       data: {
-        mode: 'local',
-        status: 'connected',
-        worksCount: 0,
-        usersCount: 0,
-        latencyMs: 24
+        status: 'disconnected',
+        worksCount: null,
+        usersCount: null
       }
     });
   }

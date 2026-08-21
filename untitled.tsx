@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   calculateTotalKpi,
+  calculateKpiB,
+  calculateKpiC,
+  calculateKpiD,
   evaluateKpiRank,
   DEFAULT_KPI_CONFIG
 } from './src/utils.ts';
@@ -66,4 +69,27 @@ assert.equal(
   '80 điểm phải xếp loại hoàn thành tốt'
 );
 
-console.log('KPI formula tests passed: 7/7');
+assert.deepEqual(
+  calculateKpiB(true, 100, 50, 50, alloc),
+  { b1: 45, b2: 15, total: 60 },
+  'Engine B phải đạt 45 + 15 = 60 ở dữ liệu chuẩn'
+);
+
+assert.deepEqual(
+  calculateKpiC(3, 6, 2, 4, alloc),
+  { c1: 6, c2: 4, total: 10, averageDepartmentNature: 3 },
+  'Engine C phải tính nhất quán C1=6, C2=4, tổng=10'
+);
+
+const dResult = calculateKpiD(
+  [
+    { id: 1, taskName: 'Việc 1', status: 'Không hoàn thành' },
+    { id: 2, taskName: 'Việc 2', status: 'Chậm tiến độ' },
+    { id: 3, taskName: 'Việc 3', status: 'Bổ sung nhiều lần' }
+  ],
+  { items: [{ id: 'manual-1', autoD: 0, officialD: 2 }] },
+  10
+);
+assert.equal(dResult.score, 8, 'Engine D phải tính 3 + 2 + 1 + 2 = 8');
+
+console.log('KPI formula tests passed: 10/10');

@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, decimal, jsonb } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, decimal, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -176,7 +176,9 @@ export const kpiResults = pgTable('kpi_results', {
   detailsC: jsonb('details_c'),
   detailsD: jsonb('details_d'),
   updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+  monthUserUnique: uniqueIndex('idx_kpi_results_month_user_unique').on(table.month, table.userId),
+}));
 
 export const systemLogs = pgTable('system_logs', {
   id: serial('id').primaryKey(),

@@ -100,13 +100,7 @@ export default function Login() {
         return;
       }
 
-      if (!data.sessionToken) {
-        setError('Máy chủ không cấp được phiên đăng nhập an toàn. Vui lòng thử lại.');
-        setLoading(false);
-        return;
-      }
-      localStorage.setItem('kpi_session_token', data.sessionToken);
-      sessionStorage.removeItem('kpi_session_token');
+
 
       // Check if user must change password (first time login with default password)
       if (data.mustChangePassword) {

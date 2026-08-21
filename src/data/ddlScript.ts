@@ -206,6 +206,6 @@ CREATE INDEX IF NOT EXISTS idx_works_user_month ON works(user_id, month);
 CREATE INDEX IF NOT EXISTS idx_works_status ON works(status);
 CREATE INDEX IF NOT EXISTS idx_assignments_receiver_month ON assignments(receiver_id, month);
 CREATE INDEX IF NOT EXISTS idx_overtimes_user_month ON overtimes(user_id, month);
-CREATE INDEX IF NOT EXISTS idx_kpi_results_user_month ON kpi_results(user_id, month);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_results_month_user_unique ON kpi_results(month, user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_receiver ON notifications(receiver_id, status);
 `;
