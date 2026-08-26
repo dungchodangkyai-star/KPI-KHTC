@@ -304,13 +304,21 @@ kpiRouter.get('/detail', async (req, res) => {
     const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
     const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
     
+    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-    const deptConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
-    const userConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
     
-    const activeEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
-    const avgShare = activeEmployeeIds.length > 0 ? (100 / activeEmployeeIds.length) : 0;
-    const userShare = deptConvertedScore > 0 ? (userConvertedScore / deptConvertedScore * 100) : 0;
+    const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
+
+    // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
+    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+    const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
     const naturePointMap: Record<string, number> = {
       'Đặc biệt phức tạp': 3,
@@ -320,6 +328,38 @@ kpiRouter.get('/detail', async (req, res) => {
       'Đơn giản': 0
     };
 
+    // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
+    let selfPersonalNatureTotal = 0;
+    let selfDeptNatureTotal = 0;
+    const selfDistribution: Record<string, { personalCount: number; deptCount: number; personalPoint: number; deptPoint: number }> = {};
+    Object.keys(naturePointMap).forEach(nat => {
+      selfDistribution[nat] = { personalCount: 0, deptCount: 0, personalPoint: 0, deptPoint: 0 };
+    });
+    validWorksInMonth.forEach(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      const bucket = selfDistribution[nat] || (selfDistribution[nat] = { personalCount: 0, deptCount: 0, personalPoint: 0, deptPoint: 0 });
+      bucket.deptCount += 1;
+      bucket.deptPoint += pt;
+      selfDeptNatureTotal += pt;
+      if (w.userId === targetUser.id) {
+        bucket.personalCount += 1;
+        bucket.personalPoint += pt;
+        selfPersonalNatureTotal += pt;
+      }
+    });
+    const selfComplexTasks = userWorks.filter(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      return (naturePointMap[nat] || 0) > 0;
+    });
+    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+
+    const kpiConfig = await getEffectiveKpiConfig();
+    const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+    const maxC1Val = alloc.maxC1 || 6;
+    const selfAutoC1 = avgSelfDeptNature > 0 ? Math.round(Math.min(maxC1Val, (selfPersonalNatureTotal * maxC1Val) / avgSelfDeptNature)) : 0;
+
+    // Approved C1 calculations (only leaderApproval === 'Duyệt'; approvedNature -> proposedNature -> 'Trung bình')
     let personalNatureTotal = 0;
     let deptNatureTotal = 0;
 
@@ -332,8 +372,17 @@ kpiRouter.get('/detail', async (req, res) => {
       }
     });
 
-    const avgDeptNature = activeEmployeeIds.length > 0 ? (deptNatureTotal / activeEmployeeIds.length) : 0;
-    const autoC1 = avgDeptNature > 0 ? Math.round(Math.min(6, (personalNatureTotal * 6) / avgDeptNature)) : 0;
+    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+    const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
+    const autoC1 = approvedAutoC1;
+
+    const approvedB1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userApprovedConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+    const approvedB2 = (userApprovedWorks.length > 0 && avgApprovedShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userApprovedShare / avgApprovedShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+    const approvedBTotal = Math.round(Math.min(alloc.maxB || 60, approvedB1 + approvedB2) * 100) / 100;
+
+    const selfB1 = userWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userSelfConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+    const selfB2 = (userWorks.length > 0 && avgSelfShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userSelfShare / avgSelfShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+    const selfBTotal = Math.round(Math.min(alloc.maxB || 60, selfB1 + selfB2) * 100) / 100;
 
     const kpiId = `${targetMonth}♦${targetUser.name}`;
     const kpiRecord = await db.query.kpiResults.findFirst({
@@ -359,20 +408,28 @@ kpiRouter.get('/detail', async (req, res) => {
 
     const detailsA = (kpiRecord?.detailsA as any) || defaultDetailsA;
     const rawDetailsC = (kpiRecord?.detailsC as any) || {};
-    const finalC1 = autoC1;
+    const finalC1 = approvedAutoC1;
     const finalC2 = rawDetailsC.c2 !== undefined ? rawDetailsC.c2 : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
-    const finalTotalC = Math.min(10, finalC1 + finalC2);
+    const finalTotalC = Math.min(alloc.maxC || 10, finalC1 + finalC2);
 
     const detailsC = {
       ...rawDetailsC,
       c1: finalC1,
       c2: finalC2,
       totalC: finalTotalC,
+      selfAutoC1,
+      approvedAutoC1,
+      autoC1: approvedAutoC1,
       personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
       deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
-      activeEmployeeCount: activeEmployeeIds.length,
+      activeEmployeeCount: activeApprovedEmployeeIds.length,
       avgDeptNature: Math.round(avgDeptNature * 100) / 100,
-      autoC1
+      selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
+      selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
+      selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100,
+      selfActiveEmployeeCount: activeSelfEmployeeIds.length,
+      selfDistribution,
+      selfComplexTasks
     };
 
     const autoPenaltyItems: any[] = [];
@@ -420,8 +477,11 @@ kpiRouter.get('/detail', async (req, res) => {
     const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
     const finalDItems = [...mergedDItems, ...manualItems];
 
-    const totalAutoD = finalDItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0);
-    const totalOfficialD = finalDItems.reduce((s, it) => s + (parseFloat(it.officialD) || 0), 0);
+    const totalAutoD = autoPenaltyItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0);
+    const totalOfficialD = finalDItems.reduce((s, it) => {
+      const val = it.officialD !== undefined && it.officialD !== null && it.officialD !== '' ? parseFloat(it.officialD) : parseFloat(it.autoD || '0');
+      return s + (isNaN(val) || !isFinite(val) ? 0 : Math.max(0, val));
+    }, 0);
 
     const detailsD = {
       ...savedDetailsD,
@@ -430,12 +490,45 @@ kpiRouter.get('/detail', async (req, res) => {
       totalOfficialD
     };
 
+    const explicitSelfA = detailsA?.selfTotal !== null && detailsA?.selfTotal !== undefined && !isNaN(Number(detailsA.selfTotal)) ? Number(detailsA.selfTotal) : null;
+    const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
+    const selfD = alloc.maxD ? Math.min(alloc.maxD, totalAutoD) : totalAutoD;
+    const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
+    const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, selfBTotal, selfC, selfD, kpiConfig.formula, alloc);
+    let selfRank = 'Chưa xếp loại';
+    if (explicitSelfA !== null) {
+      selfRank = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: selfBTotal, scoreD: selfD }).rank;
+    } else {
+      selfRank = 'Chưa tự chấm A';
+    }
+
+    const statusA = detailsA?.statusA;
+    const statusC = detailsC?.statusC;
+    const statusD = detailsD?.statusD;
+    const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
+    const approvedA = detailsA?.approvedTotal !== null && detailsA?.approvedTotal !== undefined && !isNaN(Number(detailsA.approvedTotal))
+      ? Number(detailsA.approvedTotal)
+      : (kpiRecord?.aScore && !isNaN(Number(kpiRecord.aScore)) ? Number(kpiRecord.aScore) : null);
+
+    let approvedKpiTotal: number | null = null;
+    let approvedRank = 'Chờ duyệt';
+    if (isAllApproved && approvedA !== null) {
+      approvedKpiTotal = calculateTotalKpi(approvedA, approvedBTotal, finalTotalC, totalOfficialD, kpiConfig.formula, alloc);
+      approvedRank = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: approvedBTotal, scoreD: totalOfficialD }).rank;
+    }
+
     res.json({
       success: true,
       data: {
         user: targetUser,
         month: targetMonth,
         kpiRecord: kpiRecord || null,
+        selfKpiTotal,
+        selfRank,
+        approvedKpiTotal,
+        approvedRank,
+        totalKpi: approvedKpiTotal,
+        rank: approvedRank,
         summary: {
           registeredWorks: userWorks.length,
           approvedWorks: userApprovedWorks.length,
@@ -443,15 +536,40 @@ kpiRouter.get('/detail', async (req, res) => {
           supplementWorks: userWorks.filter(w => w.leaderApproval === 'Cần bổ sung').length,
           rejectedWorks: userWorks.filter(w => w.leaderApproval === 'Không duyệt').length,
           approvedHours: userApprovedWorks.reduce((s, w) => s + (parseFloat(w.hours || '0') || 0), 0),
-          convertedScore: Math.round(userConvertedScore * 100) / 100,
+          selfConvertedScore: Math.round(userSelfConvertedScore * 100) / 100,
+          approvedConvertedScore: Math.round(userApprovedConvertedScore * 100) / 100,
+          convertedScore: Math.round(userApprovedConvertedScore * 100) / 100,
           deptTotalWorks: validWorksInMonth.length,
           deptApprovedWorks: deptApprovedWorks.length,
-          deptConvertedScore: Math.round(deptConvertedScore * 100) / 100,
-          personalShare: Math.round(userShare * 100) / 100,
-          avgShare: Math.round(avgShare * 100) / 100,
-          b1: userApprovedWorks.length > 0 ? Math.round(Math.min(45, (userConvertedScore / 100) * 45) * 100) / 100 : 0,
-          b2: (userApprovedWorks.length > 0 && avgShare > 0) ? Math.round(Math.min(15, (userShare / avgShare) * 15) * 100) / 100 : 0,
-          bTotal: userApprovedWorks.length > 0 ? Math.round(Math.min(60, Math.min(45, (userConvertedScore / 100) * 45) + (avgShare > 0 ? Math.min(15, (userShare / avgShare) * 15) : 0)) * 100) / 100 : 0
+          deptSelfConvertedScore: Math.round(deptSelfConvertedScore * 100) / 100,
+          deptApprovedConvertedScore: Math.round(deptApprovedConvertedScore * 100) / 100,
+          deptConvertedScore: Math.round(deptApprovedConvertedScore * 100) / 100,
+          personalShare: Math.round(userApprovedShare * 100) / 100,
+          avgShare: Math.round(avgApprovedShare * 100) / 100,
+          selfPersonalShare: Math.round(userSelfShare * 100) / 100,
+          selfAvgShare: Math.round(avgSelfShare * 100) / 100,
+          selfB1,
+          selfB2,
+          selfBTotal,
+          approvedB1,
+          approvedB2,
+          approvedBTotal,
+          b1: approvedB1,
+          b2: approvedB2,
+          bTotal: approvedBTotal,
+          selfAutoC1,
+          approvedAutoC1,
+          autoC1: approvedAutoC1,
+          selfC,
+          approvedC: finalTotalC,
+          selfD,
+          approvedD: totalOfficialD,
+          selfKpiTotal,
+          selfRank,
+          approvedKpiTotal,
+          approvedRank,
+          totalKpi: approvedKpiTotal,
+          rank: approvedRank
         },
         detailsA,
         detailsC,
@@ -566,64 +684,381 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     if (!targetUser) return res.status(404).json({ error: "User not found" });
 
     const kpiId = `${targetMonth}♦${targetUser.name}`;
-    const approvedA = parseFloat(detailsA?.approvedTotal || '0') || 0;
-    const c1Score = parseFloat(detailsC?.c1 || '0') || 0;
-    const c2Score = parseFloat(detailsC?.c2 || '0') || 0;
-    const cScore = Math.min(10, c1Score + c2Score);
-
-    const dItems = detailsD?.items || [];
-    const totalOfficialD = dItems.reduce((s: number, item: any) => {
-      const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
-      return s + (isNaN(val) ? 0 : val);
-    }, 0);
-
     const existingKpi = await db.query.kpiResults.findFirst({
       where: (r, { eq }) => eq(r.kpiId, kpiId)
     });
 
+    // Calculate B1, B2 and B from currently approved works in month using the exact same filter and formulas as calculateAndSaveUserKpi
+    const allWorksInMonth = await db.query.works.findMany({
+      where: (w, { eq }) => eq(w.month, targetMonth)
+    });
+    const validWorksInMonth = allWorksInMonth.filter(w => {
+      const ds = String(w.dataStatus || '').toLowerCase();
+      return !ds.includes('xóa') && !ds.includes('xoa');
+    });
+
+    const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
+    const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
+    
+    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
+    const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    
+    const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
+
+    // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
+    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+    const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
+
+    const naturePointMap: Record<string, number> = {
+      'Đặc biệt phức tạp': 3,
+      'Rất phức tạp': 2,
+      'Phức tạp': 1,
+      'Trung bình': 0,
+      'Đơn giản': 0
+    };
+
+    // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
+    let selfPersonalNatureTotal = 0;
+    let selfDeptNatureTotal = 0;
+    validWorksInMonth.forEach(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      selfDeptNatureTotal += pt;
+      if (w.userId === targetUser.id) {
+        selfPersonalNatureTotal += pt;
+      }
+    });
+    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+
     const kpiConfig = await getEffectiveKpiConfig();
     const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+    const maxC1Val = alloc.maxC1 || 6;
+    const selfAutoC1 = avgSelfDeptNature > 0 ? Math.round(Math.min(maxC1Val, (selfPersonalNatureTotal * maxC1Val) / avgSelfDeptNature)) : 0;
 
-    const bScore = parseFloat(existingKpi?.bScore || '0') || 0;
-    const dScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
-    const totalKpi = calculateTotalKpi(approvedA, bScore, cScore, dScore, kpiConfig.formula, alloc);
-    const rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bScore, scoreD: dScore });
+    // Approved C1 calculations (only leaderApproval === 'Duyệt'; approvedNature -> proposedNature -> 'Trung bình')
+    let personalNatureTotal = 0;
+    let deptNatureTotal = 0;
+
+    deptApprovedWorks.forEach(w => {
+      const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      deptNatureTotal += pt;
+      if (w.userId === targetUser.id) {
+        personalNatureTotal += pt;
+      }
+    });
+
+    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+    const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
+    const autoC1 = approvedAutoC1;
+
+    const approvedB1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userApprovedConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+    const approvedB2 = (userApprovedWorks.length > 0 && avgApprovedShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userApprovedShare / avgApprovedShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+    const approvedBTotal = Math.round(Math.min(alloc.maxB || 60, approvedB1 + approvedB2) * 100) / 100;
+
+    const selfB1 = userWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userSelfConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+    const selfB2 = (userWorks.length > 0 && avgSelfShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userSelfShare / avgSelfShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+    const selfBTotal = Math.round(Math.min(alloc.maxB || 60, selfB1 + selfB2) * 100) / 100;
+
+    const b1 = approvedB1;
+    const b2 = approvedB2;
+    const bScore = approvedBTotal;
+
+    // Determine detailsA & aScore
+    const hasA = detailsA !== undefined && detailsA !== null;
+    let finalDetailsA = existingKpi?.detailsA ?? null;
+    let finalAScore: number | null = null;
+
+    if (hasA) {
+      finalDetailsA = detailsA;
+      if (detailsA.approvedTotal !== undefined && detailsA.approvedTotal !== null && detailsA.approvedTotal !== '' && !isNaN(Number(detailsA.approvedTotal))) {
+        finalAScore = Number(detailsA.approvedTotal);
+      } else if (detailsA.scores && typeof detailsA.scores === 'object') {
+        let sumA = 0;
+        let anyValid = false;
+        for (const k of Object.keys(detailsA.scores)) {
+          const sc = detailsA.scores[k]?.approved;
+          if (sc !== undefined && sc !== null && sc !== '' && !isNaN(Number(sc))) {
+            sumA += Number(sc);
+            anyValid = true;
+          }
+        }
+        finalAScore = anyValid ? sumA : null;
+      }
+    } else {
+      if (existingKpi?.detailsA && (existingKpi.detailsA as any).approvedTotal !== undefined && (existingKpi.detailsA as any).approvedTotal !== null && (existingKpi.detailsA as any).approvedTotal !== '' && !isNaN(Number((existingKpi.detailsA as any).approvedTotal))) {
+        finalAScore = Number((existingKpi.detailsA as any).approvedTotal);
+      } else if (existingKpi?.aScore !== undefined && existingKpi?.aScore !== null && existingKpi?.aScore !== '' && !isNaN(Number(existingKpi.aScore))) {
+        finalAScore = Number(existingKpi.aScore);
+      }
+    }
+
+    // Validate A (finite, >= 0, <= maxA)
+    if (finalAScore !== null) {
+      finalAScore = isNaN(finalAScore) || !isFinite(finalAScore) ? 0 : Math.max(0, Math.min(alloc.maxA || 30, finalAScore));
+    }
+
+    // Determine detailsC & cScores (Ignore UI-provided c1/totalC; use approvedAutoC1 + validated c2)
+    const hasC = detailsC !== undefined && detailsC !== null;
+    let finalDetailsC = existingKpi?.detailsC ?? null;
+    let finalC1Score = approvedAutoC1;
+    let finalC2Score = 0;
+    let finalCScore = 0;
+
+    if (hasC) {
+      const rawC2 = detailsC.c2 !== undefined && detailsC.c2 !== null && detailsC.c2 !== '' ? Number(detailsC.c2) : 0;
+      finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+      finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
+
+      finalDetailsC = {
+        ...detailsC,
+        c1: finalC1Score,
+        c2: finalC2Score,
+        totalC: finalCScore,
+        selfAutoC1,
+        approvedAutoC1,
+        autoC1: approvedAutoC1,
+        personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
+        deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
+        avgDeptNature: Math.round(avgDeptNature * 100) / 100,
+        activeEmployeeCount: activeApprovedEmployeeIds.length,
+        selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
+        selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
+        selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100
+      };
+    } else {
+      const existC = (existingKpi?.detailsC as any) || null;
+      if (existC) {
+        const rawC2 = existC.c2 !== undefined && existC.c2 !== null && existC.c2 !== '' ? Number(existC.c2) : (existingKpi?.c2Score ? Number(existingKpi.c2Score) : 0);
+        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+        finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
+        finalDetailsC = {
+          ...existC,
+          c1: finalC1Score,
+          c2: finalC2Score,
+          totalC: finalCScore,
+          selfAutoC1: existC.selfAutoC1 ?? selfAutoC1,
+          approvedAutoC1: existC.approvedAutoC1 ?? approvedAutoC1,
+          autoC1: existC.autoC1 ?? autoC1
+        };
+      } else if (existingKpi?.cScore !== undefined && existingKpi?.cScore !== null && existingKpi?.cScore !== '' && !isNaN(Number(existingKpi.cScore))) {
+        const rawC2 = existingKpi.c2Score ? Number(existingKpi.c2Score) : 0;
+        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+        finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
+        finalDetailsC = {
+          c1: finalC1Score,
+          c2: finalC2Score,
+          totalC: finalCScore,
+          selfAutoC1,
+          approvedAutoC1,
+          autoC1
+        };
+      } else {
+        finalC1Score = approvedAutoC1;
+        finalC2Score = 0;
+        finalCScore = Math.min(alloc.maxC || 10, approvedAutoC1);
+        finalDetailsC = {
+          c1: approvedAutoC1,
+          c2: 0,
+          totalC: finalCScore,
+          noteC2: '',
+          noteC: 'C1 tự động theo điểm tính chất bình quân phòng',
+          selfAutoC1,
+          approvedAutoC1,
+          autoC1,
+          personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
+          deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
+          avgDeptNature: Math.round(avgDeptNature * 100) / 100,
+          activeEmployeeCount: activeApprovedEmployeeIds.length,
+          selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
+          selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
+          selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100
+        };
+      }
+    }
+
+    // Determine detailsD & dScore (Always recalculate D from items, do not accept arbitrary totalOfficialD)
+    const hasD = detailsD !== undefined && detailsD !== null;
+    let finalDetailsD = existingKpi?.detailsD ?? null;
+    let finalDScore = 0;
+
+    if (hasD) {
+      const dItems = Array.isArray(detailsD.items) ? detailsD.items : [];
+      const totalOfficialD = dItems.reduce((s: number, item: any) => {
+        const val = item.officialD !== undefined && item.officialD !== null && item.officialD !== '' ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
+        return s + (isNaN(val) || !isFinite(val) ? 0 : Math.max(0, val));
+      }, 0);
+      finalDScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+      finalDetailsD = {
+        ...detailsD,
+        items: dItems,
+        totalAutoD: dItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0),
+        totalOfficialD
+      };
+    } else {
+      const existD = (existingKpi?.detailsD as any) || null;
+      if (existD && Array.isArray(existD.items)) {
+        const totalOfficialD = existD.items.reduce((s: number, item: any) => {
+          const val = item.officialD !== undefined && item.officialD !== null && item.officialD !== '' ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
+          return s + (isNaN(val) || !isFinite(val) ? 0 : Math.max(0, val));
+        }, 0);
+        finalDScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+        finalDetailsD = {
+          ...existD,
+          totalOfficialD
+        };
+      } else if (existingKpi?.dScore !== undefined && existingKpi?.dScore !== null && existingKpi?.dScore !== '' && !isNaN(Number(existingKpi.dScore))) {
+        const totalOfficialD = Math.max(0, Number(existingKpi.dScore));
+        finalDScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+      } else {
+        finalDScore = 0;
+      }
+    }
+
+    // Check if statusA, statusC, statusD are all 'Đã duyệt'
+    const statusA = (finalDetailsA as any)?.statusA;
+    const statusC = (finalDetailsC as any)?.statusC;
+    const statusD = (finalDetailsD as any)?.statusD;
+    const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
+
+    // Calculate self total and ranking
+    const explicitSelfA = (finalDetailsA as any)?.selfTotal !== null && (finalDetailsA as any)?.selfTotal !== undefined && !isNaN(Number((finalDetailsA as any).selfTotal)) ? Number((finalDetailsA as any).selfTotal) : null;
+    const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
+    const selfAutoD = Array.isArray((finalDetailsD as any)?.items) ? (finalDetailsD as any).items.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0) : 0;
+    const selfD = alloc.maxD ? Math.min(alloc.maxD, selfAutoD) : selfAutoD;
+    const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
+    const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, selfBTotal, selfC, selfD, kpiConfig.formula, alloc);
+    let selfRank = 'Chưa xếp loại';
+    if (explicitSelfA !== null) {
+      selfRank = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: selfBTotal, scoreD: selfD }).rank;
+    } else {
+      selfRank = 'Chưa tự chấm A';
+    }
+
+    // Calculate total KPI & ranking
+    let totalKpi: number | null = null;
+    let rankEval = { rank: 'Chờ duyệt' };
+
+    if (isAllApproved) {
+      if (finalAScore !== null && !isNaN(finalAScore)) {
+        totalKpi = calculateTotalKpi(finalAScore, approvedBTotal, finalCScore, finalDScore, kpiConfig.formula, alloc);
+        rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: finalAScore, scoreB: approvedBTotal, scoreD: finalDScore });
+      }
+    } else {
+      totalKpi = null;
+      rankEval = { rank: 'Chờ duyệt' };
+    }
+
+    const updateSet: any = {
+      b1Score: String(approvedB1),
+      b2Score: String(approvedB2),
+      bScore: String(approvedBTotal),
+      registeredWorks: userWorks.length,
+      approvedWorks: userApprovedWorks.length,
+      updatedAt: new Date()
+    };
+
+    if (hasA) {
+      updateSet.aScore = finalAScore !== null ? String(finalAScore) : null;
+      updateSet.detailsA = finalDetailsA;
+    }
+    if (hasC) {
+      updateSet.c1Score = String(finalC1Score);
+      updateSet.c2Score = String(finalC2Score);
+      updateSet.cScore = String(finalCScore);
+      updateSet.detailsC = finalDetailsC;
+    }
+    if (hasD) {
+      updateSet.dScore = String(finalDScore);
+      updateSet.detailsD = finalDetailsD;
+    }
+
+    if (isAllApproved) {
+      if (totalKpi !== null) {
+        updateSet.totalKpi = String(totalKpi);
+        updateSet.rank = rankEval.rank;
+      }
+    } else {
+      updateSet.totalKpi = null;
+      updateSet.rank = 'Chờ duyệt';
+    }
+
+    if (approverName || hasA || hasC || hasD) {
+      updateSet.note = `Đã cập nhật duyệt bởi ${approverName || 'Lãnh đạo'} lúc ${new Date().toLocaleString('vi-VN')}`;
+    }
 
     await db.insert(kpiResults).values({
       kpiId,
       month: targetMonth,
       userId: targetUser.id,
-      aScore: String(approvedA),
-      c1Score: String(c1Score),
-      c2Score: String(c2Score),
-      cScore: String(cScore),
-      dScore: String(dScore),
-      totalKpi: String(totalKpi),
-      rank: rankEval.rank,
-      detailsA,
-      detailsC,
-      detailsD,
+      aScore: finalAScore !== null ? String(finalAScore) : null,
+      b1Score: String(approvedB1),
+      b2Score: String(approvedB2),
+      bScore: String(approvedBTotal),
+      c1Score: String(finalC1Score),
+      c2Score: String(finalC2Score),
+      cScore: String(finalCScore),
+      dScore: String(finalDScore),
+      registeredWorks: userWorks.length,
+      approvedWorks: userApprovedWorks.length,
+      totalKpi: isAllApproved && totalKpi !== null ? String(totalKpi) : null,
+      rank: isAllApproved ? rankEval.rank : 'Chờ duyệt',
+      detailsA: finalDetailsA,
+      detailsC: finalDetailsC,
+      detailsD: finalDetailsD,
       note: `Đã duyệt bởi ${approverName || 'Lãnh đạo'} lúc ${new Date().toLocaleString('vi-VN')}`
     }).onConflictDoUpdate({
       target: kpiResults.kpiId,
-      set: {
-        aScore: String(approvedA),
-        c1Score: String(c1Score),
-        c2Score: String(c2Score),
-        cScore: String(cScore),
-        dScore: String(dScore),
-        totalKpi: String(totalKpi),
-        rank: rankEval.rank,
-        detailsA,
-        detailsC,
-        detailsD,
-        updatedAt: new Date()
-      }
+      set: updateSet
     });
 
     res.json({ 
       success: true, 
-      message: `Đã cập nhật duyệt điểm A (${approvedA}đ) / C (${cScore}đ) / D (-${dScore}đ) cho ${targetUser.name} tháng ${targetMonth}! Tổng KPI: ${totalKpi} (${rankEval.rank})`
+      message: `Đã cập nhật duyệt điểm A (${finalAScore !== null ? finalAScore : 'chờ duyệt'}đ) / C (${finalCScore}đ) / D (-${finalDScore}đ) cho ${targetUser.name} tháng ${targetMonth}! Tổng KPI: ${totalKpi !== null ? totalKpi : 'Chờ duyệt'} (${rankEval.rank})`,
+      data: {
+        kpiId,
+        month: targetMonth,
+        userId: targetUser.id,
+        userName: targetUser.name,
+        approvedA: finalAScore,
+        selfB1,
+        selfB2,
+        selfBTotal,
+        approvedB1,
+        approvedB2,
+        approvedBTotal,
+        b1Score: approvedB1,
+        b2Score: approvedB2,
+        bScore: approvedBTotal,
+        b1: approvedB1,
+        b2: approvedB2,
+        bTotal: approvedBTotal,
+        selfAutoC1,
+        approvedAutoC1,
+        autoC1: approvedAutoC1,
+        c1Score: finalC1Score,
+        c2Score: finalC2Score,
+        cScore: finalCScore,
+        dScore: finalDScore,
+        totalKpi,
+        rank: rankEval.rank,
+        selfKpiTotal,
+        selfRank,
+        approvedKpiTotal: totalKpi,
+        approvedRank: rankEval.rank,
+        registeredWorks: userWorks.length,
+        approvedWorks: userApprovedWorks.length,
+        detailsA: finalDetailsA,
+        detailsC: finalDetailsC,
+        detailsD: finalDetailsD
+      }
     });
   } catch (error) {
     console.error("Error approving A/C/D:", error);
@@ -708,10 +1143,19 @@ kpiRouter.get('/department-summary', async (req, res) => {
       return !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi');
     });
 
+    // Approved B calculations (dept level)
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-    const deptConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
-    const activeEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
-    const avgShare = activeEmployeeIds.length > 0 ? (100 / activeEmployeeIds.length) : 0;
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const deptConvertedScore = deptApprovedConvertedScore;
+    const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+    const activeEmployeeIds = activeApprovedEmployeeIds;
+    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const avgShare = avgApprovedShare;
+
+    // Self B calculations (dept level)
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
+    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
 
     const naturePointMap: Record<string, number> = {
       'Đặc biệt phức tạp': 3,
@@ -722,6 +1166,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
     };
 
     let deptNatureTotal = 0;
+    let selfDeptNatureTotal = 0;
     const natureCountMap: Record<string, number> = {
       'Đặc biệt phức tạp': 0,
       'Rất phức tạp': 0,
@@ -741,7 +1186,14 @@ kpiRouter.get('/department-summary', async (req, res) => {
       }
     });
 
-    const avgDeptNature = activeEmployeeIds.length > 0 ? (deptNatureTotal / activeEmployeeIds.length) : 0;
+    validWorksInMonth.forEach(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      selfDeptNatureTotal += pt;
+    });
+
+    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
 
     // Fetch all KPI results for this month
     const allKpiResultsInMonth = await db.query.kpiResults.findMany({
@@ -787,23 +1239,47 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const userPendingWorks = userWorks.filter(w => w.leaderApproval === 'Chưa duyệt' || !w.leaderApproval);
       const userDelayedWorks = userWorks.filter(w => w.status === 'Chậm' || w.status === 'Quá hạn');
 
-      const userConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
+      // Approved B calculations (user level)
+      const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+      const userConvertedScore = userApprovedConvertedScore;
       const userHours = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.hours || '0') || 0), 0);
-      const userShare = deptConvertedScore > 0 ? (userConvertedScore / deptConvertedScore * 100) : 0;
+      const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
+      const userShare = userApprovedShare;
 
-      // Nature points for user
-      let personalNatureTotal = 0;
+      const approvedB1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userApprovedConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+      const approvedB2 = (userApprovedWorks.length > 0 && avgApprovedShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userApprovedShare / avgApprovedShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+      const approvedBTotal = Math.round(Math.min(alloc.maxB || 60, approvedB1 + approvedB2) * 100) / 100;
+
+      // Self B calculations (user level)
+      const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+      const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
+
+      const selfB1 = userWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userSelfConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+      const selfB2 = (userWorks.length > 0 && avgSelfShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userSelfShare / avgSelfShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+      const selfBTotal = Math.round(Math.min(alloc.maxB || 60, selfB1 + selfB2) * 100) / 100;
+
+      const b1 = approvedB1;
+      const b2 = approvedB2;
+      const bTotal = approvedBTotal;
+
+      // Approved nature points for user
+      let personalApprovedNatureTotal = 0;
       userApprovedWorks.forEach(w => {
         const nat = w.approvedNature || w.proposedNature || 'Trung bình';
         const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
-        personalNatureTotal += pt;
+        personalApprovedNatureTotal += pt;
       });
+      const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(alloc.maxC1 || 6, (personalApprovedNatureTotal * (alloc.maxC1 || 6)) / avgDeptNature)) : 0;
+      const autoC1 = approvedAutoC1;
 
-      const autoC1 = avgDeptNature > 0 ? Math.round(Math.min(alloc.maxC1 || 6, (personalNatureTotal * (alloc.maxC1 || 6)) / avgDeptNature)) : 0;
-
-      const b1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
-      const b2 = (userApprovedWorks.length > 0 && avgShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userShare / avgShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
-      const bTotal = Math.round(Math.min(alloc.maxB || 60, b1 + b2) * 100) / 100;
+      // Self nature points for user (all valid works, proposedNature fallback approvedNature fallback 'Trung bình')
+      let personalSelfNatureTotal = 0;
+      userWorks.forEach(w => {
+        const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+        const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+        personalSelfNatureTotal += pt;
+      });
+      const selfAutoC1 = avgSelfDeptNature > 0 ? Math.round(Math.min(alloc.maxC1 || 6, (personalSelfNatureTotal * (alloc.maxC1 || 6)) / avgSelfDeptNature)) : 0;
 
       // KPI Record from DB if available
       const kpiRecord = kpiMapByUserId.get(u.id) || kpiMapByUserName.get(u.name);
@@ -820,7 +1296,8 @@ kpiRouter.get('/department-summary', async (req, res) => {
 
       // Score C
       const c2 = rawDetailsC?.c2 !== null && rawDetailsC?.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
-      const cTotal = Math.min(alloc.maxC || 10, autoC1 + c2);
+      const cTotal = Math.min(alloc.maxC || 10, approvedAutoC1 + c2);
+      const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
 
       // Score D
       const autoPenaltyItems: any[] = [];
@@ -866,32 +1343,41 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
       const finalDItems = [...mergedDItems, ...manualItems];
 
+      const totalAutoD = autoPenaltyItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
+      const selfD = alloc.maxD ? Math.min(alloc.maxD, totalAutoD) : totalAutoD;
+
       const totalOfficialD = finalDItems.reduce((s: number, item: any) => {
         const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
         return s + (isNaN(val) ? 0 : val);
       }, 0);
       const dTotal = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
 
-      // Self total and ranking:
-      // USER RULE: Điểm tự đánh giá = Điểm đã tự tổng hợp (B + C - D) + Điểm thực tế tự chấm A (nếu chưa tự chấm thì = 0, KHÔNG tự ý cộng 30)
+      // Self total and ranking (completely independent from leader evaluation):
+      // USER RULE: selfKpiTotal uses selfBTotal, selfC, and selfD
       const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
-      const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
+      const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, selfBTotal, selfC, selfD, kpiConfig.formula, alloc);
       
       let selfRank = 'Chưa xếp loại';
       if (explicitSelfA !== null) {
-        const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: bTotal, scoreD: dTotal });
+        const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: selfBTotal, scoreD: selfD });
         selfRank = evalSelf.rank;
       } else {
-        const evalSelf = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: 0, scoreB: bTotal, scoreD: dTotal });
-        selfRank = evalSelf.rank;
+        selfRank = 'Chưa tự chấm A';
       }
 
-      // Approved total and ranking
+      // Check all 3 statuses for leader approval
+      const statusA = (rawDetailsA as any)?.statusA;
+      const statusC = (rawDetailsC as any)?.statusC;
+      const statusD = (rawDetailsD as any)?.statusD;
+      const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
+
+      // Approved total and ranking:
+      // USER RULE: approvedKpiTotal uses approvedBTotal and requires all A, C, D to be "Đã duyệt"
       let approvedKpiTotal: number | null = null;
       let approvedRank = 'Chờ duyệt';
-      if (approvedA !== null) {
-        approvedKpiTotal = calculateTotalKpi(approvedA, bTotal, cTotal, dTotal, kpiConfig.formula, alloc);
-        const evalApproved = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dTotal });
+      if (isAllApproved && approvedA !== null) {
+        approvedKpiTotal = calculateTotalKpi(approvedA, approvedBTotal, cTotal, dTotal, kpiConfig.formula, alloc);
+        const evalApproved = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: approvedBTotal, scoreD: dTotal });
         approvedRank = evalApproved.rank;
       }
 
@@ -914,12 +1400,23 @@ kpiRouter.get('/department-summary', async (req, res) => {
           selfA: explicitSelfA,
           explicitSelfA,
           approvedA,
-          b1,
-          b2,
-          bTotal,
-          c1: autoC1,
+          selfB1,
+          selfB2,
+          selfBTotal,
+          approvedB1,
+          approvedB2,
+          approvedBTotal,
+          b1: approvedB1,
+          b2: approvedB2,
+          bTotal: approvedBTotal,
+          c1: approvedAutoC1,
+          selfAutoC1,
+          approvedAutoC1,
+          autoC1: approvedAutoC1,
+          selfC,
           c2,
           cTotal,
+          selfD,
           dTotal,
           selfKpiTotal,
           approvedKpiTotal
@@ -933,9 +1430,11 @@ kpiRouter.get('/department-summary', async (req, res) => {
           completed: userCompletedWorks.length,
           pending: userPendingWorks.length,
           delayed: userDelayedWorks.length,
-          convertedScore: Math.round(userConvertedScore * 100) / 100,
+          convertedScore: Math.round(userApprovedConvertedScore * 100) / 100,
+          selfConvertedScore: Math.round(userSelfConvertedScore * 100) / 100,
+          approvedConvertedScore: Math.round(userApprovedConvertedScore * 100) / 100,
           hours: Math.round(userHours * 10) / 10,
-          personalShare: Math.round(userShare * 10) / 10
+          personalShare: Math.round(userApprovedShare * 10) / 10
         }
       };
     });
@@ -957,13 +1456,65 @@ kpiRouter.get('/department-summary', async (req, res) => {
       }
     });
 
-    // Rank count breakdown based on self-evaluation and approved evaluation
+    // Rank count breakdown: selfRankCounts and approvedRankCounts (mutually exclusive)
+    const selfRankCounts = {
+      excellent: 0,
+      good: 0,
+      standard: 0,
+      fail: 0,
+      pending: 0
+    };
+
+    const approvedRankCounts = {
+      excellent: 0,
+      good: 0,
+      standard: 0,
+      fail: 0,
+      pending: 0,
+      leader: 0
+    };
+
+    userKpiSummaries.forEach(u => {
+      // Tự chấm: chưa tự chấm A tính vào pending, không xếp loại; mỗi nhân sự thuộc đúng 1 nhóm
+      if (u.scores.explicitSelfA === null || u.scores.selfA === null || u.selfRank === 'Chưa tự chấm A') {
+        selfRankCounts.pending += 1;
+      } else if (u.selfRank.includes('xuất sắc') || u.selfRank.includes('Xuất sắc')) {
+        selfRankCounts.excellent += 1;
+      } else if (u.selfRank.includes('tốt') || u.selfRank.includes('Tốt')) {
+        selfRankCounts.good += 1;
+      } else if (u.selfRank.includes('Không hoàn thành') || u.selfRank.includes('Không HT')) {
+        selfRankCounts.fail += 1;
+      } else if (u.selfRank === 'Hoàn thành nhiệm vụ' || u.selfRank === 'Hoàn thành' || u.selfRank.includes('Hoàn thành')) {
+        selfRankCounts.standard += 1;
+      } else {
+        selfRankCounts.pending += 1;
+      }
+
+      // Lãnh đạo: chưa duyệt A tính vào pending, không xếp loại; giữ quy định không xếp loại Phó phòng trở lên
+      if (u.isLeaderOrAbove) {
+        approvedRankCounts.leader += 1;
+      } else if (u.scores.approvedA === null || u.approvedRank === 'Chờ duyệt') {
+        approvedRankCounts.pending += 1;
+      } else if (u.approvedRank.includes('xuất sắc') || u.approvedRank.includes('Xuất sắc')) {
+        approvedRankCounts.excellent += 1;
+      } else if (u.approvedRank.includes('tốt') || u.approvedRank.includes('Tốt')) {
+        approvedRankCounts.good += 1;
+      } else if (u.approvedRank.includes('Không hoàn thành') || u.approvedRank.includes('Không HT')) {
+        approvedRankCounts.fail += 1;
+      } else if (u.approvedRank === 'Hoàn thành nhiệm vụ' || u.approvedRank === 'Hoàn thành' || u.approvedRank.includes('Hoàn thành')) {
+        approvedRankCounts.standard += 1;
+      } else {
+        approvedRankCounts.pending += 1;
+      }
+    });
+
+    // Giữ rankCounts tương thích với mã cũ
     const rankCounts = {
-      excellent: userKpiSummaries.filter(u => u.selfRank.includes('xuất sắc') || u.approvedRank.includes('xuất sắc')).length,
-      good: userKpiSummaries.filter(u => (!u.selfRank.includes('xuất sắc') && u.selfRank.includes('tốt')) || (!u.approvedRank.includes('xuất sắc') && u.approvedRank.includes('tốt'))).length,
-      standard: userKpiSummaries.filter(u => (u.selfRank === 'Hoàn thành nhiệm vụ' || u.selfRank === 'Hoàn thành') || (u.approvedRank === 'Hoàn thành nhiệm vụ' || u.approvedRank === 'Hoàn thành')).length,
-      fail: userKpiSummaries.filter(u => u.selfRank.includes('Không hoàn thành') || u.approvedRank.includes('Không hoàn thành')).length,
-      pending: userKpiSummaries.filter(u => u.scores.approvedA === null && !u.isLeaderOrAbove).length
+      excellent: approvedRankCounts.excellent,
+      good: approvedRankCounts.good,
+      standard: approvedRankCounts.standard,
+      fail: approvedRankCounts.fail,
+      pending: approvedRankCounts.pending
     };
 
     res.json({
@@ -986,7 +1537,9 @@ kpiRouter.get('/department-summary', async (req, res) => {
           deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
           avgDeptNature: Math.round(avgDeptNature * 100) / 100,
           activeEmployeesCount: activeEmployeeIds.length,
-          rankCounts
+          rankCounts,
+          selfRankCounts,
+          approvedRankCounts
         },
         taskGroupSummary: taskGroupMap,
         natureDistribution: natureCountMap,
@@ -1011,13 +1564,21 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
   const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
   const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
   
+  // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
   const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-  const deptConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
-  const userConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.convertedScore || '0') || 0), 0);
+  const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+  const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
   
-  const activeEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
-  const avgShare = activeEmployeeIds.length > 0 ? (100 / activeEmployeeIds.length) : 0;
-  const userShare = deptConvertedScore > 0 ? (userConvertedScore / deptConvertedScore * 100) : 0;
+  const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+  const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+  const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
+
+  // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
+  const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+  const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+  const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
+  const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+  const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
   const naturePointMap: Record<string, number> = {
     'Đặc biệt phức tạp': 3,
@@ -1027,6 +1588,25 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     'Đơn giản': 0
   };
 
+  // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
+  let selfPersonalNatureTotal = 0;
+  let selfDeptNatureTotal = 0;
+  validWorksInMonth.forEach(w => {
+    const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+    const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+    selfDeptNatureTotal += pt;
+    if (w.userId === targetUser.id) {
+      selfPersonalNatureTotal += pt;
+    }
+  });
+  const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+
+  const kpiConfig = await getEffectiveKpiConfig();
+  const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+  const maxC1Val = alloc.maxC1 || 6;
+  const selfAutoC1 = avgSelfDeptNature > 0 ? Math.round(Math.min(maxC1Val, (selfPersonalNatureTotal * maxC1Val) / avgSelfDeptNature)) : 0;
+
+  // Approved C1 calculations (only leaderApproval === 'Duyệt'; approvedNature -> proposedNature -> 'Trung bình')
   let personalNatureTotal = 0;
   let deptNatureTotal = 0;
 
@@ -1039,15 +1619,21 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     }
   });
 
-  const avgDeptNature = activeEmployeeIds.length > 0 ? (deptNatureTotal / activeEmployeeIds.length) : 0;
-  const autoC1 = avgDeptNature > 0 ? Math.round(Math.min(6, (personalNatureTotal * 6) / avgDeptNature)) : 0;
+  const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+  const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
+  const autoC1 = approvedAutoC1;
 
-  const kpiConfig = await getEffectiveKpiConfig();
-  const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+  const approvedB1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userApprovedConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+  const approvedB2 = (userApprovedWorks.length > 0 && avgApprovedShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userApprovedShare / avgApprovedShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+  const approvedBTotal = Math.round(Math.min(alloc.maxB || 60, approvedB1 + approvedB2) * 100) / 100;
 
-  const b1 = userApprovedWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
-  const b2 = (userApprovedWorks.length > 0 && avgShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userShare / avgShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
-  const bTotal = Math.round(Math.min(alloc.maxB || 60, b1 + b2) * 100) / 100;
+  const selfB1 = userWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userSelfConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
+  const selfB2 = (userWorks.length > 0 && avgSelfShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userSelfShare / avgSelfShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
+  const selfBTotal = Math.round(Math.min(alloc.maxB || 60, selfB1 + selfB2) * 100) / 100;
+
+  const b1 = approvedB1;
+  const b2 = approvedB2;
+  const bTotal = approvedBTotal;
 
   const kpiId = `${targetMonth}♦${targetUser.name}`;
   const existingKpi = await db.query.kpiResults.findFirst({
@@ -1061,7 +1647,8 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
 
   const rawDetailsC = (existingKpi?.detailsC as any) || {};
   const c2Score = rawDetailsC.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (existingKpi?.c2Score ? parseFloat(existingKpi.c2Score) : 0);
-  const cScore = Math.min(alloc.maxC || 10, autoC1 + c2Score);
+  const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
+  const cScore = Math.min(alloc.maxC || 10, approvedAutoC1 + c2Score);
 
   const rawDetailsD = (existingKpi?.detailsD as any) || {};
   
@@ -1119,24 +1706,44 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     totalOfficialD
   };
 
+  // Check if statusA, statusC, statusD are all 'Đã duyệt'
+  const statusA = (rawDetailsA as any)?.statusA;
+  const statusC = (rawDetailsC as any)?.statusC;
+  const statusD = (rawDetailsD as any)?.statusD;
+  const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
+
   let totalKpi: number | null = null;
-  let rankEval = { rank: 'Chưa xếp loại' };
-  if (approvedA !== null) {
-    totalKpi = calculateTotalKpi(approvedA, bTotal, cScore, dScore, kpiConfig.formula, alloc);
-    rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dScore });
+  let rankEval = { rank: 'Chờ duyệt' };
+
+  if (isAllApproved) {
+    if (approvedA !== null && !isNaN(approvedA)) {
+      totalKpi = calculateTotalKpi(approvedA, bTotal, cScore, dScore, kpiConfig.formula, alloc);
+      rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: bTotal, scoreD: dScore });
+    }
+  } else {
+    totalKpi = null;
+    rankEval = { rank: 'Chờ duyệt' };
   }
 
   const updatedDetailsC = {
     ...rawDetailsC,
-    c1: autoC1,
+    c1: approvedAutoC1,
     c2: c2Score,
     totalC: cScore,
+    selfAutoC1,
+    approvedAutoC1,
+    autoC1: approvedAutoC1,
     personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
     deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
-    activeEmployeeCount: activeEmployeeIds.length,
+    activeEmployeeCount: activeApprovedEmployeeIds.length,
     avgDeptNature: Math.round(avgDeptNature * 100) / 100,
-    autoC1
+    selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
+    selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
+    selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100
   };
+
+  const finalTotalKpiStr = isAllApproved && totalKpi !== null ? String(totalKpi) : null;
+  const finalRankStr = isAllApproved ? rankEval.rank : 'Chờ duyệt';
 
   await db.insert(kpiResults).values({
     kpiId,
@@ -1146,12 +1753,14 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     b1Score: String(b1),
     b2Score: String(b2),
     bScore: String(bTotal),
-    c1Score: String(autoC1),
+    c1Score: String(approvedAutoC1),
     c2Score: String(c2Score),
     cScore: String(cScore),
     dScore: String(dScore),
-    totalKpi: totalKpi !== null ? String(totalKpi) : null,
-    rank: rankEval.rank,
+    registeredWorks: userWorks.length,
+    approvedWorks: userApprovedWorks.length,
+    totalKpi: finalTotalKpiStr,
+    rank: finalRankStr,
     detailsA: rawDetailsA,
     detailsC: updatedDetailsC,
     detailsD: updatedDetailsD,
@@ -1163,26 +1772,54 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
       b1Score: String(b1),
       b2Score: String(b2),
       bScore: String(bTotal),
-      c1Score: String(autoC1),
+      c1Score: String(approvedAutoC1),
       c2Score: String(c2Score),
       cScore: String(cScore),
       dScore: String(dScore),
-      totalKpi: totalKpi !== null ? String(totalKpi) : null,
-      rank: rankEval.rank,
+      registeredWorks: userWorks.length,
+      approvedWorks: userApprovedWorks.length,
+      totalKpi: finalTotalKpiStr,
+      rank: finalRankStr,
       detailsC: updatedDetailsC,
       detailsD: updatedDetailsD,
       updatedAt: new Date()
     }
   });
 
+  const explicitSelfA = rawDetailsA.selfTotal !== undefined && rawDetailsA.selfTotal !== null && !isNaN(Number(rawDetailsA.selfTotal)) ? Number(rawDetailsA.selfTotal) : null;
+  const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
+  const selfAutoD = autoPenaltyItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
+  const selfD = alloc.maxD ? Math.min(alloc.maxD, selfAutoD) : selfAutoD;
+  const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, selfBTotal, selfC, selfD, kpiConfig.formula, alloc);
+  let selfRank = 'Chưa xếp loại';
+  if (explicitSelfA !== null) {
+    selfRank = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: selfBTotal, scoreD: selfD }).rank;
+  } else {
+    selfRank = 'Chưa tự chấm A';
+  }
+
   return {
     kpiId,
     totalKpi,
     rank: rankEval.rank,
+    selfKpiTotal,
+    selfRank,
+    approvedKpiTotal: totalKpi,
+    approvedRank: rankEval.rank,
     approvedA,
+    selfB1,
+    selfB2,
+    selfBTotal,
+    approvedB1,
+    approvedB2,
+    approvedBTotal,
     b1,
     b2,
     bTotal,
+    selfAutoC1,
+    approvedAutoC1,
+    autoC1: approvedAutoC1,
+    selfC,
     cScore,
     dScore
   };

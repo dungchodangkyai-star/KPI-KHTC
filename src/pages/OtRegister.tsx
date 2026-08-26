@@ -23,7 +23,7 @@ export default function OtRegister() {
 
   const [formData, setFormData] = useState({
     month: '08-2026',
-    userId: 1,
+    userId: 0,
     regDate: new Date().toISOString().split('T')[0],
     otDate: new Date().toISOString().split('T')[0],
     startTime: '17:00',
@@ -124,16 +124,31 @@ export default function OtRegister() {
         
         let successCount = 0;
         for (const row of data as any[]) {
+          const userQuery = row['Người thực hiện (ID)'] || row['Họ và tên'] || row['Nhân viên'] || row['Email'];
+          let matchedUserId = currentUser?.id || 1;
+          if (userQuery) {
+            const found = users.find(u => 
+              String(u.id) === String(userQuery) || 
+              u.name?.toLowerCase().includes(String(userQuery).toLowerCase()) ||
+              u.email?.toLowerCase() === String(userQuery).toLowerCase()
+            );
+            if (found) matchedUserId = found.id;
+          }
+          const matchedUser = users.find(u => u.id === matchedUserId) || currentUser;
+
           const payload = {
             month: row['Tháng'] || '08-2026',
-            userId: row['Người thực hiện (ID)'] || formData.userId,
-            date: row['Ngày làm thêm'],
-            startTime: row['Giờ BĐ'],
-            endTime: row['Giờ HT'],
-            content: row['Nội dung công việc'],
-            status: row['Trạng thái'] || 'Chờ duyệt'
+            userId: matchedUserId,
+            userName: matchedUser?.name,
+            userEmail: matchedUser?.email,
+            otDate: row['Ngày làm thêm'] || row['Ngày'],
+            startTime: row['Giờ BĐ'] || row['Giờ bắt đầu'] || '17:00',
+            endTime: row['Giờ HT'] || row['Giờ kết thúc'] || '20:30',
+            content: row['Nội dung công việc'] || row['Nội dung'],
+            reason: row['Lý do'] || 'Xử lý công việc cấp bách',
+            approvalStatus: row['Trạng thái'] || 'Chờ duyệt'
           };
-          if (!payload.content || !payload.date) continue;
+          if (!payload.content || !payload.otDate) continue;
           
           await fetch('/api/overtimes', {
             method: 'POST',
@@ -165,9 +180,13 @@ export default function OtRegister() {
 
     setIsSubmitting(true);
     try {
+      const targetUser = users.find(u => u.id === formData.userId) || currentUser;
       const otId = `OT-${formData.month}-${Date.now().toString().slice(-4)}`;
       const payload = {
         ...formData,
+        userId: targetUser ? targetUser.id : (currentUser?.id || formData.userId),
+        userName: targetUser ? targetUser.name : currentUser?.name,
+        userEmail: targetUser ? targetUser.email : currentUser?.email,
         otId,
         regDate: new Date(formData.regDate),
         otDate: new Date(formData.otDate)
@@ -260,15 +279,29 @@ export default function OtRegister() {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Người làm thêm <span className="text-red-500">*</span></label>
-            <div className="flex items-center gap-2.5 p-2 bg-blue-50/80 border border-blue-200 rounded-xl">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
-                {getInitials(currentUser?.name)}
+            {currentUser?.role === 'ADMIN' || currentUser?.role === 'LEADER' ? (
+              <select
+                value={formData.userId || currentUser?.id || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, userId: Number(e.target.value) }))}
+                className="w-full p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl text-sm font-bold text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78]"
+              >
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.position || 'Chuyên viên'} - {u.group || 'Phòng'})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex items-center gap-2.5 p-2 bg-blue-50/80 border border-blue-200 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#17466e] to-[#2f75b5] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-xs">
+                  {getInitials(currentUser?.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-black text-[#1F4E78] truncate">{currentUser?.name || 'Đang tải...'}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">{currentUser?.position || 'Chuyên viên'}</div>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-black text-[#1F4E78] truncate">{currentUser?.name || 'Đang tải...'}</div>
-                <div className="text-[10px] text-slate-500 font-medium">{currentUser?.position || 'Chuyên viên'}</div>
-              </div>
-            </div>
+            )}
           </div>
 
           <div>

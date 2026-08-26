@@ -581,33 +581,48 @@ export const evaluateKpiRank = (
   }
 
   const score = Number(totalScore);
-  const sortedTiers = [...rankingTiers].sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
+  const sortedTiers = [...(rankingTiers || DEFAULT_KPI_CONFIG.rankingTiers)].sort(
+    (x, y) => (x.order ?? 0) - (y.order ?? 0)
+  );
 
-  for (const tier of sortedTiers) {
+  for (let i = 0; i < sortedTiers.length; i++) {
+    const tier = sortedTiers[i];
     const min = tier.minScore !== undefined ? Number(tier.minScore) : -Infinity;
     const max = tier.maxScore !== undefined ? Number(tier.maxScore) : Infinity;
 
-    if (score >= min && score <= max + 0.001) {
-      // Check additional conditions if specified
+    if (score >= min && (i === 0 || score <= max + 0.001)) {
+      let conditionFailed = false;
       if (tier.requireNoPenalties && (extra.scoreD || 0) > 0) {
-        continue; // Fall to next lower tier
+        conditionFailed = true;
       }
       if (tier.minAScore && (extra.scoreA || 0) < tier.minAScore) {
-        continue;
+        conditionFailed = true;
       }
       if (tier.minBScore && (extra.scoreB || 0) < tier.minBScore) {
-        continue;
+        conditionFailed = true;
       }
 
-      return {
-        rank: normalizeNFC(tier.name),
-        tier,
-        badgeColor: tier.badgeColor || 'blue'
-      };
+      if (conditionFailed) {
+        // If highest tier (e.g. Xuất sắc) fails condition, drop down exactly one tier
+        if (i + 1 < sortedTiers.length) {
+          const nextTier = sortedTiers[i + 1];
+          return {
+            rank: normalizeNFC(nextTier.name),
+            tier: nextTier,
+            badgeColor: nextTier.badgeColor || 'blue'
+          };
+        }
+      } else {
+        return {
+          rank: normalizeNFC(tier.name),
+          tier,
+          badgeColor: tier.badgeColor || 'blue'
+        };
+      }
     }
   }
 
-  // Fallback to lowest tier or default
+  // Fallback to lowest tier
   const lastTier = sortedTiers[sortedTiers.length - 1];
   return {
     rank: normalizeNFC(lastTier?.name || 'Không hoàn thành nhiệm vụ'),

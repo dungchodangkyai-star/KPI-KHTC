@@ -60,6 +60,14 @@ export default function OtPrint() {
     return match ? match[0] : m;
   };
 
+  const formatOtHours = (hrs: number | string | null | undefined) => {
+    if (hrs === null || hrs === undefined || hrs === '') return '0';
+    const num = typeof hrs === 'string' ? parseFloat(hrs) : hrs;
+    if (isNaN(num)) return '0';
+    const rounded = Math.round(num * 10) / 10;
+    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
+  };
+
   const printData = overtimes.filter(o => {
     if (o.isDeleted) return false;
     if (formatMonth(o.month) !== selectedMonth) return false;
@@ -272,7 +280,7 @@ export default function OtPrint() {
         </div>
 
         <div className="text-xs font-semibold text-slate-600">
-          Tổng số lượt in: <b className="text-[#1F4E78]">{printData.length} lượt</b> ({totalRegHours}h ĐK / {totalApprovedHours}h duyệt)
+          Tổng số lượt in: <b className="text-[#1F4E78]">{printData.length} lượt</b> ({formatOtHours(totalRegHours)}h ĐK / {formatOtHours(totalApprovedHours)}h duyệt)
         </div>
       </div>
 
@@ -400,10 +408,10 @@ export default function OtPrint() {
                         {row.startTime} - {row.endTime}
                       </td>
                       <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>
-                        {regHrs}
+                        {formatOtHours(regHrs)}
                       </td>
                       <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: isApproved ? '#1F4E78' : '#000' }}>
-                        {appHrs}
+                        {isApproved ? formatOtHours(appHrs) : ''}
                       </td>
                       <td style={{ padding: '5px 6px', border: '1px solid black', textAlign: 'left' }}>
                         <div style={{ fontWeight: 'bold' }}>{normalizeNFC(row.content || '')}</div>
@@ -438,10 +446,10 @@ export default function OtPrint() {
                     </span>
                   </td>
                   <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontSize: '11pt' }}>
-                    {totalRegHours}
+                    {formatOtHours(totalRegHours)}
                   </td>
                   <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontSize: '11pt', color: '#1F4E78' }}>
-                    {totalApprovedHours}
+                    {formatOtHours(totalApprovedHours)}
                   </td>
                   <td style={{ padding: '6px 6px', border: '1px solid black', textAlign: 'left' }} colSpan={4}>
                     <span>{normalizeNFC(`Tổng số: ${totalDays} ngày làm thêm ngoài giờ (${printData.length} lượt)`)}</span>
@@ -454,8 +462,8 @@ export default function OtPrint() {
           {/* Quick Summary Text */}
           <div style={{ fontSize: '11pt', fontWeight: 'bold', margin: '14px 0', lineHeight: '1.6' }}>
             <div>{normalizeNFC(`- Tổng số ngày làm thêm: ${totalDays} ngày`)}</div>
-            <div>{normalizeNFC(`- Tổng số giờ làm thêm đăng ký: ${totalRegHours} giờ`)}</div>
-            <div>{normalizeNFC(`- Tổng số giờ làm thêm được duyệt: ${totalApprovedHours} giờ`)}</div>
+            <div>{normalizeNFC(`- Tổng số giờ làm thêm đăng ký: ${formatOtHours(totalRegHours)} giờ`)}</div>
+            <div>{normalizeNFC(`- Tổng số giờ làm thêm được duyệt: ${formatOtHours(totalApprovedHours)} giờ`)}</div>
           </div>
 
           {/* Signatures Section - 3 Columns */}
@@ -480,14 +488,12 @@ export default function OtPrint() {
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10.5pt' }}>
-                      {normalizeNFC(orgConfig.approverTitle || 'LÃNH ĐẠO PHÒNG')}
+                      {normalizeNFC(orgConfig.approverTitle || 'TRƯỞNG PHÒNG')}
                     </div>
                     <div style={{ fontStyle: 'italic', fontSize: '9.5pt', marginBottom: '60px' }}>
                       {normalizeNFC('(Ký, ghi rõ họ tên)')}
                     </div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11pt' }}>
-                      {normalizeNFC('Khuất Văn Sơn')}
-                    </div>
+                    <div style={{ fontWeight: 'bold', fontSize: '11pt' }}></div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10.5pt' }}>

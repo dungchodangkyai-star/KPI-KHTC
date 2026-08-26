@@ -52,6 +52,8 @@ export interface Work {
   coef?: string | null;
   baseScore?: string | null;
   convertedScore?: string | null;
+  selfConvertedScore?: string | null;
+  approvedConvertedScore?: string | null;
   status: string; // 'Đang xử lý' | 'Hoàn thành' | 'Chậm' | 'Không hoàn thành'
   evidence?: string | null;
   productType?: string | null;

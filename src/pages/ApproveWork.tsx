@@ -243,8 +243,12 @@ export default function ApproveWork() {
     setReviewApprovedCoef(natureCoefObj.coef);
 
     // Initial converted score
-    if (w.convertedScore && !isNaN(Number(w.convertedScore))) {
+    if (w.approvedConvertedScore && !isNaN(Number(w.approvedConvertedScore))) {
+      setReviewScore(Number(w.approvedConvertedScore));
+    } else if (w.convertedScore && !isNaN(Number(w.convertedScore))) {
       setReviewScore(Number(w.convertedScore));
+    } else if (w.selfConvertedScore && !isNaN(Number(w.selfConvertedScore))) {
+      setReviewScore(Number(w.selfConvertedScore));
     } else {
       const baseSc = Number(w.baseScore) || 10;
       const qty = Number(w.productQty) || 1;
@@ -283,6 +287,7 @@ export default function ApproveWork() {
       };
 
       if (reviewScore !== '' && !isNaN(Number(reviewScore))) {
+        payload.approvedConvertedScore = String(reviewScore);
         payload.convertedScore = String(reviewScore);
       }
 
@@ -316,12 +321,15 @@ export default function ApproveWork() {
     try {
       const promises = selectedIds.map(id => {
         const foundWork = works.find(w => w.id === id);
+        const initialApprovedScore = String(foundWork?.selfConvertedScore || foundWork?.convertedScore || '0');
         return fetch(`/api/works/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             leaderApproval: 'Duyệt',
             approvedNature: foundWork?.approvedNature || foundWork?.proposedNature || 'Trung bình',
+            approvedConvertedScore: initialApprovedScore,
+            convertedScore: initialApprovedScore,
             leaderNote: 'Lãnh đạo phòng đã phê duyệt đạt yêu cầu.'
           })
         });

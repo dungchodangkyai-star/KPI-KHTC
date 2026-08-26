@@ -56,6 +56,8 @@ export const works = pgTable('works', {
   coef: text('coef').default('0.8'),
   baseScore: text('base_score').default('10'),
   convertedScore: text('converted_score').default('8'),
+  selfConvertedScore: text('self_converted_score'),
+  approvedConvertedScore: text('approved_converted_score'),
   status: text('status').default('Đang xử lý'), // 'Đang xử lý' | 'Hoàn thành' | 'Chậm' | 'Không hoàn thành'
   evidence: text('evidence'),
   productType: text('product_type').default('Báo cáo'),

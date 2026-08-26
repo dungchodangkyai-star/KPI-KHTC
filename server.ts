@@ -1,11 +1,12 @@
 import express from "express";
+import webPushModule from "web-push";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { db } from "./src/db/index.ts";
+import { db, pool } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
-import { authRouter } from "./server/auth.ts";
-import { kpiRouter } from "./server/kpiRoutes.ts";
+import { authRouter, requireSessionAuthenticated } from "./server/auth.ts";
+import { kpiRouter, calculateAndSaveUserKpi } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
@@ -21,12 +22,160 @@ import {
   DEFAULT_ZALO_TEMPLATE 
 } from "./server/zaloService.ts";
 
+
+const webpush: any = (webPushModule as any).default || webPushModule;
+
+type PushPayload = { title: string; body: string; url: string; assignmentId?: string; tag?: string };
+
+const PUSH_SW_SOURCE = "self.addEventListener('push', function(event) {\n  var data = {};\n  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }\n  event.waitUntil(self.registration.showNotification(data.title || 'Thông báo giao việc', {\n    body: data.body || 'Bạn có nhiệm vụ mới.',\n    icon: '/push-icon.svg',\n    badge: '/push-icon.svg',\n    tag: data.tag || ('assignment-' + (data.assignmentId || Date.now())),\n    renotify: true,\n    data: { url: data.url || '/my-works', assignmentId: data.assignmentId || null }\n  }));\n});\nself.addEventListener('notificationclick', function(event) {\n  event.notification.close();\n  var target = (event.notification.data && event.notification.data.url) || '/my-works';\n  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {\n    for (var i = 0; i < list.length; i++) {\n      if ('focus' in list[i]) { list[i].navigate(target); return list[i].focus(); }\n    }\n    if (clients.openWindow) return clients.openWindow(target);\n  }));\n});";
+
+async function getVapidSettings() {
+  const existing = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+  if (existing.rows[0]) return existing.rows[0];
+  const generated = webpush.generateVAPIDKeys();
+  await pool.query(
+    `INSERT INTO push_settings (id, vapid_public_key, vapid_private_key, subject)
+     VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+    [generated.publicKey, generated.privateKey, 'mailto:admin@kpi.internal']
+  );
+  const current = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+  if (!current.rows[0]) throw new Error('Không thể khởi tạo khóa Web Push');
+  return current.rows[0];
+}
+
+async function sendPushToUser(userId: number, payload: PushPayload) {
+  try {
+    const settings = await getVapidSettings();
+    webpush.setVapidDetails(settings.subject, settings.vapid_public_key, settings.vapid_private_key);
+    const subscriptions = await pool.query(
+      'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1 AND active = TRUE',
+      [userId]
+    );
+    let sent = 0;
+    let failed = 0;
+    await Promise.all(subscriptions.rows.map(async (sub: any) => {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify(payload),
+          { TTL: 86400, urgency: 'high' }
+        );
+        sent += 1;
+        await pool.query('UPDATE push_subscriptions SET last_seen_at = NOW(), updated_at = NOW() WHERE id = $1', [sub.id]);
+      } catch (error: any) {
+        failed += 1;
+        if (error?.statusCode === 404 || error?.statusCode === 410) {
+          await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE id = $1', [sub.id]);
+        }
+        console.warn('Web Push delivery notice:', error?.message || error);
+      }
+    }));
+    console.log('[WebPush] user=' + userId + ' attempted=' + subscriptions.rows.length + ' sent=' + sent + ' failed=' + failed);
+    return { attempted: subscriptions.rows.length, sent, failed };
+  } catch (error: any) {
+    console.warn('Web Push skipped; assignment remains saved:', error?.message || error);
+    return { attempted: 0, sent: 0, failed: 1, error: error?.message || String(error) };
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  app.get('/manifest.webmanifest', (_req, res) => {
+    res.type('application/manifest+json').send({
+      name: 'Hệ thống Quản lý Công việc và Đánh giá KPI',
+      short_name: 'KPI KHTC',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#f1f5f9',
+      theme_color: '#1F4E78',
+      icons: [{ src: '/push-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }]
+    });
+  });
+
+  app.get('/push-icon.svg', (_req, res) => {
+    res.type('image/svg+xml').send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#1F4E78"/><path d="M64 22a30 30 0 0 0-30 30v19L23 87h82L94 71V52a30 30 0 0 0-30-30Zm0 88a16 16 0 0 0 15-11H49a16 16 0 0 0 15 11Z" fill="white"/></svg>');
+  });
+
+  app.get('/push-sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.type('application/javascript').send(PUSH_SW_SOURCE);
+  });
+
+  app.get('/api/push/public-key', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const settings = await getVapidSettings();
+      const userId = (req as any).authUser.id;
+      const status = await pool.query('SELECT COUNT(*)::int AS count FROM push_subscriptions WHERE user_id = $1 AND active = TRUE', [userId]);
+      res.json({ success: true, publicKey: settings.vapid_public_key, subscribed: Number(status.rows[0]?.count || 0) > 0 });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/push/subscribe', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).authUser.id;
+      const { endpoint, keys, deviceLabel } = req.body || {};
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ success: false, message: 'Thông tin đăng ký thiết bị không hợp lệ.' });
+      }
+      await pool.query(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_label, active, last_seen_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
+         ON CONFLICT (endpoint) DO UPDATE SET
+           user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth,
+           device_label = EXCLUDED.device_label, active = TRUE, last_seen_at = NOW(), updated_at = NOW()`,
+        [userId, String(endpoint), String(keys.p256dh), String(keys.auth), String(deviceLabel || req.headers['user-agent'] || 'Thiết bị')]
+      );
+      res.json({ success: true, message: 'Đã bật thông báo giao việc trên thiết bị này.' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/push/test', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).authUser;
+      const delivery = await sendPushToUser(Number(user.id), {
+        title: 'Kiểm tra thông báo giao việc',
+        body: 'Thiết bị này đã nhận Web Push thành công.',
+        url: '/my-works',
+        tag: 'push-test-' + user.id + '-' + Date.now()
+      });
+      res.json({
+        success: delivery.sent > 0,
+        delivery,
+        message: delivery.sent > 0
+          ? 'Đã gửi thử thành công tới ' + delivery.sent + '/' + delivery.attempted + ' thiết bị.'
+          : delivery.attempted === 0
+            ? 'Tài khoản chưa có thiết bị đăng ký nhận thông báo.'
+            : 'Máy chủ đã thử gửi nhưng thiết bị từ chối hoặc endpoint đã hết hạn.'
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.delete('/api/push/unsubscribe', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).authUser.id;
+      const endpoint = String(req.body?.endpoint || '');
+      if (endpoint) {
+        await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE user_id = $1 AND endpoint = $2', [userId, endpoint]);
+      } else {
+        await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE user_id = $1', [userId]);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
 
   // Migrate schema and seed data on startup
   setTimeout(async () => {
@@ -127,10 +276,23 @@ async function startServer() {
   app.post("/api/works", async (req, res) => {
     try {
       const p = req.body;
-      const user = await db.query.users.findFirst({
-        where: (u, { eq, or }) => or(eq(u.id, p.userId || 1), eq(u.name, p.userName || "Khuất Văn Sơn")),
-      });
-      const userId = user ? user.id : 1;
+      let user = null;
+      if (p.userId) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(p.userId)),
+        });
+      }
+      if (!user && p.userEmail) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.email, String(p.userEmail)),
+        });
+      }
+      if (!user && p.userName) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(p.userName)),
+        });
+      }
+      const userId = user ? user.id : (p.userId ? Number(p.userId) : 1);
 
       const newWork = await db.insert(works).values({
         workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -151,7 +313,9 @@ async function startServer() {
         approvedNature: p.approvedNature || "",
         coef: String(p.coef || "0.8"),
         baseScore: String(p.baseScore || p.score || "10"),
-        convertedScore: String(p.convertedScore || "8"),
+        convertedScore: String(p.convertedScore || p.selfConvertedScore || "8"),
+        selfConvertedScore: String(p.selfConvertedScore || p.convertedScore || "8"),
+        approvedConvertedScore: p.approvedConvertedScore ? String(p.approvedConvertedScore) : (p.leaderApproval === 'Duyệt' ? String(p.convertedScore || p.selfConvertedScore || "8") : null),
         status: p.status || "Đang xử lý",
         evidence: p.evidence || "",
         productType: p.productType || "Báo cáo",
@@ -203,7 +367,27 @@ async function startServer() {
       if (p.approvedNature !== undefined) updateData.approvedNature = p.approvedNature;
       if (p.coef !== undefined) updateData.coef = String(p.coef);
       if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
-      if (p.convertedScore !== undefined) updateData.convertedScore = String(p.convertedScore);
+
+      if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null) {
+        // Chỉ xử lý nhánh điểm duyệt khi approvedConvertedScore khác undefined và khác null
+        updateData.approvedConvertedScore = String(p.approvedConvertedScore);
+        updateData.convertedScore = String(p.approvedConvertedScore);
+      } else if (p.convertedScore !== undefined) {
+        // Nếu approvedConvertedScore là null hoặc undefined và có convertedScore: cập nhật selfConvertedScore và convertedScore
+        updateData.convertedScore = String(p.convertedScore);
+        updateData.selfConvertedScore = String(p.convertedScore);
+        if (p.approvedConvertedScore === null) {
+          updateData.approvedConvertedScore = null;
+        }
+      } else {
+        if (p.selfConvertedScore !== undefined) {
+          updateData.selfConvertedScore = p.selfConvertedScore !== null ? String(p.selfConvertedScore) : null;
+        }
+        if (p.approvedConvertedScore === null) {
+          updateData.approvedConvertedScore = null;
+        }
+      }
+
       if (p.leaderApproval !== undefined) updateData.leaderApproval = p.leaderApproval;
       if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
       if (p.approverId !== undefined) updateData.approverId = p.approverId ? parseInt(p.approverId) : null;
@@ -216,7 +400,42 @@ async function startServer() {
       if (p.sysNote !== undefined) updateData.sysNote = p.sysNote;
 
       const updated = await db.update(works).set(updateData).where(eq(works.id, id)).returning();
-      res.json({ success: true, data: updated[0], message: "Đã cập nhật công việc thành công!" });
+      const updatedWork = updated[0];
+
+      // Tự động tính lại KPI đúng nhân viên và tháng của công việc khi dữ liệu duyệt hoặc điểm quy đổi thay đổi
+      if (updatedWork && updatedWork.userId) {
+        const isRelevantChange = 
+          p.leaderApproval !== undefined ||
+          p.approvedConvertedScore !== undefined ||
+          p.convertedScore !== undefined ||
+          p.selfConvertedScore !== undefined ||
+          p.approvedNature !== undefined ||
+          p.proposedNature !== undefined ||
+          p.coef !== undefined ||
+          p.baseScore !== undefined ||
+          p.hours !== undefined ||
+          p.days !== undefined ||
+          p.status !== undefined ||
+          p.dataStatus !== undefined ||
+          p.month !== undefined ||
+          p.userId !== undefined;
+
+        if (isRelevantChange) {
+          const targetUser = await db.query.users.findFirst({
+            where: eq(users.id, updatedWork.userId)
+          });
+          if (targetUser) {
+            try {
+              const targetMonth = updatedWork.month || "08-2026";
+              await calculateAndSaveUserKpi(targetUser, targetMonth);
+            } catch (kpiErr) {
+              console.error("Error auto recalculating KPI for user after work update:", kpiErr);
+            }
+          }
+        }
+      }
+
+      res.json({ success: true, data: updatedWork, message: "Đã cập nhật công việc thành công!" });
     } catch (error) {
       console.error("Error updating work:", error);
       res.status(500).json({ error: String(error) });
@@ -396,27 +615,54 @@ async function startServer() {
   app.post("/api/assignments", async (req, res) => {
     try {
       const p = req.body;
-      const assigner = await db.query.users.findFirst({
-        where: (u, { eq, or }) => or(eq(u.id, p.assignerId || 0), eq(u.name, p.assignerName || "Khuất Văn Sơn")),
-      });
-      const assignerId = assigner ? assigner.id : 1;
+      let assigner = null;
+      if (p.assignerId) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(p.assignerId)),
+        });
+      }
+      if (!assigner && p.assignerEmail) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.email, String(p.assignerEmail)),
+        });
+      }
+      if (!assigner && p.assignerName) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(p.assignerName)),
+        });
+      }
+      const assignerId = assigner ? assigner.id : (p.assignerId ? Number(p.assignerId) : 1);
       const assignerName = assigner ? assigner.name : (p.assignerName || "Lãnh đạo Phòng");
 
       // Check if multi-receiver payload is provided
-      const receiversList: Array<{ userId: number; userName?: string; userPhone?: string; role?: string; coef?: number }> = 
+      const receiversList: Array<{ userId: number; userName?: string; userEmail?: string; userPhone?: string; role?: string; coef?: number }> = 
         (Array.isArray(p.receivers) && p.receivers.length > 0)
           ? p.receivers
-          : [{ userId: p.receiverId || 1, userName: p.receiverName, userPhone: p.receiverPhone, role: p.role || "Chủ trì", coef: Number(p.suggestedCoef || 0.8) }];
+          : [{ userId: p.receiverId || 1, userName: p.receiverName, userEmail: p.receiverEmail, userPhone: p.receiverPhone, role: p.role || "Chủ trì", coef: Number(p.suggestedCoef || 0.8) }];
 
       const createdAssignments: any[] = [];
       const zaloResults: any[] = [];
+      const pushResults: any[] = [];
 
       for (const rec of receiversList) {
-        const receiverUser = await db.query.users.findFirst({
-          where: (u, { eq, or }) => or(eq(u.id, rec.userId), eq(u.name, rec.userName || "")),
-        });
+        let receiverUser = null;
+        if (rec.userId) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.id, Number(rec.userId)),
+          });
+        }
+        if (!receiverUser && rec.userEmail) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.email, String(rec.userEmail)),
+          });
+        }
+        if (!receiverUser && rec.userName) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.name, String(rec.userName)),
+          });
+        }
 
-        const effectiveReceiverId = receiverUser ? receiverUser.id : (rec.userId || 1);
+        const effectiveReceiverId = receiverUser ? receiverUser.id : (rec.userId ? Number(rec.userId) : 1);
         const effectiveReceiverName = receiverUser ? receiverUser.name : (rec.userName || "Cán bộ");
         const effectiveReceiverPhone = receiverUser ? receiverUser.phone : rec.userPhone;
 
@@ -425,7 +671,8 @@ async function startServer() {
         const baseScore = String(p.baseScore || p.score || "10");
         const expectedConvertedScore = String(Math.round(Number(baseScore) * Number(coef) * Number(p.productQty || 1) * 10) / 10);
 
-        const newAssignment = await db.insert(assignments).values({
+        const newAssignment = await db.transaction(async (tx) => {
+          const inserted = await tx.insert(assignments).values({
           assignmentId: `A8-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           month: p.month || "08-2026",
           assignerId: assignerId,
@@ -447,21 +694,33 @@ async function startServer() {
           priority: p.priority || "Bình thường",
           receiveStatus: "Chờ nhận việc",
           leaderNote: `${role === "Phối hợp" ? "[Phối hợp] " : ""}${p.note || p.leaderNote || ""}`.trim(),
-        }).returning();
+          }).returning();
 
-        createdAssignments.push(newAssignment[0]);
-
-        // Push internal notification
-        await db.insert(notifications).values({
+          // Assignment and internal notification are committed atomically.
+          await tx.insert(notifications).values({
           notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           senderId: assignerId,
           receiverId: effectiveReceiverId,
           type: "Giao việc",
           title: `Lãnh đạo giao nhiệm vụ (${role}): ${p.taskName || p.task || ""}`,
           content: `[${p.taskCode || "NV"}] ${p.taskName || p.task || ""} - Vai trò: ${role} - Hạn chót: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
-          relatedTarget: newAssignment[0].assignmentId,
+          relatedTarget: inserted[0].assignmentId,
           status: "Chưa xem",
-        }).onConflictDoNothing();
+          }).onConflictDoNothing();
+          return inserted;
+        });
+
+        createdAssignments.push(newAssignment[0]);
+
+        // External notification runs only after the database transaction commits.
+        const pushResult = await sendPushToUser(effectiveReceiverId, {
+          title: `Nhiệm vụ mới: ${p.taskName || p.task || ""}`,
+          body: `[${p.taskCode || "NV"}] Vai trò: ${role}. Hạn: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
+          url: `/my-works?assignmentId=${encodeURIComponent(newAssignment[0].assignmentId)}`,
+          assignmentId: newAssignment[0].assignmentId,
+          tag: `assignment-${newAssignment[0].assignmentId}`
+        });
+        pushResults.push({ receiverId: effectiveReceiverId, ...pushResult });
 
         // If Flow 2 (Auto Send Zalo requested)
         if (p.sendZalo || p.flow === 'zalo' || p.sendZaloDirect) {
@@ -488,6 +747,7 @@ async function startServer() {
         data: createdAssignments[0], 
         all: createdAssignments, 
         zaloResults,
+        pushResults,
         message: `Đã giao việc thành công cho ${createdAssignments.length} nhân sự!` 
       });
     } catch (error) {
@@ -751,10 +1011,23 @@ async function startServer() {
   app.post("/api/overtimes", async (req, res) => {
     try {
       const p = req.body;
-      const user = await db.query.users.findFirst({
-        where: (u, { eq, or }) => or(eq(u.id, p.userId || 0), eq(u.name, p.userName || "Khuất Văn Sơn")),
-      });
-      const userId = user ? user.id : 1;
+      let user = null;
+      if (p.userId) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(p.userId)),
+        });
+      }
+      if (!user && p.userEmail) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.email, String(p.userEmail)),
+        });
+      }
+      if (!user && p.userName) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(p.userName)),
+        });
+      }
+      const userId = user ? user.id : (p.userId ? Number(p.userId) : 1);
 
       const newOt = await db.insert(overtimes).values({
         otId: p.otId || `OT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -763,14 +1036,16 @@ async function startServer() {
         otDate: new Date(p.otDate || new Date()),
         startTime: p.startTime || "17:00",
         endTime: p.endTime || "20:30",
-        breakMinutes: parseInt(p.breakMinutes || "0"),
+        breakMinutes: parseInt(p.breakMinutes || "0") || 0,
         totalRegHours: String(p.totalRegHours || "3.5"),
         content: p.content || "",
         reason: p.reason || "",
         project: p.project || "",
         expectedResult: p.expectedResult || "",
+        actualResult: p.actualResult || "",
+        evidence: p.evidence || "",
         employeeNote: p.note || p.employeeNote || "",
-        approvalStatus: "Chờ duyệt",
+        approvalStatus: p.approvalStatus || "Chờ duyệt",
       }).returning();
 
       // Notify leaders about new overtime registration
@@ -911,20 +1186,38 @@ async function startServer() {
       const updateData: any = { updatedAt: new Date() };
 
       if (p.approvalStatus !== undefined) updateData.approvalStatus = p.approvalStatus;
-      if (p.approvedHours !== undefined) updateData.approvedHours = String(p.approvedHours);
+      if (p.approvedHours !== undefined) {
+        updateData.approvedHours = (p.approvedHours !== null && p.approvedHours !== undefined && p.approvedHours !== '' && p.approvedHours !== 'null')
+          ? String(p.approvedHours)
+          : null;
+      }
       if (p.approverNote !== undefined) updateData.approverNote = p.approverNote;
-      if (p.approverId !== undefined) updateData.approverId = p.approverId ? parseInt(p.approverId) : null;
-      if (p.approvalDate !== undefined) updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+      if (p.approverId !== undefined) {
+        updateData.approverId = (p.approverId && !isNaN(parseInt(p.approverId))) ? parseInt(p.approverId) : null;
+      }
+      if (p.approvalDate !== undefined) {
+        updateData.approvalDate = (p.approvalDate && p.approvalDate !== 'null' && p.approvalDate !== '') ? new Date(p.approvalDate) : null;
+      }
       if (p.actualResult !== undefined) updateData.actualResult = p.actualResult;
       if (p.evidence !== undefined) updateData.evidence = p.evidence;
       if (p.employeeNote !== undefined) updateData.employeeNote = p.employeeNote;
       if (p.allowEdit !== undefined) updateData.allowEdit = !!p.allowEdit;
       if (p.content !== undefined) updateData.content = p.content;
       if (p.reason !== undefined) updateData.reason = p.reason;
+      if (p.project !== undefined) updateData.project = p.project;
+      if (p.expectedResult !== undefined) updateData.expectedResult = p.expectedResult;
       if (p.startTime !== undefined) updateData.startTime = p.startTime;
       if (p.endTime !== undefined) updateData.endTime = p.endTime;
-      if (p.totalRegHours !== undefined) updateData.totalRegHours = String(p.totalRegHours);
+      if (p.breakMinutes !== undefined) {
+        updateData.breakMinutes = (p.breakMinutes !== null && p.breakMinutes !== undefined) ? (parseInt(p.breakMinutes) || 0) : 0;
+      }
+      if (p.totalRegHours !== undefined) {
+        updateData.totalRegHours = (p.totalRegHours !== null && p.totalRegHours !== undefined && p.totalRegHours !== '') ? String(p.totalRegHours) : '3.5';
+      }
       if (p.month !== undefined) updateData.month = p.month;
+      if (p.otDate !== undefined && p.otDate) {
+        updateData.otDate = new Date(p.otDate);
+      }
 
       const updated = await db.update(overtimes).set(updateData).where(eq(overtimes.id, id)).returning();
       res.json({ success: true, data: updated[0], message: "Đã cập nhật đăng ký làm thêm!" });
@@ -1016,9 +1309,10 @@ async function startServer() {
   });
 
   // 6. Notifications APIs
-  app.get("/api/notifications", async (req, res) => {
+  app.get("/api/notifications", requireSessionAuthenticated, async (req, res) => {
     try {
       const all = await db.query.notifications.findMany({
+        where: (n, { eq }) => eq(n.receiverId, Number((req as any).authUser.id)),
         with: { sender: true, receiver: true },
         orderBy: (n, { desc }) => [desc(n.createdAt)],
       });

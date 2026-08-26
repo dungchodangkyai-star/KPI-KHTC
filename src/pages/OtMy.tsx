@@ -74,6 +74,14 @@ export default function OtMy() {
     return true;
   });
 
+  const formatOtHours = (hrs: number | string | null | undefined) => {
+    if (hrs === null || hrs === undefined || hrs === '') return '0';
+    const num = typeof hrs === 'string' ? parseFloat(hrs) : hrs;
+    if (isNaN(num)) return '0';
+    const rounded = Math.round(num * 10) / 10;
+    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
+  };
+
   const totalHours = filteredOvertimes.reduce((sum, o) => sum + (parseFloat(o.approvedHours || o.totalRegHours || '0') || 0), 0);
   const approvedCount = filteredOvertimes.filter(o => o.approvalStatus === 'Đã duyệt').length;
   const pendingCount = filteredOvertimes.filter(o => o.approvalStatus === 'Chờ duyệt').length;
@@ -82,7 +90,15 @@ export default function OtMy() {
     if (!editingOt) return;
     setIsUpdating(true);
     try {
-      const payload = { ...editingOt };
+      const payload: any = {
+        actualResult: editingOt.actualResult || '',
+        evidence: editingOt.evidence || '',
+        employeeNote: editingOt.employeeNote || '',
+        content: editingOt.content || '',
+        reason: editingOt.reason || '',
+        project: editingOt.project || '',
+      };
+
       if (editingOt.allowEdit || editingOt.approvalStatus === 'Cho phép sửa' || editingOt.approvalStatus === 'Yêu cầu bổ sung') {
         payload.approvalStatus = 'Chờ duyệt';
         payload.allowEdit = false;
@@ -95,7 +111,7 @@ export default function OtMy() {
       });
       const data = await res.json();
       if (data.success) {
-        setOvertimes(overtimes.map(o => o.id === editingOt.id ? { ...o, ...payload } : o));
+        setOvertimes(overtimes.map(o => o.id === editingOt.id ? { ...o, ...payload, ...(data.data || {}) } : o));
         setEditingOt(null);
       } else {
         alert("Lỗi khi lưu: " + (data.error || "Không xác định"));
@@ -163,7 +179,7 @@ export default function OtMy() {
         </div>
         <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
           <span className="text-xs font-bold text-slate-500 uppercase">Tổng thời gian (giờ)</span>
-          <div className="text-2xl font-black text-amber-600 mt-1">{totalHours} giờ</div>
+          <div className="text-2xl font-black text-amber-600 mt-1">{formatOtHours(totalHours)} giờ</div>
         </div>
         <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
           <span className="text-xs font-bold text-slate-500 uppercase">Trạng thái duyệt</span>
@@ -252,7 +268,7 @@ export default function OtMy() {
                     {o.startTime} - {o.endTime}
                   </td>
                   <td className="py-3 px-3 text-center font-black text-amber-800">
-                    {o.approvedHours || o.totalRegHours} h
+                    {formatOtHours(o.approvedHours || o.totalRegHours)} h
                   </td>
                   <td className="py-3 px-3">
                     <div className="font-bold text-slate-900">{o.content}</div>

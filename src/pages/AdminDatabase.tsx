@@ -201,7 +201,14 @@ export default function AdminDatabase() {
 
       const jsonConfig = await resConfig.json().catch(() => ({}));
       if (jsonConfig.success && jsonConfig.data) {
-        setBackupConfig(prev => ({ ...prev, ...jsonConfig.data }));
+        setBackupConfig(prev => ({
+          ...prev,
+          ...jsonConfig.data,
+          offsite: {
+            ...prev.offsite,
+            ...(jsonConfig.data.offsite || {})
+          }
+        }));
       }
     } catch (err) {
       console.error('Error fetching backup data:', err);
@@ -412,7 +419,14 @@ export default function AdminDatabase() {
       if (json.success) {
         setNotice({ type: 'success', text: 'Đã lưu cài đặt Lịch trình sao lưu & Đám mây Ngoại vi thành công!' });
         if (json.data) {
-          setBackupConfig(prev => ({ ...prev, ...json.data }));
+          setBackupConfig(prev => ({
+            ...prev,
+            ...json.data,
+            offsite: {
+              ...prev.offsite,
+              ...(json.data.offsite || {})
+            }
+          }));
         }
         await fetchBackupData();
       } else {
@@ -1142,14 +1156,20 @@ services:
                   </div>
 
                   {/* Toggle Switch */}
-                  <label className="relative inline-flex items-center cursor-pointer">
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={backupConfig.offsite?.enabled}
-                      onChange={(e) => setBackupConfig(prev => ({ 
-                        ...prev, 
-                        offsite: { ...prev.offsite, enabled: e.target.checked } 
-                      }))}
+                      checked={Boolean(backupConfig.offsite?.enabled)}
+                      onChange={(e) => {
+                        const isChecked = e.target.checked;
+                        setBackupConfig(prev => ({ 
+                          ...prev, 
+                          offsite: { 
+                            ...(prev.offsite || {}), 
+                            enabled: isChecked 
+                          } 
+                        }));
+                      }}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>

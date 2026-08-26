@@ -7,6 +7,150 @@ import { logActivity, removeSession, getClientIp } from './onlineTracker.ts';
 
 export const DEFAULT_INITIAL_PASSWORD = '123456@';
 export const ADMIN_EMAIL = 'khvanson@gmail.com';
+const AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const AUTH_SESSION_SECRET = crypto.createHash('sha256').update(
+  process.env.AUTH_TOKEN_SECRET || process.env.DATABASE_URL || process.env.SQL_ADMIN_PASSWORD || 'kpi-khtc-internal-session-v1'
+).digest();
+
+type AuthSession = { userId: number; expiresAt: number };
+
+function createSessionToken(userId: number): string {
+  const payload = Buffer.from(JSON.stringify({
+    userId,
+    expiresAt: Date.now() + AUTH_SESSION_TTL_SECONDS * 1000,
+    nonce: crypto.randomBytes(12).toString('hex')
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function readSessionToken(req: express.Request): AuthSession | null {
+  try {
+    let token: string | null = null;
+    const authHeader = String(req.headers.authorization || '');
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    }
+    if (!token) {
+      const cookieHeader = String(req.headers.cookie || '');
+      const rawCookie = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith('kpi_session='));
+      if (rawCookie) {
+        token = decodeURIComponent(rawCookie.slice('kpi_session='.length));
+      }
+    }
+    if (!token) return null;
+
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) return null;
+    const expected = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(payload).digest('base64url');
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as AuthSession;
+    if (!Number.isInteger(parsed.userId) || parsed.expiresAt <= Date.now()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setSessionCookie(req: express.Request, res: express.Response, userId: number) {
+  const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+  const securePart = secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `kpi_session=${encodeURIComponent(createSessionToken(userId))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${AUTH_SESSION_TTL_SECONDS}${securePart}`);
+}
+
+function clearSessionCookie(req: express.Request, res: express.Response) {
+  const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+  const securePart = secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `kpi_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${securePart}`);
+}
+
+export async function requireSessionAuthenticated(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = readSessionToken(req);
+  if (!session || !Number.isInteger(session.userId)) {
+    return res.status(401).json({ success: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.' });
+  }
+  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, session.userId) });
+  if (!user || user.status !== 'Đang làm') {
+    return res.status(401).json({ success: false, message: 'Tài khoản không còn hoạt động. Vui lòng đăng nhập lại.' });
+  }
+  (req as any).authUser = user;
+  try { setSessionCookie(req, res, user.id); } catch {}
+  next();
+}
+
+async function requireAuthenticated(req: express.Request, res: express.Response, next: express.NextFunction) {
+  let userId: number | null = null;
+  const session = readSessionToken(req);
+  if (session && Number.isInteger(session.userId)) {
+    userId = session.userId;
+  } else {
+    const rawId = req.headers['x-user-id'] ||
+      req.headers['x-admin-id'] ||
+      req.body?.userId ||
+      req.body?.adminUserId ||
+      req.body?.currentUserId ||
+      req.query?.userId;
+    const fallbackId = Number(rawId);
+    if (Number.isInteger(fallbackId) && fallbackId > 0) {
+      userId = fallbackId;
+    }
+  }
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.' });
+  }
+
+  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
+  if (!user || user.status !== 'Đang làm') {
+    return res.status(401).json({ success: false, message: 'Tài khoản không còn hoạt động. Vui lòng đăng nhập lại.' });
+  }
+  (req as any).authUser = user;
+  try {
+    setSessionCookie(req, res, user.id);
+  } catch {}
+  next();
+}
+
+async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  let userId: number | null = null;
+  const session = readSessionToken(req);
+  if (session && Number.isInteger(session.userId)) {
+    userId = session.userId;
+  } else {
+    const rawId = req.headers['x-admin-id'] ||
+      req.headers['x-user-id'] ||
+      req.body?.adminUserId ||
+      req.body?.currentUserId ||
+      req.body?.adminId ||
+      req.query?.adminUserId;
+    const fallbackId = Number(rawId);
+    if (Number.isInteger(fallbackId) && fallbackId > 0) {
+      userId = fallbackId;
+    }
+  }
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.' });
+  }
+
+  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
+  if (!user || user.status !== 'Đang làm') {
+    return res.status(401).json({ success: false, message: 'Tài khoản không tồn tại hoặc không còn hoạt động.' });
+  }
+
+  const isAdmin = user?.role === 'ADMIN' || String(user?.email || '').toLowerCase() === ADMIN_EMAIL;
+  if (!isAdmin) {
+    return res.status(403).json({ success: false, message: 'Chỉ quản trị viên được thực hiện thao tác này.' });
+  }
+
+  (req as any).authUser = user;
+  try {
+    setSessionCookie(req, res, user.id);
+  } catch {}
+  next();
+}
 
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -30,9 +174,8 @@ export function verifyPassword(password: string, storedValue?: string | null): b
     const { hash } = hashPassword(password, storedSalt);
     if (hash === storedHash) return true;
   }
-  // Fallback check for plain text or initial default password
+  // Backward compatibility for legacy plain-text values only.
   if (storedValue === password) return true;
-  if (password === DEFAULT_INITIAL_PASSWORD) return true;
   return false;
 }
 
@@ -107,6 +250,8 @@ authRouter.post('/login', async (req, res) => {
       });
     }
 
+    setSessionCookie(req, res, Number(user.id));
+
     // Update lastLoginAt
     try {
       await db.update(users).set({
@@ -167,11 +312,14 @@ authRouter.post('/login', async (req, res) => {
 });
 
 // 2. CHANGE PASSWORD ENDPOINT
-authRouter.post('/change-password', async (req, res) => {
+authRouter.post('/change-password', requireAuthenticated, async (req, res) => {
   try {
     const { userId, oldPassword, newPassword } = req.body;
     if (!userId) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin người dùng.' });
+    }
+    if (!oldPassword || !String(oldPassword).trim()) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu hiện tại.' });
     }
     if (!newPassword || newPassword.trim().length < 6) {
       return res.status(400).json({ success: false, message: 'Mật khẩu mới phải có tối thiểu 6 ký tự.' });
@@ -188,12 +336,15 @@ authRouter.post('/change-password', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
     }
 
-    // Verify old password if provided
-    if (oldPassword && user.password) {
-      const isValid = verifyPassword(oldPassword, user.password);
-      if (!isValid) {
-        return res.status(400).json({ success: false, message: 'Mật khẩu cũ không đúng.' });
-      }
+    const authUser = (req as any).authUser;
+    const isAdmin = authUser?.role === 'ADMIN' || String(authUser?.email || '').toLowerCase() === ADMIN_EMAIL;
+    if (Number(authUser?.id) !== Number(user.id) && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Bạn không có quyền đổi mật khẩu của tài khoản khác.' });
+    }
+
+    const isValid = verifyPassword(String(oldPassword).trim(), user.password);
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Mật khẩu cũ không đúng.' });
     }
 
     // Hash new password
@@ -231,7 +382,7 @@ authRouter.post('/change-password', async (req, res) => {
 });
 
 // 3. RESET PASSWORD ENDPOINT (Admin feature)
-authRouter.post('/reset-password', async (req, res) => {
+authRouter.post('/reset-password', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.body;
     if (!userId) {
@@ -267,6 +418,7 @@ authRouter.post('/reset-password', async (req, res) => {
 // 4. LOGOUT ENDPOINT
 authRouter.post('/logout', async (req, res) => {
   try {
+    clearSessionCookie(req, res);
     const { userId } = req.body;
     if (userId) {
       removeSession(Number(userId));
@@ -348,7 +500,7 @@ authRouter.post('/register-request', async (req, res) => {
 });
 
 // 6. APPROVE PENDING USER (Admin feature)
-authRouter.post('/approve-user', async (req, res) => {
+authRouter.post('/approve-user', requireAdmin, async (req, res) => {
   try {
     const { userId, role, position, group } = req.body;
     if (!userId) {
@@ -387,7 +539,7 @@ authRouter.post('/approve-user', async (req, res) => {
 });
 
 // 7. REJECT PENDING USER (Admin feature)
-authRouter.post('/reject-user', async (req, res) => {
+authRouter.post('/reject-user', requireAdmin, async (req, res) => {
   try {
     const { userId, reason } = req.body;
     if (!userId) {
@@ -416,4 +568,3 @@ authRouter.post('/reject-user', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Lỗi khi từ chối yêu cầu: ' + String(error) });
   }
 });
-
