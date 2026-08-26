@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [overtimes, setOvertimes] = useState<any[]>([]);
   const [deptKpiUsers, setDeptKpiUsers] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [kpiRankMode, setKpiRankMode] = useState<'APPROVED' | 'SELF'>('APPROVED');
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = async (targetMonth = selectedMonth) => {
@@ -57,43 +58,84 @@ export default function Dashboard() {
 
   // Compute live KPI leaderboard from department summary
   const scopedKpis = useMemo(() => {
-    return deptKpiUsers
-      .map(u => {
-        const approvedScore = u.scores?.approvedKpiTotal !== null && u.scores?.approvedKpiTotal !== undefined 
-          ? Number(u.scores.approvedKpiTotal) 
-          : null;
-        const selfScore = u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined 
-          ? Number(u.scores.selfKpiTotal) 
-          : 0;
-        
-        // Priority: approved score > self score
-        const effectiveScore = approvedScore !== null ? approvedScore : selfScore;
-        const effectiveRank = approvedScore !== null 
-          ? (u.approvedRank || u.selfRank || 'Chưa xếp loại')
-          : (u.selfRank || 'Tự đánh giá');
+    if (kpiRankMode === 'SELF') {
+      // 1. TỰ CHẤM:
+      // - Chỉ xếp theo selfKpiTotal và hiển thị selfRank
+      // - Chưa tự chấm A ghi 'Tạm tính'
+      return deptKpiUsers
+        .map(u => {
+          const selfScore = u.scores?.selfKpiTotal !== null && u.scores?.selfKpiTotal !== undefined 
+            ? Number(u.scores.selfKpiTotal) 
+            : 0;
+          const hasSelfA = u.scores?.selfA !== null && u.scores?.selfA !== undefined;
+          
+          let rank = 'Chưa xếp loại';
+          let scoreSource = 'Tự chấm';
 
-        return {
-          id: u.id,
-          name: u.name,
-          position: u.position,
-          effectiveScore,
-          approvedScore,
-          selfScore,
-          rank: effectiveRank,
-          isApproved: approvedScore !== null,
-          approvedWorksCount: u.taskCounts?.approved || 0,
-          totalWorksCount: u.taskCounts?.total || 0,
-          isLeaderOrAbove: u.isLeaderOrAbove
-        };
-      })
-      .filter(u => u.effectiveScore > 0 || u.approvedWorksCount > 0)
-      .sort((a, b) => {
-        if (b.effectiveScore !== a.effectiveScore) {
-          return b.effectiveScore - a.effectiveScore; // Highest score first
-        }
-        return b.approvedWorksCount - a.approvedWorksCount;
-      });
-  }, [deptKpiUsers]);
+          if (!hasSelfA) {
+            rank = 'Chưa tự chấm A';
+            scoreSource = 'Tạm tính';
+          } else {
+            rank = u.selfRank || 'Chưa xếp loại';
+            scoreSource = 'Tự chấm';
+          }
+
+          return {
+            id: u.id,
+            name: u.name,
+            position: u.position,
+            score: selfScore,
+            rank,
+            scoreSource,
+            isApproved: false,
+            taskCount: u.taskCounts?.total || 0,
+            isLeaderOrAbove: u.isLeaderOrAbove
+          };
+        })
+        .filter(u => u.score > 0 || u.taskCount > 0)
+        .sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          return b.taskCount - a.taskCount;
+        });
+    } else {
+      // 2. LÃNH ĐẠO DUYỆT:
+      // - Chỉ xếp theo approvedKpiTotal và approvedRank
+      // - Loại Phó phòng trở lên
+      // - Chỉ lấy nhân sự có scores.approvedKpiTotal khác null/undefined (đã hoàn tất duyệt A/C/D)
+      // - Không đưa hồ sơ đang "Chờ duyệt" vào bảng xếp hạng
+      return deptKpiUsers
+        .filter(u => {
+          if (u.isLeaderOrAbove) return false;
+          if (u.scores?.approvedKpiTotal === null || u.scores?.approvedKpiTotal === undefined) return false;
+          if (u.approvedRank === 'Chờ duyệt') return false;
+          return true;
+        })
+        .map(u => {
+          const approvedScore = Number(u.scores.approvedKpiTotal);
+          const approvedRank = u.approvedRank || 'Chưa xếp loại';
+
+          return {
+            id: u.id,
+            name: u.name,
+            position: u.position,
+            score: approvedScore,
+            rank: approvedRank,
+            scoreSource: 'Đã duyệt',
+            isApproved: true,
+            taskCount: u.taskCounts?.approved || u.taskCounts?.total || 0,
+            isLeaderOrAbove: false
+          };
+        })
+        .sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          return b.taskCount - a.taskCount;
+        });
+    }
+  }, [deptKpiUsers, kpiRankMode]);
 
   const totalWorks = scopedWorks.length;
   const approvedWorks = scopedWorks.filter(w => w.leaderApproval === 'Duyệt' || w.leaderApproval === 'Đã duyệt').length;
@@ -337,14 +379,43 @@ export default function Dashboard() {
           {/* KPI Ranking */}
           <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
             <div>
-              <div className="p-5 bg-gradient-to-r from-slate-100 to-blue-50/40 border-b border-slate-300 flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                  <Award className="w-5 h-5 text-amber-600" />
-                  <span>Xếp hạng KPI tháng {selectedMonth}</span>
-                </h3>
-                <Link to="/kpi" className="text-xs text-[#1F4E78] font-black hover:underline bg-white px-3 py-1 rounded-lg border border-slate-300 shadow-2xs">
-                  Xem chi tiết
-                </Link>
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-100 to-blue-50/40 border-b border-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-amber-600 shrink-0" />
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">
+                    Xếp hạng KPI ({selectedMonth})
+                  </h3>
+                </div>
+                <div className="flex items-center justify-between sm:justify-end gap-2">
+                  {/* Selector: Lãnh đạo duyệt / Tự chấm */}
+                  <div className="inline-flex p-1 bg-slate-200/90 rounded-xl border border-slate-300 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setKpiRankMode('APPROVED')}
+                      className={`px-2.5 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                        kpiRankMode === 'APPROVED'
+                          ? 'bg-[#1F4E78] text-white shadow-xs'
+                          : 'text-slate-700 hover:text-[#1F4E78]'
+                      }`}
+                    >
+                      Lãnh đạo duyệt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKpiRankMode('SELF')}
+                      className={`px-2.5 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                        kpiRankMode === 'SELF'
+                          ? 'bg-[#1F4E78] text-white shadow-xs'
+                          : 'text-slate-700 hover:text-[#1F4E78]'
+                      }`}
+                    >
+                      Tự chấm
+                    </button>
+                  </div>
+                  <Link to="/kpi" className="text-xs text-[#1F4E78] font-black hover:underline bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 shadow-2xs whitespace-nowrap">
+                    Chi tiết
+                  </Link>
+                </div>
               </div>
 
               <div className="p-4 space-y-3">
@@ -362,12 +433,16 @@ export default function Dashboard() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-extrabold text-slate-900 text-sm">{k.name}</span>
-                          {k.isApproved ? (
+                          {k.scoreSource === 'Đã duyệt' ? (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-300">
                               Đã duyệt
                             </span>
+                          ) : k.scoreSource === 'Tạm tính' ? (
+                            <span className="text-[10px] font-bold text-amber-900 bg-amber-100/90 px-1.5 py-0.2 rounded border border-amber-300">
+                              Tạm tính
+                            </span>
                           ) : (
-                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300">
+                            <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-1.5 py-0.2 rounded border border-blue-300">
                               Tự chấm
                             </span>
                           )}
@@ -378,7 +453,8 @@ export default function Dashboard() {
                           <span className={`text-xs font-bold ${
                             k.rank.includes('xuất sắc') ? 'text-emerald-700' :
                             k.rank.includes('tốt') ? 'text-blue-700' :
-                            k.rank.includes('Không hoàn thành') ? 'text-rose-700' :
+                            k.rank === 'Chưa tự chấm A' || k.rank === 'Tạm tính' ? 'text-amber-700' :
+                            k.rank.includes('Không hoàn thành') || k.rank.includes('Không HT') ? 'text-rose-700' :
                             'text-slate-700'
                           }`}>
                             {k.rank}
@@ -387,7 +463,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="text-right bg-white px-3 py-1.5 rounded-xl border border-blue-200 shadow-2xs">
-                      <div className="font-black text-[#1F4E78] text-base">{formatScore(k.effectiveScore)}</div>
+                      <div className="font-black text-[#1F4E78] text-base">{formatScore(k.score)}</div>
                       <div className="text-[10px] font-black text-blue-700 uppercase">điểm KPI</div>
                     </div>
                   </div>
@@ -396,9 +472,15 @@ export default function Dashboard() {
                 {scopedKpis.length === 0 && (
                   <div className="py-8 px-4 text-center bg-slate-50/70 rounded-xl border border-dashed border-slate-300">
                     <Award className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                    <div className="font-black text-slate-800 text-xs">Chưa có xếp hạng KPI tháng {selectedMonth}</div>
-                    <p className="text-[11px] font-medium text-slate-600 mt-1 max-w-[220px] mx-auto">
-                      Dữ liệu sẽ tự động xuất hiện khi Lãnh đạo duyệt việc và tổng hợp điểm KPI.
+                    <div className="font-black text-slate-800 text-xs">
+                      {kpiRankMode === 'APPROVED' 
+                        ? `Chưa có nhân sự được duyệt KPI trong tháng ${selectedMonth}` 
+                        : `Chưa có dữ liệu tự chấm KPI trong tháng ${selectedMonth}`}
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-600 mt-1 max-w-[240px] mx-auto">
+                      {kpiRankMode === 'APPROVED' 
+                        ? 'Bảng xếp hạng lãnh đạo chỉ hiển thị các nhân sự (không gồm Phó phòng trở lên) đã hoàn tất duyệt A/C/D.' 
+                        : 'Bảng xếp hạng tự chấm hiển thị theo điểm số tự chấm của nhân sự.'}
                     </p>
                   </div>
                 )}

@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS works (
     coef NUMERIC,
     base_score NUMERIC,
     converted_score NUMERIC,
+    self_converted_score TEXT,
+    approved_converted_score TEXT,
     status TEXT NOT NULL DEFAULT 'Đang xử lý',
     evidence TEXT,
     product_type TEXT,

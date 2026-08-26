@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Send, UserCheck, Clock, CheckCircle2, AlertCircle, RefreshCw, 
   Search, Edit3, Trash2, BellRing, Eye, FileText, Download, 
   ChevronDown, Layers, ShieldCheck, HelpCircle, Sparkles, Filter, Check, X, ArrowUpDown,
-  Zap, Settings, MessageSquare, Phone, Users, ExternalLink, Sliders, CheckSquare, Square
+  Zap, Settings, MessageSquare, Phone, Users, ExternalLink, Sliders, CheckSquare, Square,
+  Calendar, Award, ArrowUpRight, Info
 } from 'lucide-react';
 import { 
   STANDARD_MONTHS, 
@@ -40,6 +41,7 @@ interface ZaloConfig {
 }
 
 export default function AssignTask() {
+  const formRef = useRef<HTMLFormElement>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -49,8 +51,8 @@ export default function AssignTask() {
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Flow Selection: 1 = Internal Only, 2 = 1-Click Zalo Automation
-  const [assignmentFlow, setAssignmentFlow] = useState<'internal' | 'zalo'>('zalo');
+  // Assignment channel: device notification is default; Zalo is optional fallback
+  const [assignmentFlow, setAssignmentFlow] = useState<'internal' | 'zalo'>('internal');
 
   // Multi-receiver state
   const [selectedReceivers, setSelectedReceivers] = useState<SelectedReceiver[]>([]);
@@ -317,6 +319,7 @@ export default function AssignTask() {
         baseScore: String(formData.baseScore),
         suggestedCoef: String(formData.suggestedCoef),
         productQty: Number(formData.productQty) || 1,
+        receiverId: selectedReceivers[0]?.userId,
         receivers: selectedReceivers.map(r => ({
           userId: r.userId,
           userName: r.userName,
@@ -343,9 +346,20 @@ export default function AssignTask() {
 
       const d = await res.json();
       if (d.success) {
-        let msg = editingId ? "Đã cập nhật nhiệm vụ thành công!" : `Đã giao việc thành công cho ${selectedReceivers.length} nhân sự!`;
+        let msg = editingId ? "Đã cập nhật phiếu giao việc thành công!" : `Đã giao việc thành công cho ${selectedReceivers.length} nhân sự!`;
         if (assignmentFlow === 'zalo' && d.zaloResults?.length > 0) {
-          msg += ` Đã kích hoạt bắn tin Zalo 1-Click.`;
+          msg += ` Đã thực hiện thêm kênh Zalo dự phòng.`;
+        }
+        if (!editingId && Array.isArray(d.pushResults)) {
+          const attempted = d.pushResults.reduce((sum: number, item: any) => sum + Number(item.attempted || 0), 0);
+          const sent = d.pushResults.reduce((sum: number, item: any) => sum + Number(item.sent || 0), 0);
+          if (sent > 0) {
+            msg += ' Thông báo thiết bị: đã gửi ' + sent + '/' + attempted + ' thiết bị.';
+          } else if (attempted === 0) {
+            msg += ' Người nhận chưa đăng ký thiết bị nhận thông báo.';
+          } else {
+            msg += ' Gửi thông báo thiết bị thất bại (0/' + attempted + ').';
+          }
         }
         setSuccessMessage(msg);
         handleResetForm();
@@ -358,6 +372,16 @@ export default function AssignTask() {
       setErrorMessage(String(err));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Click on assignment in table: if received -> view modal; if not received -> edit form
+  const handleItemClick = (a: Assignment) => {
+    const isReceived = a.receiveStatus?.includes('Đã nhận') || a.receiveStatus?.includes('hoàn thành');
+    if (isReceived) {
+      setViewingAssignment(a);
+    } else {
+      handleStartEdit(a);
     }
   };
 
@@ -386,19 +410,23 @@ export default function AssignTask() {
       if (d.directLink) {
         window.open(d.directLink, '_blank');
       }
-      setSuccessMessage(`Đã kích hoạt Zalo gửi tới ${a.receiver?.name}!`);
+      setSuccessMessage(`Đã mở kênh Zalo dự phòng tới ${a.receiver?.name}.`);
       setTimeout(() => setSuccessMessage(""), 4000);
     } catch (e: any) {
       alert("Lỗi kết nối Zalo: " + String(e));
     }
   };
 
-  // Start edit assignment
+  // Start edit assignment (chuyển lên form chỉnh sửa nếu chưa nhận, nếu đã nhận thì mở modal xem chi tiết)
   const handleStartEdit = (a: Assignment) => {
-    if (a.receiveStatus?.includes('Đã nhận')) {
-      alert("Nhiệm vụ này đã được nhân viên tiếp nhận! Muốn thay đổi nội dung chính, vui lòng thu hồi rồi giao lại để bảo đảm dữ liệu kế hoạch không bị lệch.");
+    const isReceived = a.receiveStatus?.includes('Đã nhận') || a.receiveStatus?.includes('hoàn thành');
+    if (isReceived) {
+      setViewingAssignment(a);
+      setSuccessMessage("Nhiệm vụ này đã được nhân viên tiếp nhận vào kế hoạch làm việc. Đang mở cửa sổ xem lại chi tiết nội dung đã giao.");
+      setTimeout(() => setSuccessMessage(""), 4500);
       return;
     }
+
     setEditingId(a.id);
     if (a.receiver) {
       setSelectedReceivers([{
@@ -411,7 +439,7 @@ export default function AssignTask() {
       }]);
     }
     setFormData({
-      month: a.month || '08-2026',
+      month: a.month || selectedFilterMonth || '08-2026',
       taskGroup: a.taskGroup || 'Kế hoạch vốn',
       taskName: a.taskName || '',
       taskCode: a.taskCode || '',
@@ -428,7 +456,15 @@ export default function AssignTask() {
       priority: a.priority || 'Bình thường',
       leaderNote: a.leaderNote || ''
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    setSuccessMessage(`Đã nạp phiếu giao việc [${a.assignmentId}]. Nhân viên chưa nhận việc, bạn có thể chỉnh sửa và cập nhật!`);
+    setTimeout(() => setSuccessMessage(""), 5000);
   };
 
   // Revoke Assignment
@@ -594,18 +630,18 @@ export default function AssignTask() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-blue-100 text-[#1F4E78] uppercase tracking-wider">
-                Điều hành 2 Luồng & Tự động Zalo
+                Giao việc & Thông báo thiết bị
               </span>
               <span className="text-xs font-semibold text-slate-500">Mã quy trình: GV-08</span>
             </div>
             <h1 className="text-2xl font-black text-[#1F4E78] tracking-tight flex items-center gap-2">
               <span>Giao việc cho nhân viên</span>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                1-Click Zalo
+                Web Push mặc định
               </span>
             </h1>
             <p className="text-xs text-slate-600 max-w-4xl mt-1 leading-relaxed">
-              Hỗ trợ giao 1 việc cho nhiều nhân sự (Chủ trì & Phối hợp), điều phối 2 luồng: Giao nội bộ & Tự động gửi Zalo thông báo tức thì.
+              Giao một việc cho nhiều nhân sự (Chủ trì & Phối hợp); thông báo thiết bị là mặc định, Zalo chỉ dùng dự phòng.
             </p>
           </div>
 
@@ -653,7 +689,39 @@ export default function AssignTask() {
       </div>
 
       {/* 2-Column Form & Setup Area */}
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-6">
+      <form ref={formRef} onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-6">
+        {/* Editing Banner if in Edit Mode */}
+        {editingId && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                <Edit3 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-black text-amber-950 flex items-center gap-2">
+                  <span>ĐANG CHỈNH SỬA PHIẾU GIAO VIỆC: [{assignments.find(a => a.id === editingId)?.assignmentId || `#${editingId}`}]</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-200 text-amber-900 border border-amber-300">
+                    Chưa nhận việc
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
+                  Nhiệm vụ chưa được nhân viên tiếp nhận. Bạn có thể điều chỉnh lại nội dung, người nhận hoặc hạn chót và bấm <strong>Lưu & Cập nhật giao việc</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Hủy sửa (Tạo mới)</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
             <h2 className="text-base font-black text-slate-800 flex items-center gap-2">
@@ -674,7 +742,7 @@ export default function AssignTask() {
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <span>🔘 Luồng 1: Nội bộ</span>
+              <span>🔔 Mặc định: Giao việc & thông báo thiết bị</span>
             </button>
             <button
               type="button"
@@ -686,7 +754,7 @@ export default function AssignTask() {
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>⚡ Luồng 2: Giao & Tự động Zalo 1-Click</span>
+              <span>Zalo dự phòng (gửi thêm)</span>
             </button>
           </div>
         </div>
@@ -996,8 +1064,8 @@ export default function AssignTask() {
                 : editingId 
                   ? 'Cập nhật giao việc' 
                   : assignmentFlow === 'zalo' 
-                    ? `⚡ Giao việc & Tự động Zalo (${selectedReceivers.length} người)` 
-                    : `Giao việc nội bộ (${selectedReceivers.length} người)`}
+                    ? `Giao việc + Zalo dự phòng (${selectedReceivers.length} người)` 
+                    : `Giao việc & thông báo thiết bị (${selectedReceivers.length} người)`}
             </span>
           </button>
         </div>
@@ -1065,7 +1133,7 @@ export default function AssignTask() {
                 <th className="py-3 px-3 text-center">Điểm / K</th>
                 <th className="py-3 px-3 text-center">Hạn chót</th>
                 <th className="py-3 px-3 text-center">Trạng thái</th>
-                <th className="py-3 px-3 text-center w-36">Thao tác</th>
+                <th className="py-3 px-3 text-center w-40">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1076,71 +1144,128 @@ export default function AssignTask() {
                   </td>
                 </tr>
               ) : (
-                filteredAssignments.map((a, idx) => (
-                  <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-blue-700">{a.assignmentId}</td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900">{a.receiver?.name || '-'}</div>
-                      <div className="text-[10px] text-slate-500">{a.receiver?.phone || 'Chưa có SĐT'}</div>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-800">
-                        {a.taskCode && <span className="text-[#1F4E78] mr-1">[{a.taskCode}]</span>}
-                        {a.taskName}
-                      </div>
-                      <div className="text-[10px] text-slate-500 truncate max-w-xs">{a.productRequired || a.taskGroup}</div>
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className="font-bold text-slate-800">{a.baseScore}</span>
-                      <span className="text-slate-400 text-[10px] ml-1">(K: {a.suggestedCoef})</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-700">
-                      {formatDate(a.deadline)}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        a.receiveStatus?.includes('Đã nhận') ? 'bg-emerald-100 text-emerald-800' :
-                        a.receiveStatus?.includes('Từ chối') ? 'bg-rose-100 text-rose-800' :
-                        'bg-amber-100 text-amber-800'
-                      }`}>
-                        {a.receiveStatus || 'Chờ nhận việc'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {/* 1-Click Zalo Button */}
+                filteredAssignments.map((a, idx) => {
+                  const isReceived = a.receiveStatus?.includes('Đã nhận') || a.receiveStatus?.includes('hoàn thành');
+                  return (
+                    <tr 
+                      key={a.id} 
+                      className={`hover:bg-slate-50 transition-colors cursor-pointer group ${
+                        editingId === a.id ? 'bg-amber-50/60 ring-1 ring-amber-300' : ''
+                      }`}
+                      onClick={() => handleItemClick(a)}
+                    >
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="py-2.5 px-3">
                         <button
                           type="button"
-                          onClick={() => handleInstantZalo(a)}
-                          className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold border border-blue-200 transition-colors flex items-center gap-1 cursor-pointer"
-                          title="Bắn lại thông báo Zalo 1-Chạm tức thì"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleItemClick(a);
+                          }}
+                          className={`font-mono font-bold text-left flex items-center gap-1.5 transition-colors cursor-pointer ${
+                            isReceived ? 'text-emerald-700 hover:text-emerald-900' : 'text-blue-700 hover:text-blue-900'
+                          }`}
+                          title={isReceived ? 'Đã nhận việc - Nhấp để xem lại nội dung giao' : 'Chưa nhận việc - Nhấp để chỉnh sửa giao việc'}
                         >
-                          <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
-                          <span>Zalo</span>
+                          <span>{a.assignmentId}</span>
+                          {isReceived ? (
+                            <Eye className="w-3 h-3 text-emerald-600 opacity-60 group-hover:opacity-100" />
+                          ) : (
+                            <Edit3 className="w-3 h-3 text-blue-600 opacity-60 group-hover:opacity-100" />
+                          )}
                         </button>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900">{a.receiver?.name || '-'}</div>
+                        <div className="text-[10px] text-slate-500">{a.receiver?.phone || 'Chưa có SĐT'}</div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-800 group-hover:text-[#1F4E78] transition-colors">
+                          {a.taskCode && <span className="text-[#1F4E78] mr-1 font-bold">[{a.taskCode}]</span>}
+                          <span>{a.taskName}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 truncate max-w-xs mt-0.5">{a.productRequired || a.taskGroup}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="font-bold text-slate-800">{a.baseScore}</span>
+                        <span className="text-slate-400 text-[10px] ml-1">(K: {a.suggestedCoef})</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">
+                        {formatDate(a.deadline)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          isReceived ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                          a.receiveStatus?.includes('Từ chối') ? 'bg-rose-100 text-rose-800 border border-rose-200' :
+                          'bg-amber-100 text-amber-800 border border-amber-200'
+                        }`}>
+                          {isReceived ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          ) : (
+                            <Clock className="w-3 h-3 text-amber-600" />
+                          )}
+                          <span>{a.receiveStatus || 'Chờ nhận việc'}</span>
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Nút Xem lại nội dung giao (luôn có) */}
+                          <button
+                            type="button"
+                            onClick={() => setViewingAssignment(a)}
+                            className="p-1.5 text-slate-600 hover:text-[#1F4E78] hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                            title="Xem lại nội dung giao việc"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(a)}
-                          className="p-1 text-slate-500 hover:text-blue-600 rounded hover:bg-slate-100"
-                          title="Sửa nhiệm vụ"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
+                          {/* 1-Click Zalo Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleInstantZalo(a)}
+                            className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold border border-blue-200 transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Bắn lại thông báo Zalo 1-Chạm tức thì"
+                          >
+                            <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
+                            <span>Zalo</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleRevoke(a)}
-                          className="p-1 text-slate-500 hover:text-rose-600 rounded hover:bg-rose-50"
-                          title="Thu hồi việc"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {/* Nút Sửa: Nếu chưa nhận thì nạp form sửa, nếu đã nhận thì mở modal xem */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isReceived) {
+                                setViewingAssignment(a);
+                                setSuccessMessage("Nhiệm vụ này đã được nhân viên tiếp nhận vào kế hoạch làm việc. Đang mở cửa sổ xem lại nội dung đã giao.");
+                                setTimeout(() => setSuccessMessage(""), 4500);
+                              } else {
+                                handleStartEdit(a);
+                              }
+                            }}
+                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                              isReceived
+                                ? 'text-slate-400 border-slate-200 hover:text-emerald-700 hover:bg-emerald-50'
+                                : 'text-blue-600 border-blue-200 hover:bg-blue-50'
+                            }`}
+                            title={isReceived ? 'Đã nhận việc (Nhấp để xem chi tiết)' : 'Sửa phiếu giao việc (Chưa nhận việc)'}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Thu hồi việc */}
+                          <button
+                            type="button"
+                            onClick={() => handleRevoke(a)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 hover:border-rose-200 transition-colors cursor-pointer"
+                            title="Thu hồi việc"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1304,6 +1429,283 @@ export default function AssignTask() {
                 className="px-5 py-2 bg-[#1F4E78] hover:bg-[#153654] text-white rounded-xl text-xs font-bold transition"
               >
                 {isSavingZalo ? 'Đang lưu...' : 'Lưu cấu hình'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xem lại nội dung giao việc (View Assignment Modal) */}
+      {viewingAssignment && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full p-6 space-y-5 animate-in fade-in duration-200 max-h-[92vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1F4E78] to-blue-700 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-black text-slate-900">Chi tiết nội dung phiếu giao nhiệm vụ</h3>
+                    <span className="font-mono font-bold text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                      {viewingAssignment.assignmentId}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Giao bởi: <strong className="text-slate-700">{viewingAssignment.assigner?.name || 'Lãnh đạo Phòng KHTC'}</strong> • Ngày giao: {formatDate(viewingAssignment.assignDate)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingAssignment(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Status Banner */}
+            {(viewingAssignment.receiveStatus?.includes('Đã nhận') || viewingAssignment.receiveStatus?.includes('hoàn thành')) ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3 text-xs">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-black text-emerald-950 flex items-center gap-2">
+                    <span>NHÂN VIÊN ĐÃ TIẾP NHẬN NHIỆM VỤ</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 font-bold text-[10px]">
+                      {viewingAssignment.receiveStatus}
+                    </span>
+                  </div>
+                  <p className="text-emerald-800 leading-relaxed font-medium">
+                    Cán bộ <strong>{viewingAssignment.receiver?.name}</strong> đã tiếp nhận nhiệm vụ vào kế hoạch làm việc cá nhân.
+                    {viewingAssignment.receiveDate && ` (Thời điểm tiếp nhận: ${formatDate(viewingAssignment.receiveDate)})`}
+                  </p>
+                  {viewingAssignment.receiverNote && (
+                    <div className="mt-1 pt-1.5 border-t border-emerald-200/80 text-emerald-900">
+                      <span className="font-bold">Ý kiến phản hồi của nhân viên:</span> "{viewingAssignment.receiverNote}"
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-xs">
+                <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-black text-amber-950 flex items-center gap-2">
+                    <span>NHÂN VIÊN CHƯA TIẾP NHẬN</span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold text-[10px]">
+                      {viewingAssignment.receiveStatus || 'Chờ nhận việc'}
+                    </span>
+                  </div>
+                  <p className="text-amber-800 leading-relaxed font-medium">
+                    Nhiệm vụ đang ở trạng thái chờ cán bộ <strong>{viewingAssignment.receiver?.name}</strong> xác nhận tiếp nhận. Lãnh đạo có thể chỉnh sửa lại nội dung hoặc bắn lại thông báo Zalo.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Quick 4-Card Summary Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-[#1F4E78]" />
+                  <span>Nhân sự tiếp nhận</span>
+                </div>
+                <div className="font-black text-slate-900 text-xs">{viewingAssignment.receiver?.name || '-'}</div>
+                <div className="text-[11px] text-slate-500">{viewingAssignment.receiver?.position || 'Chuyên viên'}</div>
+                <div className="text-[10px] text-blue-700 font-mono font-bold">{viewingAssignment.receiver?.phone || 'Chưa có SĐT'}</div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                  <Award className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Định mức điểm</span>
+                </div>
+                <div className="font-black text-slate-900 text-xs">{viewingAssignment.baseScore} điểm (P0)</div>
+                <div className="text-[11px] text-slate-600 font-bold">Hệ số K: {viewingAssignment.suggestedCoef}</div>
+                <div className="text-[10px] text-emerald-700 font-bold">
+                  Quy đổi: {viewingAssignment.expectedConvertedScore || (Number(viewingAssignment.baseScore || 10) * Number(viewingAssignment.suggestedCoef || 0.8)).toFixed(1)} đ
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Kế hoạch & Hạn chót</span>
+                </div>
+                <div className="font-black text-slate-900 text-xs">Tháng {viewingAssignment.month}</div>
+                <div className="text-[11px] text-rose-700 font-bold">Hạn: {formatDate(viewingAssignment.deadline)}</div>
+                <div className="text-[10px] text-slate-500">Bắt đầu: {formatDate(viewingAssignment.startDate)}</div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Ưu tiên & Kênh phát</span>
+                </div>
+                <div className="font-black text-xs text-slate-800">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    viewingAssignment.priority === 'Khẩn' ? 'bg-red-100 text-red-800' :
+                    viewingAssignment.priority === 'Cao' ? 'bg-amber-100 text-amber-800' :
+                    'bg-slate-100 text-slate-700'
+                  }`}>
+                    {viewingAssignment.priority || 'Bình thường'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600 font-medium">
+                  {viewingAssignment.sendZalo ? '⚡ Zalo 1-Click' : '🔘 Nội bộ'}
+                </div>
+              </div>
+            </div>
+
+            {/* Task Content Details */}
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3.5">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5 pb-2 border-b border-slate-100">
+                <FileText className="w-4 h-4 text-[#1F4E78]" />
+                <span>Nội dung nhiệm vụ giao</span>
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-slate-500 block font-medium mb-0.5">Tên nhiệm vụ:</span>
+                  <div className="font-black text-slate-900 text-sm">
+                    {viewingAssignment.taskCode && <span className="text-[#1F4E78] mr-1">[{viewingAssignment.taskCode}]</span>}
+                    {viewingAssignment.taskName}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block font-medium mb-0.5">Nhóm công việc:</span>
+                  <div className="font-bold text-slate-800">{viewingAssignment.taskGroup}</div>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block font-medium mb-0.5">Sản phẩm yêu cầu đầu ra:</span>
+                  <div className="font-bold text-[#1F4E78] bg-blue-50/60 px-3 py-1.5 rounded-lg border border-blue-100">
+                    {viewingAssignment.productRequired || 'Theo quy định'}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block font-medium mb-0.5">Quy cách & Khối lượng:</span>
+                  <div className="font-bold text-slate-800">
+                    {viewingAssignment.productQty || 1} {viewingAssignment.unit || 'Sản phẩm'} (Loại: {viewingAssignment.productType || 'Báo cáo'})
+                  </div>
+                </div>
+              </div>
+
+              {viewingAssignment.detail && (
+                <div className="pt-2">
+                  <span className="text-slate-500 text-xs block font-medium mb-1">Mô tả & Hướng dẫn chi tiết:</span>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-wrap">
+                    {viewingAssignment.detail}
+                  </div>
+                </div>
+              )}
+
+              {/* Leader Note Section */}
+              <div className="pt-2">
+                <span className="text-slate-500 text-xs block font-medium mb-1">Ý kiến chỉ đạo & Hướng dẫn của Lãnh đạo:</span>
+                <div className="bg-gradient-to-r from-blue-50/80 to-slate-50 p-3.5 rounded-xl border border-blue-200 text-xs text-slate-900 leading-relaxed font-medium">
+                  "{viewingAssignment.leaderNote || 'Thực hiện đúng yêu cầu chất lượng và thời hạn được giao.'}"
+                </div>
+              </div>
+            </div>
+
+            {/* Linked Work in KPI Plan if available */}
+            {(() => {
+              const linkedWork = works.find(w => w.id === viewingAssignment.workId);
+              if (linkedWork) {
+                return (
+                  <div className="bg-gradient-to-r from-slate-50 to-blue-50/40 border border-blue-200 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-black text-[#1F4E78] flex items-center gap-1.5">
+                        <Award className="w-4 h-4 text-blue-600" />
+                        <span>Tiến độ thực tế trong Kế hoạch KPI của cán bộ</span>
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        linkedWork.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      }`}>
+                        {linkedWork.status}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                      <div className="bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-slate-500 block text-[10px]">Tự chấm:</span>
+                        <strong className="text-slate-900">{linkedWork.selfConvertedScore || '-'} đ</strong>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-slate-500 block text-[10px]">Trạng thái duyệt:</span>
+                        <strong className="text-slate-900">{linkedWork.leaderApproval || 'Chờ duyệt'}</strong>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-slate-500 block text-[10px]">Điểm duyệt:</span>
+                        <strong className="text-blue-700">{linkedWork.approvedConvertedScore || '-'} đ</strong>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="text-slate-500 block text-[10px]">Minh chứng:</span>
+                        <span className="text-slate-700 font-medium truncate block" title={linkedWork.evidence}>
+                          {linkedWork.evidence || 'Chưa nộp'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* Modal Footer Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {/* Nếu chưa nhận việc -> cho phép chuyển sang sửa form */}
+                {!(viewingAssignment.receiveStatus?.includes('Đã nhận') || viewingAssignment.receiveStatus?.includes('hoàn thành')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const a = viewingAssignment;
+                      setViewingAssignment(null);
+                      handleStartEdit(a);
+                    }}
+                    className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Chuyển sang Chỉnh sửa</span>
+                  </button>
+                )}
+
+                {/* Bắn lại Zalo */}
+                <button
+                  type="button"
+                  onClick={() => handleInstantZalo(viewingAssignment)}
+                  className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                  <span>Bắn lại Zalo 1-Chạm</span>
+                </button>
+
+                {/* Thu hồi việc */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const a = viewingAssignment;
+                    setViewingAssignment(null);
+                    handleRevoke(a);
+                  }}
+                  className="px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Thu hồi việc</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingAssignment(null)}
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer w-full sm:w-auto"
+              >
+                Đóng
               </button>
             </div>
           </div>

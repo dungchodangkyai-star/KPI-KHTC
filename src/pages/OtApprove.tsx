@@ -79,6 +79,14 @@ export default function OtApprove() {
     return () => window.removeEventListener('kpi_user_changed', handleUserChange);
   }, [users.length]);
 
+  const formatOtHours = (hrs: number | string | null | undefined) => {
+    if (hrs === null || hrs === undefined || hrs === '') return '0';
+    const num = typeof hrs === 'string' ? parseFloat(hrs) : hrs;
+    if (isNaN(num)) return '0';
+    const rounded = Math.round(num * 10) / 10;
+    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
+  };
+
   const getInitials = (name?: string) => {
     if (!name) return 'NV';
     const parts = name.trim().split(' ');
@@ -329,7 +337,7 @@ export default function OtApprove() {
         <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs">
           <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">Đã duyệt</span>
           <div className="text-xl font-black text-emerald-700 mt-1">
-            {approvedCount} <span className="text-xs font-semibold text-slate-500">({totalApprovedHours}h)</span>
+            {approvedCount} <span className="text-xs font-semibold text-slate-500">({formatOtHours(totalApprovedHours)}h)</span>
           </div>
         </div>
 

@@ -38,15 +38,15 @@ export default function ScoreAcd() {
   const [kpiData, setKpiData] = useState<any>(null);
 
   // Form State - A
-  const [statusA, setStatusA] = useState('Đã duyệt');
+  const [statusA, setStatusA] = useState('Chưa duyệt');
   const [scoresA, setScoresA] = useState<Record<string, { approved: number | ''; reason: string }>>({
-    A1: { approved: 5, reason: '' },
-    A2: { approved: 5, reason: '' },
-    A3: { approved: 5, reason: '' },
-    A4: { approved: 4, reason: '' },
-    A5: { approved: 4, reason: '' },
-    A6: { approved: 4, reason: '' },
-    A7: { approved: 3, reason: '' },
+    A1: { approved: '', reason: '' },
+    A2: { approved: '', reason: '' },
+    A3: { approved: '', reason: '' },
+    A4: { approved: '', reason: '' },
+    A5: { approved: '', reason: '' },
+    A6: { approved: '', reason: '' },
+    A7: { approved: '', reason: '' },
   });
   const [leaderNoteA, setLeaderNoteA] = useState('');
 
@@ -67,6 +67,17 @@ export default function ScoreAcd() {
     officialD: 2,
     decision: 'Giữ nguyên',
     reason: ''
+  });
+
+  // Modal confirmation state when C2 = 0 or official D = 0
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    zeroItems: string[];
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    zeroItems: [],
+    onConfirm: () => {}
   });
 
   const [showWorksList, setShowWorksList] = useState(true);
@@ -101,14 +112,26 @@ export default function ScoreAcd() {
         // Populate A
         const detA = d.data.detailsA;
         if (detA) {
-          setStatusA(detA.statusA === 'Chưa tự chấm' ? 'Chưa duyệt' : (detA.statusA || 'Đã duyệt'));
+          setStatusA(detA.statusA === 'Chưa tự chấm' ? 'Chưa duyệt' : (detA.statusA || 'Chưa duyệt'));
           setLeaderNoteA(detA.leaderNoteA || '');
           const newScA: Record<string, { approved: number | ''; reason: string }> = {};
           KPI_A_CRITERIA.forEach(crit => {
             const sc = detA.scores?.[crit.code];
+            const hasApproved = sc?.approved !== null && sc?.approved !== undefined && sc?.approved !== '' && !isNaN(Number(sc?.approved));
             newScA[crit.code] = {
-              approved: sc?.approved !== null && sc?.approved !== undefined ? sc.approved : (sc?.self ?? crit.maxScore),
+              approved: hasApproved ? Number(sc.approved) : '',
               reason: sc?.reason || '',
+            };
+          });
+          setScoresA(newScA);
+        } else {
+          setStatusA('Chưa duyệt');
+          setLeaderNoteA('');
+          const newScA: Record<string, { approved: number | ''; reason: string }> = {};
+          KPI_A_CRITERIA.forEach(crit => {
+            newScA[crit.code] = {
+              approved: '',
+              reason: '',
             };
           });
           setScoresA(newScA);
@@ -174,14 +197,47 @@ export default function ScoreAcd() {
   // Quick actions for A
   const handleApproveAllSelfA = () => {
     const newScA: Record<string, { approved: number | ''; reason: string }> = {};
+    const missingCriteria: string[] = [];
+    const filledCriteria: string[] = [];
+
     KPI_A_CRITERIA.forEach(crit => {
       const selfVal = kpiData?.detailsA?.scores?.[crit.code]?.self;
-      newScA[crit.code] = {
-        approved: selfVal !== null && selfVal !== undefined ? selfVal : crit.maxScore,
-        reason: scoresA[crit.code]?.reason || ''
-      };
+      if (selfVal !== null && selfVal !== undefined && selfVal !== '' && !isNaN(Number(selfVal))) {
+        const numVal = Math.min(crit.maxScore, Math.max(0, Number(selfVal)));
+        newScA[crit.code] = {
+          approved: numVal,
+          reason: scoresA[crit.code]?.reason || ''
+        };
+        filledCriteria.push(crit.code);
+      } else {
+        newScA[crit.code] = {
+          approved: '',
+          reason: scoresA[crit.code]?.reason || ''
+        };
+        missingCriteria.push(crit.code);
+      }
     });
+
     setScoresA(newScA);
+
+    if (missingCriteria.length > 0) {
+      if (filledCriteria.length === 0) {
+        setMessage({
+          type: 'error',
+          text: 'Cảnh báo: Nhân viên chưa tự chấm tiêu chí nào trong A1–A7. Các ô duyệt đã để trống, vui lòng nhập điểm trực tiếp hoặc chọn "Điểm tối đa"!'
+        });
+      } else {
+        setMessage({
+          type: 'error',
+          text: `Cảnh báo: Nhân viên chưa tự chấm các tiêu chí [${missingCriteria.join(', ')}]. Hệ thống đã để trống các tiêu chí này, vui lòng nhập điểm trước khi lưu duyệt!`
+        });
+      }
+    } else {
+      setMessage({
+        type: 'success',
+        text: 'Đã lấy điểm theo tự chấm của nhân sự cho toàn bộ tiêu chí A1–A7 thành công.'
+      });
+    }
   };
 
   const handleApproveAllMaxA = () => {
@@ -193,6 +249,10 @@ export default function ScoreAcd() {
       };
     });
     setScoresA(newScA);
+    setMessage({
+      type: 'success',
+      text: 'Đã áp dụng mức điểm tối đa (30/30đ) cho tất cả các tiêu chí A1–A7.'
+    });
   };
 
   const handleScoreAChange = (code: string, maxScore: number, valStr: string) => {
@@ -300,12 +360,18 @@ export default function ScoreAcd() {
   };
 
   // Calculations for current form
+  const emptyCriteriaA = KPI_A_CRITERIA.filter(crit => {
+    const val = scoresA[crit.code]?.approved;
+    return val === '' || val === null || val === undefined || isNaN(Number(val));
+  });
+  const emptyCountA = emptyCriteriaA.length;
+
   const calculatedApprovedA = Object.keys(scoresA).reduce<number>((sum, k) => {
     const val = scoresA[k]?.approved;
     return sum + (typeof val === 'number' ? val : 0);
   }, 0);
 
-  const autoC1 = kpiData?.detailsC?.autoC1 || 0;
+  const autoC1 = kpiData?.detailsC?.approvedAutoC1 ?? kpiData?.detailsC?.autoC1 ?? kpiData?.detailsC?.c1 ?? 0;
   const numC2 = typeof scoreC2 === 'number' ? scoreC2 : 0;
   const totalC = Math.min(10, autoC1 + numC2);
 
@@ -317,23 +383,11 @@ export default function ScoreAcd() {
   const totalExemptedD = Math.max(0, totalAutoD - totalOfficialD);
 
   const bTotal = kpiData?.summary?.bTotal || 0;
-  const calculatedTotalKpi = Math.min(100, Math.max(0, Math.round((calculatedApprovedA + bTotal + totalC - totalOfficialD) * 100) / 100));
 
-  let calculatedRank = 'Hoàn thành tốt';
-  if (calculatedTotalKpi >= 95) calculatedRank = 'Hoàn thành xuất sắc';
-  else if (calculatedTotalKpi >= 80) calculatedRank = 'Hoàn thành tốt';
-  else if (calculatedTotalKpi >= 65) calculatedRank = 'Hoàn thành';
-  else calculatedRank = 'Không hoàn thành';
-
-  const handleSaveApproval = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUserId) return;
-
+  const executeSaveApproval = async (targetUser: any): Promise<boolean> => {
     try {
       setSaving(true);
       setMessage(null);
-
-      const targetUser = users.find(u => u.id === Number(selectedUserId));
 
       const payloadDetailsA = {
         statusA: 'Đã duyệt',
@@ -342,17 +396,18 @@ export default function ScoreAcd() {
         noteA: kpiData?.detailsA?.noteA || '',
         leaderNoteA,
         scores: {
-          A1: { max: 5, self: kpiData?.detailsA?.scores?.A1?.self ?? null, approved: scoresA.A1.approved, reason: scoresA.A1.reason },
-          A2: { max: 5, self: kpiData?.detailsA?.scores?.A2?.self ?? null, approved: scoresA.A2.approved, reason: scoresA.A2.reason },
-          A3: { max: 5, self: kpiData?.detailsA?.scores?.A3?.self ?? null, approved: scoresA.A3.approved, reason: scoresA.A3.reason },
-          A4: { max: 4, self: kpiData?.detailsA?.scores?.A4?.self ?? null, approved: scoresA.A4.approved, reason: scoresA.A4.reason },
-          A5: { max: 4, self: kpiData?.detailsA?.scores?.A5?.self ?? null, approved: scoresA.A5.approved, reason: scoresA.A5.reason },
-          A6: { max: 4, self: kpiData?.detailsA?.scores?.A6?.self ?? null, approved: scoresA.A6.approved, reason: scoresA.A6.reason },
-          A7: { max: 3, self: kpiData?.detailsA?.scores?.A7?.self ?? null, approved: scoresA.A7.approved, reason: scoresA.A7.reason },
+          A1: { max: 5, self: kpiData?.detailsA?.scores?.A1?.self ?? null, approved: Number(scoresA.A1.approved), reason: scoresA.A1.reason },
+          A2: { max: 5, self: kpiData?.detailsA?.scores?.A2?.self ?? null, approved: Number(scoresA.A2.approved), reason: scoresA.A2.reason },
+          A3: { max: 5, self: kpiData?.detailsA?.scores?.A3?.self ?? null, approved: Number(scoresA.A3.approved), reason: scoresA.A3.reason },
+          A4: { max: 4, self: kpiData?.detailsA?.scores?.A4?.self ?? null, approved: Number(scoresA.A4.approved), reason: scoresA.A4.reason },
+          A5: { max: 4, self: kpiData?.detailsA?.scores?.A5?.self ?? null, approved: Number(scoresA.A5.approved), reason: scoresA.A5.reason },
+          A6: { max: 4, self: kpiData?.detailsA?.scores?.A6?.self ?? null, approved: Number(scoresA.A6.approved), reason: scoresA.A6.reason },
+          A7: { max: 3, self: kpiData?.detailsA?.scores?.A7?.self ?? null, approved: Number(scoresA.A7.approved), reason: scoresA.A7.reason },
         }
       };
 
       const payloadDetailsC = {
+        statusC: 'Đã duyệt',
         c1: autoC1,
         c2: numC2,
         totalC,
@@ -365,6 +420,7 @@ export default function ScoreAcd() {
       };
 
       const payloadDetailsD = {
+        statusD: 'Đã duyệt',
         items: penaltyItems,
         totalAutoD,
         totalOfficialD,
@@ -391,20 +447,81 @@ export default function ScoreAcd() {
 
       const d = await res.json();
       if (d.success) {
+        let msg = 'Đã lưu phê duyệt KPI thành công';
+        if (d.data?.totalKpi !== undefined && d.data?.totalKpi !== null && d.data?.rank) {
+          msg = `Đã lưu phê duyệt KPI thành công cho ${targetUser?.name}: Tổng ${d.data.totalKpi}đ (${d.data.rank})!`;
+        }
         setMessage({ 
           type: 'success', 
-          text: `Đã lưu phê duyệt KPI thành công cho ${targetUser?.name}: A (${calculatedApprovedA}đ) + B (${bTotal}đ) + C (${totalC}đ) - D (-${totalOfficialD}đ) = Tổng ${calculatedTotalKpi}đ (${calculatedRank})!` 
+          text: msg 
         });
         await loadUserKpi(selectedMonth, Number(selectedUserId));
+        return true;
       } else {
         setMessage({ type: 'error', text: d.error || 'Có lỗi xảy ra khi lưu phê duyệt' });
+        return false;
       }
     } catch (err) {
       console.error(err);
       setMessage({ type: 'error', text: 'Không thể kết nối đến máy chủ.' });
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveApproval = (e?: React.FormEvent, callbackAfterSave?: () => void): Promise<boolean> => {
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+    if (!selectedUserId) return Promise.resolve(false);
+
+    // Check if any A1-A7 criteria are empty
+    if (emptyCountA > 0) {
+      const missingList = emptyCriteriaA.map(c => c.code).join(', ');
+      setMessage({
+        type: 'error',
+        text: `Không thể lưu duyệt: Các tiêu chí [${missingList}] còn trống điểm. Vui lòng chấm đủ điểm A1–A7 trước khi lưu!`
+      });
+      return Promise.resolve(false);
+    }
+
+    const targetUser = users.find(u => u.id === Number(selectedUserId));
+
+    // Check if C2 = 0 or official D = 0
+    const zeroList: string[] = [];
+    if (numC2 === 0) {
+      zeroList.push('Điểm khen thưởng C2 đang bằng 0đ (không có khen thưởng bổ sung)');
+    }
+    if (totalOfficialD === 0) {
+      zeroList.push('Điểm trừ kỷ luật D chính thức đang bằng 0đ (không bị trừ điểm kỷ luật/chậm hạn)');
+    }
+
+    if (zeroList.length > 0) {
+      return new Promise<boolean>((resolve) => {
+        setConfirmDialog({
+          isOpen: true,
+          zeroItems: zeroList,
+          onConfirm: async () => {
+            setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+            const success = await executeSaveApproval(targetUser);
+            if (success && callbackAfterSave) {
+              callbackAfterSave();
+            }
+            resolve(success);
+          }
+        });
+      });
+    }
+
+    // Both C2 and D are non-zero, save immediately
+    return (async () => {
+      const success = await executeSaveApproval(targetUser);
+      if (success && callbackAfterSave) {
+        callbackAfterSave();
+      }
+      return success;
+    })();
   };
 
   const handleRecalculateAll = async () => {
@@ -560,8 +677,10 @@ export default function ScoreAcd() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2.5 py-1 rounded-lg font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                A (Duyệt): {formatScore(calculatedApprovedA)}/30đ
+              <span className={`px-2.5 py-1 rounded-lg font-bold border ${
+                emptyCountA > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-800 border-blue-200'
+              }`}>
+                A (Duyệt): {emptyCountA > 0 ? `${formatScore(calculatedApprovedA)}/30đ (${emptyCountA} trống)` : `${formatScore(calculatedApprovedA)}/30đ`}
               </span>
               <span className="px-2.5 py-1 rounded-lg font-bold bg-purple-50 text-purple-800 border border-purple-200">
                 C (C1+C2): +{formatScore(totalC)}/10đ
@@ -570,7 +689,7 @@ export default function ScoreAcd() {
                 D (Phạt): -{formatScore(totalOfficialD)}đ
               </span>
               <span className="px-3 py-1 rounded-lg font-black bg-[#1F4E78] text-white">
-                Tổng KPI: {formatScore(calculatedTotalKpi)}đ ({calculatedRank})
+                Tổng KPI: {kpiData?.approvedKpiTotal !== undefined && kpiData?.approvedKpiTotal !== null ? `${formatScore(kpiData.approvedKpiTotal)}đ (${kpiData.approvedRank || 'Đã duyệt'})` : 'Chờ duyệt'}
               </span>
             </div>
           </div>
@@ -830,24 +949,35 @@ export default function ScoreAcd() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={handleApproveAllSelfA}
-                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg text-xs font-bold transition shadow-xs"
+                  className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 text-slate-700 hover:text-blue-700 rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1 cursor-pointer"
+                  title="Lấy điểm theo điểm tự chấm của nhân sự (tiêu chí chưa tự chấm sẽ để trống và cảnh báo)"
                 >
-                  Duyệt bằng tự chấm
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Theo tự chấm</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleApproveAllMaxA}
-                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg text-xs font-bold transition shadow-xs"
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-50 border border-slate-300 text-slate-700 hover:text-emerald-700 rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1 cursor-pointer"
+                  title="Chủ động gán điểm tối đa (30/30đ) cho tất cả tiêu chí A1–A7"
                 >
-                  Duyệt tối đa (30đ)
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Điểm tối đa</span>
                 </button>
-                <div className="h-6 w-px bg-slate-300"></div>
-                <span className="text-sm font-black text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                <div className="h-6 w-px bg-slate-300 hidden sm:block"></div>
+                <span className={`text-sm font-black px-3 py-1 rounded-lg border ${
+                  emptyCountA > 0 
+                    ? 'text-amber-800 bg-amber-50 border-amber-300' 
+                    : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                }`}>
                   Tổng duyệt A: {formatScore(calculatedApprovedA)} / 30đ
+                  {emptyCountA > 0 && (
+                    <span className="text-xs font-normal text-amber-700 ml-1.5">(Còn {emptyCountA} ô trống)</span>
+                  )}
                 </span>
               </div>
             </div>
@@ -867,6 +997,7 @@ export default function ScoreAcd() {
                 <tbody className="divide-y divide-slate-200">
                   {KPI_A_CRITERIA.map(crit => {
                     const selfVal = kpiData?.detailsA?.scores?.[crit.code]?.self;
+                    const isCritEmpty = scoresA[crit.code]?.approved === '' || scoresA[crit.code]?.approved === undefined;
                     return (
                       <tr key={crit.code} className="hover:bg-slate-50/70 transition">
                         <td className="p-3 text-center font-bold text-slate-800">{crit.code}</td>
@@ -890,11 +1021,16 @@ export default function ScoreAcd() {
                             step="0.5"
                             min="0"
                             max={crit.maxScore}
+                            placeholder="Trống"
                             value={scoresA[crit.code]?.approved ?? ''}
                             onChange={e =>
                               handleScoreAChange(crit.code, crit.maxScore, e.target.value)
                             }
-                            className="w-20 px-2 py-1 bg-white border border-slate-300 rounded-lg text-center font-bold text-emerald-700 focus:border-emerald-600 outline-none text-sm shadow-inner"
+                            className={`w-20 px-2 py-1 bg-white border rounded-lg text-center font-bold outline-none text-sm shadow-inner transition ${
+                              isCritEmpty
+                                ? 'border-amber-300 bg-amber-50/50 text-amber-800 placeholder-amber-400 focus:border-amber-500 focus:bg-white'
+                                : 'border-slate-300 text-emerald-700 focus:border-emerald-600'
+                            }`}
                           />
                         </td>
                         <td className="p-3">
@@ -1372,26 +1508,34 @@ export default function ScoreAcd() {
               </div>
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="text-sm text-slate-700 font-bold">
-                  A ({formatScore(calculatedApprovedA)}đ) + B ({formatScore(bTotal)}đ) + C ({formatScore(totalC)}đ) - D ({formatScore(totalOfficialD)}đ) =
+                  A ({formatScore(calculatedApprovedA)}đ) + B ({formatScore(bTotal)}đ) + C ({formatScore(totalC)}đ) - D ({formatScore(totalOfficialD)}đ)
                 </span>
-                <span className="text-2xl sm:text-3xl font-black text-[#1F4E78]">
-                  {formatScore(calculatedTotalKpi)} / 100 điểm
-                </span>
-                <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase ${
-                  calculatedTotalKpi >= 95 
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300' 
-                    : calculatedTotalKpi >= 80 
-                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
-                    : calculatedTotalKpi >= 65 
-                    ? 'bg-blue-100 text-blue-900 border border-blue-300' 
-                    : 'bg-rose-100 text-rose-900 border border-rose-300'
-                }`}>
-                  {calculatedRank}
-                </span>
+                {kpiData?.approvedKpiTotal !== null && kpiData?.approvedKpiTotal !== undefined ? (
+                  <>
+                    <span className="text-sm text-slate-500 font-medium">=</span>
+                    <span className="text-2xl sm:text-3xl font-black text-[#1F4E78]">
+                      {formatScore(kpiData.approvedKpiTotal)} / 100 điểm
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-xs font-black uppercase bg-[#1F4E78] text-white">
+                      {kpiData.approvedRank || 'Đã duyệt'}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+                    Chờ duyệt
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="flex items-center gap-3">
+              {emptyCountA > 0 && (
+                <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl hidden md:flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Còn {emptyCountA} tiêu chí A chưa chấm điểm</span>
+                </span>
+              )}
+
               <button
                 type="submit"
                 disabled={saving}
@@ -1405,8 +1549,10 @@ export default function ScoreAcd() {
                 <button
                   type="button"
                   onClick={async (e) => {
-                    await handleSaveApproval(e);
-                    handleNextUser();
+                    const ok = await handleSaveApproval(e);
+                    if (ok) {
+                      handleNextUser();
+                    }
                   }}
                   disabled={saving}
                   className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-3 rounded-xl text-sm font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
@@ -1419,6 +1565,63 @@ export default function ScoreAcd() {
             </div>
           </div>
         </form>
+      )}
+
+      {/* Confirmation Modal when C2 = 0 or official D = 0 */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-5 text-white flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-xl backdrop-blur-xs">
+                <HelpCircle className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="font-black text-lg text-white">Xác nhận phê duyệt KPI</h3>
+                <p className="text-amber-100 text-xs">Vui lòng kiểm tra lại các mục đang có giá trị bằng 0</p>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-slate-800 text-sm leading-relaxed">
+                <p className="font-bold text-amber-900 mb-2">
+                  Hệ thống ghi nhận nhân sự <span className="text-[#1F4E78] font-black">{targetUserObj?.name}</span> có các mục sau đang bằng 0:
+                </p>
+                <ul className="space-y-1.5 pl-1">
+                  {confirmDialog.zeroItems.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-slate-700 text-xs sm:text-sm font-medium">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 mt-1.5 shrink-0"></span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-200 leading-normal">
+                <p>• Nhấn <strong className="text-slate-700">"Kiểm tra lại"</strong> nếu bạn muốn điều chỉnh lại điểm C2 hoặc điểm trừ D trước khi duyệt.</p>
+                <p className="mt-1">• Nhấn <strong className="text-emerald-700">"Đồng ý và duyệt"</strong> để xác nhận và tiến hành lưu kết quả KPI ngay.</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-100/80 px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2.5 bg-white hover:bg-slate-200/80 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm transition shadow-xs cursor-pointer"
+              >
+                Kiểm tra lại
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                disabled={saving}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+                <span>{saving ? 'Đang lưu...' : 'Đồng ý và duyệt'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

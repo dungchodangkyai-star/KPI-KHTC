@@ -56,19 +56,36 @@ export default function AdminUsers() {
     }
   };
 
+  const getAdminUserId = () => {
+    try {
+      const stored = localStorage.getItem('kpi_logged_in_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        return u?.id;
+      }
+    } catch {}
+    return null;
+  };
+
   const handleApproveUser = async (user: any) => {
     if (!confirm(`Xác nhận PHÊ DUYỆT tài khoản cho nhân sự "${user.name}" (${user.email})?\n\n- Trạng thái sẽ chuyển thành: "Đang làm"\n- Mật khẩu mặc định kích hoạt ban đầu: 123456@\n- Nhân sự sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập đầu tiên.`)) return;
     
     setActionLoadingId(user.id);
     try {
+      const adminUserId = getAdminUserId();
       const res = await fetch('/api/auth/approve-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
+        },
+        credentials: 'include',
         body: JSON.stringify({
           userId: user.id,
           role: user.role || 'STAFF',
           position: user.position || 'Chuyên viên',
-          group: user.group || 'Kế hoạch - Tài chính'
+          group: user.group || 'Kế hoạch - Tài chính',
+          adminUserId
         })
       });
       const data = await res.json();
@@ -91,10 +108,15 @@ export default function AdminUsers() {
     
     setActionLoadingId(user.id);
     try {
+      const adminUserId = getAdminUserId();
       const res = await fetch('/api/auth/reject-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id })
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
+        },
+        credentials: 'include',
+        body: JSON.stringify({ userId: user.id, adminUserId })
       });
       const data = await res.json();
       if (data.success) {
@@ -209,10 +231,18 @@ export default function AdminUsers() {
   const handleResetPassword = async (user: any) => {
     if (!confirm(`Đặt lại mật khẩu cho tài khoản "${user.name}" (${user.email}) về mặc định (123456@)?\nNgười dùng sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập kế tiếp.`)) return;
     try {
+      const adminUserId = getAdminUserId();
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id })
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          userId: user.id,
+          adminUserId 
+        })
       });
       const data = await res.json();
       if (data.success) {

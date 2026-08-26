@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { 
   getBackupConfig, 
+  getEffectiveBackupConfigAsync,
   saveBackupConfig, 
+  saveBackupConfigAsync,
   performBackup, 
   listBackups, 
   deleteBackupFile, 
@@ -14,9 +16,9 @@ import {
 export const backupRouter = Router();
 
 // GET /api/backups/config
-backupRouter.get('/config', (req: Request, res: Response) => {
+backupRouter.get('/config', async (req: Request, res: Response) => {
   try {
-    const config = getBackupConfig();
+    const config = await getEffectiveBackupConfigAsync();
     res.json({ success: true, data: config });
   } catch (error) {
     res.status(500).json({ success: false, error: String(error) });
@@ -24,9 +26,9 @@ backupRouter.get('/config', (req: Request, res: Response) => {
 });
 
 // POST /api/backups/config
-backupRouter.post('/config', (req: Request, res: Response) => {
+backupRouter.post('/config', async (req: Request, res: Response) => {
   try {
-    const saved = saveBackupConfig(req.body);
+    const saved = await saveBackupConfigAsync(req.body);
     res.json({ success: true, data: saved, message: 'Đã lưu cấu hình tự động sao lưu thành công!' });
   } catch (error) {
     res.status(500).json({ success: false, error: String(error) });

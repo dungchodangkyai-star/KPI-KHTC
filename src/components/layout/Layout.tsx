@@ -83,6 +83,14 @@ const allNavGroups = [
   }
 ];
 
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -96,6 +104,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [pendingWorksCount, setPendingWorksCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [pushStatus, setPushStatus] = useState<'checking' | 'enabled' | 'off' | 'denied' | 'unsupported' | 'error'>('checking');
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushTestMessage, setPushTestMessage] = useState('');
 
   // Change password modal states
   const [showChangeModal, setShowChangeModal] = useState(false);
@@ -169,7 +180,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
 
       if (dNotif.success && uid) {
-        const myNotifs = (dNotif.data || []).filter((n: any) => n.userId === uid || !n.userId);
+        const myNotifs = (dNotif.data || []).filter((n: any) => n.receiverId === uid);
         setNotifications(myNotifs);
       }
     } catch (err) {
@@ -222,14 +233,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       sendHeartbeat(active);
     };
 
+    const refreshForActiveUser = () => {
+      const active = getActiveLoggedInUser();
+      if (!active) return;
+      fetchLayoutData(active);
+      sendHeartbeat(active);
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshForActiveUser();
+    };
+
     window.addEventListener('kpi_user_changed', handleUserChange);
-    const interval = setInterval(() => {
-      fetchLayoutData();
-      sendHeartbeat();
-    }, 45000);
+    window.addEventListener('focus', refreshForActiveUser);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    // Keep the internal bell current even while the app stays open.
+    const interval = setInterval(refreshForActiveUser, 10000);
 
     return () => {
       window.removeEventListener('kpi_user_changed', handleUserChange);
+      window.removeEventListener('focus', refreshForActiveUser);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       clearInterval(interval);
     };
   }, [navigate]);
@@ -240,6 +265,95 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       sendHeartbeat(currentUser);
     }
   }, [location.pathname]);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkPush = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        if (!cancelled) setPushStatus('unsupported');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        if (!cancelled) setPushStatus('denied');
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription && currentUser?.id) {
+          const syncResponse = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...subscription.toJSON(), deviceLabel: navigator.userAgent })
+          });
+          const syncData = await syncResponse.json();
+          if (!syncResponse.ok || !syncData.success) throw new Error(syncData.message || 'Không đồng bộ được thiết bị.');
+        }
+        if (!cancelled) setPushStatus(subscription ? 'enabled' : 'off');
+      } catch (error) {
+        console.warn('Web Push registration notice:', error);
+        if (!cancelled) setPushStatus('error');
+      }
+    };
+    checkPush();
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
+
+  const enableDevicePush = async () => {
+    setPushBusy(true);
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushStatus('unsupported');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPushStatus(permission === 'denied' ? 'denied' : 'off');
+        return;
+      }
+      const registration = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+      const keyResponse = await fetch('/api/push/public-key');
+      const keyData = await keyResponse.json();
+      if (!keyResponse.ok || !keyData.success || !keyData.publicKey) {
+        throw new Error(keyData.message || 'Không lấy được khóa thông báo.');
+      }
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
+        });
+      }
+      const saveResponse = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...subscription.toJSON(), deviceLabel: navigator.userAgent })
+      });
+      const saveData = await saveResponse.json();
+      if (!saveResponse.ok || !saveData.success) throw new Error(saveData.message || 'Không lưu được thiết bị.');
+      setPushStatus('enabled');
+    } catch (error) {
+      console.error('Enable Web Push error:', error);
+      setPushStatus('error');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const testDevicePush = async () => {
+    setPushBusy(true);
+    setPushTestMessage('');
+    try {
+      const response = await fetch('/api/push/test', { method: 'POST' });
+      const data = await response.json();
+      setPushTestMessage(data.message || (data.success ? 'Đã gửi thử thông báo.' : 'Gửi thử không thành công.'));
+    } catch (error) {
+      setPushTestMessage('Không kết nối được dịch vụ gửi thử thông báo.');
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -282,10 +396,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(currentUser?.id ? { 'x-user-id': String(currentUser.id) } : {})
+        },
+        credentials: 'include',
         body: JSON.stringify({
           userId: currentUser?.id,
-          oldPassword: oldPasswordInput.trim() || (currentUser?.mustChangePassword ? DEFAULT_INITIAL_PASSWORD : ''),
+          oldPassword: oldPasswordInput.trim(),
           newPassword: newPasswordInput.trim()
         })
       });
@@ -509,6 +627,60 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <span className="text-[10px] text-slate-500 font-bold">{notifications.length} tin</span>
                   </div>
 
+                  <div className="mb-2 p-2 rounded-xl border border-blue-200 bg-blue-50">
+                    <button
+                      type="button"
+                      onClick={enableDevicePush}
+                      disabled={pushBusy || pushStatus === 'enabled' || pushStatus === 'unsupported'}
+                      className="w-full rounded-lg bg-[#1F4E78] px-3 py-2 text-[10px] font-black text-white disabled:bg-slate-300"
+                    >
+                      {pushBusy ? 'Đang bật thông báo...' :
+                       pushStatus === 'enabled' ? '✓ Thiết bị này đang nhận thông báo giao việc' :
+                       pushStatus === 'denied' ? 'Trình duyệt đang chặn thông báo — hãy cho phép trong cài đặt' :
+                       pushStatus === 'unsupported' ? 'Thiết bị/trình duyệt chưa hỗ trợ thông báo' :
+                       'Bật thông báo giao việc trên thiết bị này'}
+                    </button>
+                    {pushStatus === 'enabled' && (
+                      <button
+                        type="button"
+                        onClick={testDevicePush}
+                        disabled={pushBusy}
+                        className="mt-2 w-full rounded-lg border border-[#1F4E78] bg-white px-3 py-2 text-[10px] font-black text-[#1F4E78]"
+                      >
+                        Gửi thử thông báo Windows/điện thoại
+                      </button>
+                    )}
+                    {pushTestMessage && (
+                      <div className="mt-1 rounded-lg bg-slate-100 p-2 text-[9px] font-bold text-slate-700">{pushTestMessage}</div>
+                    )}
+                    <div className="mt-1 text-[9px] text-slate-600">
+                      Điện thoại iPhone/iPad: thêm ứng dụng vào Màn hình chính rồi bật tại đây.
+                    </div>
+                  </div>
+
+                  <details className="mb-2 rounded-xl border border-slate-200 bg-white">
+                    <summary className="cursor-pointer px-3 py-2 text-[10px] font-black text-[#1F4E78]">
+                      Hướng dẫn cài đặt thông báo
+                    </summary>
+                    <div className="space-y-2 border-t border-slate-200 px-3 py-2 text-[10px] leading-relaxed text-slate-700">
+                      <div>
+                        <div className="font-black text-slate-900">Máy tính (Chrome/Edge)</div>
+                        <div>Đăng nhập → mở chuông → bấm “Bật thông báo giao việc” → chọn “Cho phép”.</div>
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-900">Điện thoại Android</div>
+                        <div>Mở bằng Chrome → menu ⋮ → “Cài đặt ứng dụng” hoặc “Thêm vào màn hình chính” → mở ứng dụng → đăng nhập và bật thông báo tại chuông.</div>
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-900">iPhone/iPad</div>
+                        <div>Mở bằng Safari → Chia sẻ → “Thêm vào Màn hình chính” → mở ứng dụng từ biểu tượng → đăng nhập và bật thông báo tại chuông.</div>
+                      </div>
+                      <div className="rounded-lg bg-amber-50 p-2 text-amber-900">
+                        Nếu không nhận được tin: kiểm tra quyền Thông báo, chế độ Không làm phiền/Tiết kiệm pin và trạng thái “Thiết bị này đang nhận thông báo”.
+                      </div>
+                    </div>
+                  </details>
+
                   {pendingAssignmentsCount > 0 && (
                     <div className="mb-2 p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -533,7 +705,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       notifications.slice(0, 10).map((n: any, idx: number) => (
                         <div key={idx} className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition border border-slate-200">
                           <div className="font-bold text-slate-900 text-[11px]">{n.title || n.action}</div>
-                          <div className="text-[10px] text-slate-700 mt-0.5 leading-snug">{n.message || n.detail}</div>
+                          <div className="text-[10px] text-slate-700 mt-0.5 leading-snug">{n.content || n.message || n.detail}</div>
                           <div className="text-[9px] text-slate-500 mt-1 font-semibold">{formatDate(n.createdAt)}</div>
                         </div>
                       ))
@@ -689,6 +861,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   value={oldPasswordInput}
                   onChange={(e) => setOldPasswordInput(e.target.value)}
                   placeholder={currentUser?.mustChangePassword ? DEFAULT_INITIAL_PASSWORD : "Nhập mật khẩu cũ..."}
+                  required
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:border-[#1F4E78] focus:ring-2 focus:ring-blue-100 outline-none font-medium"
                 />
               </div>

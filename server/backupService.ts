@@ -66,18 +66,80 @@ const DEFAULT_BACKUP_CONFIG: BackupScheduleConfig = {
   lastBackupMessage: 'Chưa có bản sao lưu nào được thực hiện'
 };
 
+let cachedBackupConfig: BackupScheduleConfig | null = null;
+
 function ensureDir(dirPath: string) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 }
 
-export function getBackupConfig(): BackupScheduleConfig {
+export function mergeBackupConfig(base: BackupScheduleConfig, incoming?: Partial<BackupScheduleConfig> | null): BackupScheduleConfig {
+  if (!incoming) return { ...base, offsite: { ...base.offsite } };
+  return {
+    ...base,
+    ...incoming,
+    offsite: {
+      ...base.offsite,
+      ...(incoming.offsite || {})
+    }
+  };
+}
+
+export async function getEffectiveBackupConfigAsync(): Promise<BackupScheduleConfig> {
+  // 1. Try reading from Database (categories table with code 'SYSTEM_BACKUP_CONFIG')
+  try {
+    const dbCat = await db.query.categories.findFirst({
+      where: (cat, { eq, and }) => and(eq(cat.code, 'SYSTEM_BACKUP_CONFIG'), eq(cat.type, 'SYSTEM_CONFIG'))
+    });
+    if (dbCat && dbCat.properties) {
+      const merged = mergeBackupConfig(DEFAULT_BACKUP_CONFIG, dbCat.properties as any);
+      cachedBackupConfig = merged;
+      // also write to local file for fast offline reads
+      try {
+        ensureDir(path.dirname(CONFIG_FILE));
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+      } catch {}
+      return merged;
+    }
+  } catch (err) {
+    console.error('Error reading backup config from DB:', err);
+  }
+
+  // 2. Fallback to cached memory or local JSON file
+  if (cachedBackupConfig) {
+    return cachedBackupConfig;
+  }
+
   try {
     ensureDir(path.dirname(CONFIG_FILE));
     if (fs.existsSync(CONFIG_FILE)) {
       const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return { ...DEFAULT_BACKUP_CONFIG, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      const merged = mergeBackupConfig(DEFAULT_BACKUP_CONFIG, parsed);
+      cachedBackupConfig = merged;
+      return merged;
+    }
+  } catch (e) {
+    console.error('Error reading backup config from file:', e);
+  }
+
+  cachedBackupConfig = { ...DEFAULT_BACKUP_CONFIG, offsite: { ...DEFAULT_BACKUP_CONFIG.offsite } };
+  return cachedBackupConfig;
+}
+
+export function getBackupConfig(): BackupScheduleConfig {
+  if (cachedBackupConfig) {
+    return cachedBackupConfig;
+  }
+  try {
+    ensureDir(path.dirname(CONFIG_FILE));
+    if (fs.existsSync(CONFIG_FILE)) {
+      const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      const merged = mergeBackupConfig(DEFAULT_BACKUP_CONFIG, parsed);
+      cachedBackupConfig = merged;
+      return merged;
     }
   } catch (e) {
     console.error('Error reading backup config:', e);
@@ -85,22 +147,74 @@ export function getBackupConfig(): BackupScheduleConfig {
   return DEFAULT_BACKUP_CONFIG;
 }
 
-export function saveBackupConfig(cfg: Partial<BackupScheduleConfig>): BackupScheduleConfig {
-  const current = getBackupConfig();
-  const updated: BackupScheduleConfig = {
-    ...current,
-    ...cfg,
-    offsite: {
-      ...current.offsite,
-      ...(cfg.offsite || {})
-    }
-  };
+export async function saveBackupConfigAsync(cfg: Partial<BackupScheduleConfig>): Promise<BackupScheduleConfig> {
+  const current = await getEffectiveBackupConfigAsync();
+  const updated = mergeBackupConfig(current, cfg);
+  cachedBackupConfig = updated;
+
+  // 1. Save to local JSON file
   try {
     ensureDir(path.dirname(CONFIG_FILE));
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
   } catch (e) {
-    console.error('Error saving backup config:', e);
+    console.error('Error saving backup config to file:', e);
   }
+
+  // 2. Persist to PostgreSQL Database (categories table)
+  try {
+    await db.insert(categories).values({
+      code: 'SYSTEM_BACKUP_CONFIG',
+      name: 'Cấu hình Sao lưu & Đám mây Ngoại vi',
+      type: 'SYSTEM_CONFIG',
+      properties: updated,
+      status: 'Đang áp dụng',
+      order: 2
+    }).onConflictDoUpdate({
+      target: categories.code,
+      set: {
+        name: 'Cấu hình Sao lưu & Đám mây Ngoại vi',
+        properties: updated,
+        status: 'Đang áp dụng',
+        order: 2
+      }
+    });
+  } catch (err) {
+    console.error('Error persisting backup config to DB:', err);
+  }
+
+  return updated;
+}
+
+export function saveBackupConfig(cfg: Partial<BackupScheduleConfig>): BackupScheduleConfig {
+  const current = getBackupConfig();
+  const updated = mergeBackupConfig(current, cfg);
+  cachedBackupConfig = updated;
+
+  try {
+    ensureDir(path.dirname(CONFIG_FILE));
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving backup config to file:', e);
+  }
+
+  // Fire and forget DB persist in sync wrapper
+  db.insert(categories).values({
+    code: 'SYSTEM_BACKUP_CONFIG',
+    name: 'Cấu hình Sao lưu & Đám mây Ngoại vi',
+    type: 'SYSTEM_CONFIG',
+    properties: updated,
+    status: 'Đang áp dụng',
+    order: 2
+  }).onConflictDoUpdate({
+    target: categories.code,
+    set: {
+      name: 'Cấu hình Sao lưu & Đám mây Ngoại vi',
+      properties: updated,
+      status: 'Đang áp dụng',
+      order: 2
+    }
+  }).catch(err => console.error('Error async persisting backup config to DB:', err));
+
   return updated;
 }
 

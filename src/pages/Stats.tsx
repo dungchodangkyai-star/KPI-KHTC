@@ -194,7 +194,14 @@ export default function Stats() {
       if (selectedStatus === 'Đang xử lý' && w.status !== 'Đang xử lý') return false;
       if (selectedStatus === 'Chậm' && w.status !== 'Chậm') return false;
       if (selectedStatus === 'Đã duyệt' && w.leaderApproval !== 'Duyệt') return false;
-      if (selectedStatus === 'Chưa duyệt' && w.leaderApproval === 'Duyệt') return false;
+      if (
+        selectedStatus === 'Chưa duyệt' &&
+        (w.leaderApproval === 'Duyệt' || w.leaderApproval === 'Không duyệt')
+      ) return false;
+      if (
+        selectedStatus === 'Không duyệt' &&
+        w.leaderApproval !== 'Không duyệt'
+      ) return false;
 
       // Filter by Keyword
       if (searchKeyword.trim()) {
@@ -249,8 +256,21 @@ export default function Stats() {
   const totalInProgress = filteredWorks.filter(w => w.status === 'Đang xử lý').length;
   const totalDelayed = filteredWorks.filter(w => w.status === 'Chậm').length;
   const totalApproved = filteredWorks.filter(w => w.leaderApproval === 'Duyệt').length;
-  const totalPendingApproval = filteredWorks.filter(w => w.leaderApproval !== 'Duyệt').length;
-  const totalScoreB = filteredWorks.reduce((acc, cur) => acc + (parseFloat(cur.convertedScore || '0') || 0), 0);
+  const totalPendingApproval = filteredWorks.filter(w => w.leaderApproval !== 'Duyệt' && w.leaderApproval !== 'Không duyệt').length;
+  
+  // Total Score B calculations: Self B vs Approved B
+  const totalSelfScoreB = filteredWorks.reduce((acc, cur) => {
+    const s = cur.selfConvertedScore !== undefined && cur.selfConvertedScore !== null ? cur.selfConvertedScore : cur.convertedScore;
+    return acc + (parseFloat(s || '0') || 0);
+  }, 0);
+
+  const totalApprovedScoreB = filteredWorks
+    .filter(w => w.leaderApproval === 'Duyệt')
+    .reduce((acc, cur) => {
+      const s = cur.approvedConvertedScore !== undefined && cur.approvedConvertedScore !== null ? cur.approvedConvertedScore : cur.convertedScore;
+      return acc + (parseFloat(s || '0') || 0);
+    }, 0);
+
   const totalProductQty = filteredWorks.reduce((acc, cur) => acc + (cur.productQty || 1), 0);
 
   const totalOtHours = filteredOvertimes
@@ -274,7 +294,8 @@ export default function Stats() {
         approved: 0,
         delayed: 0,
         totalProductQty: 0,
-        totalScore: 0,
+        totalSelfScore: 0,
+        totalApprovedScore: 0,
         userIds: new Set<number>()
       });
     });
@@ -290,7 +311,8 @@ export default function Stats() {
           approved: 0,
           delayed: 0,
           totalProductQty: 0,
-          totalScore: 0,
+          totalSelfScore: 0,
+          totalApprovedScore: 0,
           userIds: new Set<number>()
         });
       }
@@ -298,9 +320,14 @@ export default function Stats() {
       item.count += 1;
       if (w.status === 'Hoàn thành') item.done += 1;
       if (w.status === 'Chậm') item.delayed += 1;
-      if (w.leaderApproval === 'Duyệt') item.approved += 1;
+      if (w.leaderApproval === 'Duyệt') {
+        item.approved += 1;
+        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
+        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+      }
       item.totalProductQty += (w.productQty || 1);
-      item.totalScore += (parseFloat(w.convertedScore || '0') || 0);
+      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
+      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
       if (w.userId) item.userIds.add(w.userId);
     });
 
@@ -315,7 +342,9 @@ export default function Stats() {
       .filter(item => item.count > 0 || item.assignCount > 0)
       .map(item => ({
         ...item,
-        totalScore: Math.round(item.totalScore * 100) / 100,
+        totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
+        totalScore: Math.round(item.totalSelfScore * 100) / 100,
         userCount: item.userIds.size,
         doneRate: item.count > 0 ? Math.round((item.done / item.count) * 100) : 0,
         approvedRate: item.count > 0 ? Math.round((item.approved / item.count) * 100) : 0
@@ -337,22 +366,30 @@ export default function Stats() {
           count: 0,
           done: 0,
           approved: 0,
-          totalScore: 0,
+          totalSelfScore: 0,
+          totalApprovedScore: 0,
           userIds: new Set<number>()
         });
       }
       const item = map.get(key);
       item.count += 1;
       if (w.status === 'Hoàn thành') item.done += 1;
-      if (w.leaderApproval === 'Duyệt') item.approved += 1;
-      item.totalScore += (parseFloat(w.convertedScore || '0') || 0);
+      if (w.leaderApproval === 'Duyệt') {
+        item.approved += 1;
+        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
+        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+      }
+      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
+      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
       if (w.userId) item.userIds.add(w.userId);
     });
 
     return Array.from(map.values())
       .map(item => ({
         ...item,
-        totalScore: Math.round(item.totalScore * 100) / 100,
+        totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
+        totalScore: Math.round(item.totalSelfScore * 100) / 100,
         userCount: item.userIds.size,
         doneRate: item.count > 0 ? Math.round((item.done / item.count) * 100) : 0
       }))
@@ -373,20 +410,28 @@ export default function Stats() {
           totalQty: 0,
           workCount: 0,
           doneCount: 0,
-          totalScore: 0
+          totalSelfScore: 0,
+          totalApprovedScore: 0
         });
       }
       const item = map.get(pType);
       item.totalQty += (w.productQty || 1);
       item.workCount += 1;
       if (w.status === 'Hoàn thành') item.doneCount += 1;
-      item.totalScore += (parseFloat(w.convertedScore || '0') || 0);
+      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
+      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
+      if (w.leaderApproval === 'Duyệt') {
+        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
+        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+      }
     });
 
     return Array.from(map.values())
       .map(item => ({
         ...item,
-        totalScore: Math.round(item.totalScore * 100) / 100,
+        totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
+        totalScore: Math.round(item.totalSelfScore * 100) / 100,
         doneRate: item.workCount > 0 ? Math.round((item.doneCount / item.workCount) * 100) : 0
       }))
       .sort((a, b) => b.totalQty - a.totalQty);
@@ -408,7 +453,16 @@ export default function Stats() {
       const completedCount = uWorks.filter(w => w.status === 'Hoàn thành').length;
       const approvedCount = uWorks.filter(w => w.leaderApproval === 'Duyệt').length;
       const delayedCount = uWorks.filter(w => w.status === 'Chậm').length;
-      const totalScore = uWorks.reduce((acc, cur) => acc + (parseFloat(cur.convertedScore || '0') || 0), 0);
+      const totalSelfScore = uWorks.reduce((acc, cur) => {
+        const s = cur.selfConvertedScore !== undefined && cur.selfConvertedScore !== null ? cur.selfConvertedScore : cur.convertedScore;
+        return acc + (parseFloat(s || '0') || 0);
+      }, 0);
+      const totalApprovedScore = uWorks
+        .filter(w => w.leaderApproval === 'Duyệt')
+        .reduce((acc, cur) => {
+          const s = cur.approvedConvertedScore !== undefined && cur.approvedConvertedScore !== null ? cur.approvedConvertedScore : cur.convertedScore;
+          return acc + (parseFloat(s || '0') || 0);
+        }, 0);
       const otHours = uOts.reduce((acc, cur) => acc + (parseFloat(String(cur.approvedHours || cur.hours || '0')) || 0), 0);
       const productQty = uWorks.reduce((acc, cur) => acc + (cur.productQty || 1), 0);
 
@@ -422,7 +476,9 @@ export default function Stats() {
         approvedCount,
         delayedCount,
         productQty,
-        totalScoreB: Math.round(totalScore * 100) / 100,
+        totalSelfScoreB: Math.round(totalSelfScore * 100) / 100,
+        totalApprovedScoreB: Math.round(totalApprovedScore * 100) / 100,
+        totalScoreB: Math.round(totalSelfScore * 100) / 100,
         totalOtHours: Math.round(otHours * 10) / 10,
         completionRate: rate
       };
@@ -449,7 +505,9 @@ export default function Stats() {
         totalWorks,
         totalCompleted,
         totalApproved,
-        totalScoreB,
+        totalSelfScoreB,
+        totalApprovedScoreB,
+        totalScoreB: totalSelfScoreB,
         totalProductQty
       });
     } catch (err) {
@@ -665,6 +723,7 @@ export default function Stats() {
               <option value="Chậm">Chậm tiến độ</option>
               <option value="Đã duyệt">Lãnh đạo đã duyệt</option>
               <option value="Chưa duyệt">Chờ lãnh đạo duyệt</option>
+              <option value="Không duyệt">Lãnh đạo không duyệt</option>
             </select>
           </div>
 
@@ -709,8 +768,11 @@ export default function Stats() {
           </div>
           <div>
             <span className="text-2xl font-black text-[#1F4E78] tracking-tight">{totalWorks}</span>
-            <span className="text-[10px] text-slate-500 block mt-0.5 truncate">
-              {totalAssignedWorks} việc giao • {totalSelfWorks} tự lập
+            <span className="text-[10px] text-slate-500 block mt-0.5 leading-tight">
+              {totalAssignedWorks} công việc đã ghi nhận từ giao việc • {totalSelfWorks} tự lập
+            </span>
+            <span className="text-[10px] text-blue-700 font-bold block mt-1">
+              {filteredAssignments.length} lượt giao nhiệm vụ
             </span>
           </div>
         </div>
@@ -766,17 +828,24 @@ export default function Stats() {
         {/* Metric 5: Converted Score B */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tổng điểm KPI B</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Điểm quy đổi công việc</span>
             <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div>
-            <span className="text-2xl font-black text-[#1F4E78] tracking-tight">
-              {formatScore(totalScoreB)}
-            </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">
-              TB: {totalWorks > 0 ? formatScore(totalScoreB / totalWorks) : 0} đ/việc
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-[#1F4E78] tracking-tight">
+                {formatScore(totalApprovedScoreB)}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">duyệt</span>
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5 flex items-center justify-between">
+              <span>Tự chấm: <strong className="text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</strong></span>
+              <span>{totalApproved}/{totalWorks} việc</span>
+            </div>
+            <span className="text-[9px] text-slate-400 block mt-1 leading-tight italic">
+              * Tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng
             </span>
           </div>
         </div>
@@ -874,7 +943,7 @@ export default function Stats() {
                 Thống kê phân bổ khối lượng và hiệu suất theo Nhóm công việc
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Tổng hợp số lượng đầu việc, sản phẩm, tỷ lệ hoàn thành và điểm quy đổi theo từng mảng nghiệp vụ chuyên môn.
+                Tổng hợp số lượng đầu việc, lượt giao nhiệm vụ, sản phẩm, tỷ lệ hoàn thành, điểm quy đổi công việc tự chấm và duyệt theo từng mảng nghiệp vụ (tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng).
               </p>
             </div>
             <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-xs">
@@ -889,20 +958,21 @@ export default function Stats() {
                   <th className="py-3 px-3 w-12">STT</th>
                   <th className="py-3 px-4 text-left">Nhóm công việc</th>
                   <th className="py-3 px-3">Tổng việc</th>
-                  <th className="py-3 px-3">Việc giao</th>
+                  <th className="py-3 px-3">Lượt giao nhiệm vụ</th>
                   <th className="py-3 px-3">Hoàn thành</th>
                   <th className="py-3 px-3">Đã duyệt</th>
                   <th className="py-3 px-3">Chậm hạn</th>
                   <th className="py-3 px-4 text-center">Tiến độ hoàn thành</th>
                   <th className="py-3 px-3">Sản lượng SP</th>
-                  <th className="py-3 px-3 text-right">Tổng điểm KPI B</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc tự chấm</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc duyệt</th>
                   <th className="py-3 px-3">Nhân sự</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {groupStats.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-12 text-slate-400">
+                    <td colSpan={12} className="text-center py-12 text-slate-400">
                       Không tìm thấy công việc nào thỏa mãn bộ lọc đã chọn.
                     </td>
                   </tr>
@@ -917,7 +987,7 @@ export default function Stats() {
                       <td className="py-3.5 px-3 text-center">
                         {st.assignCount > 0 ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-[#1F4E78]">
-                            {st.assignCount} việc
+                            {st.assignCount} lượt
                           </span>
                         ) : <span className="text-slate-400">-</span>}
                       </td>
@@ -940,8 +1010,11 @@ export default function Stats() {
                       <td className="py-3.5 px-3 text-center font-bold text-purple-700">
                         {st.totalProductQty}
                       </td>
+                      <td className="py-3.5 px-3 text-right font-medium text-slate-600">
+                        {formatScore(st.totalSelfScore)}
+                      </td>
                       <td className="py-3.5 px-3 text-right font-black text-[#1F4E78] text-sm">
-                        {formatScore(st.totalScore)}
+                        {formatScore(st.totalApprovedScore)}
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-600">
                         {st.userCount} người
@@ -956,13 +1029,14 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center"></td>
                     <td className="py-3.5 px-4 uppercase text-center">TỔNG CỘNG TOÀN PHÒNG</td>
                     <td className="py-3.5 px-3 text-center text-sm">{totalWorks}</td>
-                    <td className="py-3.5 px-3 text-center">{groupStats.reduce((a, b) => a + b.assignCount, 0)}</td>
+                    <td className="py-3.5 px-3 text-center">{groupStats.reduce((a, b) => a + b.assignCount, 0)} lượt</td>
                     <td className="py-3.5 px-3 text-center text-emerald-700">{totalCompleted}</td>
                     <td className="py-3.5 px-3 text-center text-indigo-700">{totalApproved}</td>
                     <td className="py-3.5 px-3 text-center text-red-700">{totalDelayed}</td>
                     <td className="py-3.5 px-4 text-center text-emerald-800">{completionRate}%</td>
                     <td className="py-3.5 px-3 text-center text-purple-800">{totalProductQty}</td>
-                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
                     <td className="py-3.5 px-3 text-center">{users.length} người</td>
                   </tr>
                 </tfoot>
@@ -982,7 +1056,7 @@ export default function Stats() {
                 Thống kê chi tiết theo Danh mục Nhiệm vụ
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Theo dõi tần suất phát sinh, khối lượng hoàn thành và đóng góp điểm KPI của từng đầu mục nhiệm vụ.
+                Theo dõi tần suất phát sinh, khối lượng hoàn thành, điểm quy đổi công việc tự chấm và duyệt của từng đầu mục nhiệm vụ (tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng).
               </p>
             </div>
             <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-xs">
@@ -1002,14 +1076,15 @@ export default function Stats() {
                   <th className="py-3 px-3">Đã xong</th>
                   <th className="py-3 px-3">Đã duyệt</th>
                   <th className="py-3 px-3">Tỷ lệ xong</th>
-                  <th className="py-3 px-3 text-right">Tổng điểm KPI B</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc tự chấm</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc duyệt</th>
                   <th className="py-3 px-3">Số NS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {taskStats.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-12 text-slate-400">
+                    <td colSpan={11} className="text-center py-12 text-slate-400">
                       Không tìm thấy nhiệm vụ nào thỏa mãn bộ lọc đã chọn.
                     </td>
                   </tr>
@@ -1032,8 +1107,11 @@ export default function Stats() {
                       <td className="py-3.5 px-3 text-center font-bold text-emerald-600">{st.done}</td>
                       <td className="py-3.5 px-3 text-center font-bold text-indigo-600">{st.approved}</td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-700">{st.doneRate}%</td>
+                      <td className="py-3.5 px-3 text-right font-medium text-slate-600">
+                        {formatScore(st.totalSelfScore)}
+                      </td>
                       <td className="py-3.5 px-3 text-right font-black text-[#1F4E78] text-sm">
-                        {formatScore(st.totalScore)}
+                        {formatScore(st.totalApprovedScore)}
                       </td>
                       <td className="py-3.5 px-3 text-center font-bold text-slate-600">
                         {st.userCount}
@@ -1053,7 +1131,8 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center text-emerald-700">{totalCompleted}</td>
                     <td className="py-3.5 px-3 text-center text-indigo-700">{totalApproved}</td>
                     <td className="py-3.5 px-3 text-center text-emerald-800">{completionRate}%</td>
-                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
                     <td className="py-3.5 px-3 text-center">{users.length}</td>
                   </tr>
                 </tfoot>
@@ -1073,7 +1152,7 @@ export default function Stats() {
                 Thống kê Sản phẩm đầu ra của Phòng
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Bảng tổng hợp các loại sản phẩm (Báo cáo, Tờ trình, Hồ sơ quyết toán, Bảng tổng hợp...) và sản lượng thực tế.
+                Bảng tổng hợp các loại sản phẩm, sản lượng thực tế cùng điểm quy đổi công việc tự chấm và duyệt tương ứng (tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng).
               </p>
             </div>
             <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-xs">
@@ -1092,13 +1171,14 @@ export default function Stats() {
                   <th className="py-3 px-3">Số công việc tạo ra SP</th>
                   <th className="py-3 px-3">Đã hoàn thành</th>
                   <th className="py-3 px-3">Tỷ lệ xong</th>
-                  <th className="py-3 px-3 text-right">Tổng điểm KPI B tương ứng</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc tự chấm</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc duyệt</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {productStats.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-slate-400">
+                    <td colSpan={9} className="text-center py-12 text-slate-400">
                       Không tìm thấy sản phẩm nào trong giai đoạn đã lọc.
                     </td>
                   </tr>
@@ -1124,8 +1204,11 @@ export default function Stats() {
                       <td className="py-3.5 px-3 text-center font-bold text-slate-700">
                         {st.doneRate}%
                       </td>
+                      <td className="py-3.5 px-3 text-right font-medium text-slate-600">
+                        {formatScore(st.totalSelfScore)}
+                      </td>
                       <td className="py-3.5 px-3 text-right font-black text-[#1F4E78] text-sm">
-                        {formatScore(st.totalScore)}
+                        {formatScore(st.totalApprovedScore)}
                       </td>
                     </tr>
                   ))
@@ -1141,7 +1224,8 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center">{totalWorks} việc</td>
                     <td className="py-3.5 px-3 text-center text-emerald-700">{totalCompleted}</td>
                     <td className="py-3.5 px-3 text-center text-emerald-800">{completionRate}%</td>
-                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
                   </tr>
                 </tfoot>
               )}
@@ -1160,7 +1244,7 @@ export default function Stats() {
                 Thống kê Hiệu suất & Khối lượng từng Nhân sự
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Bảng theo dõi tổng việc thực hiện, việc được giao, tiến độ hoàn thành, điểm KPI B và số giờ làm thêm ngoài giờ.
+                Bảng theo dõi tổng việc thực hiện, lượt giao nhiệm vụ, tiến độ hoàn thành, điểm quy đổi công việc tự chấm, điểm quy đổi công việc duyệt và số giờ làm thêm ngoài giờ (tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng).
               </p>
             </div>
             <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-xs">
@@ -1175,13 +1259,14 @@ export default function Stats() {
                   <th className="py-3 px-3 w-12">STT</th>
                   <th className="py-3 px-4 text-left">Nhân sự</th>
                   <th className="py-3 px-3">Tổng việc</th>
-                  <th className="py-3 px-3">Việc giao</th>
+                  <th className="py-3 px-3">Lượt giao nhiệm vụ</th>
                   <th className="py-3 px-3">Hoàn thành</th>
                   <th className="py-3 px-3">Đã duyệt</th>
                   <th className="py-3 px-3">Chậm hạn</th>
                   <th className="py-3 px-4 text-center">Tỷ lệ xong</th>
                   <th className="py-3 px-3">Sản phẩm</th>
-                  <th className="py-3 px-3 text-right">Điểm KPI B</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc tự chấm</th>
+                  <th className="py-3 px-3 text-right">Điểm quy đổi công việc duyệt</th>
                   <th className="py-3 px-3">Giờ OT</th>
                 </tr>
               </thead>
@@ -1195,9 +1280,11 @@ export default function Stats() {
                     </td>
                     <td className="py-3.5 px-3 text-center font-black text-slate-800 text-sm">{st.totalCount}</td>
                     <td className="py-3.5 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-[#1F4E78]">
-                        {st.assignedCount}
-                      </span>
+                      {st.assignedCount > 0 ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-[#1F4E78]">
+                          {st.assignedCount} lượt
+                        </span>
+                      ) : <span className="text-slate-400">-</span>}
                     </td>
                     <td className="py-3.5 px-3 text-center font-bold text-emerald-600">{st.completedCount}</td>
                     <td className="py-3.5 px-3 text-center font-bold text-indigo-600">{st.approvedCount}</td>
@@ -1216,8 +1303,11 @@ export default function Stats() {
                       </div>
                     </td>
                     <td className="py-3.5 px-3 text-center font-bold text-purple-700">{st.productQty}</td>
+                    <td className="py-3.5 px-3 text-right font-medium text-slate-600">
+                      {formatScore(st.totalSelfScoreB)}
+                    </td>
                     <td className="py-3.5 px-3 text-right font-black text-[#1F4E78] text-sm">
-                      {formatScore(st.totalScoreB)}
+                      {formatScore(st.totalApprovedScoreB)}
                     </td>
                     <td className="py-3.5 px-3 text-center font-bold text-amber-700">
                       {st.totalOtHours > 0 ? `${formatScore(st.totalOtHours)}h` : '-'}
@@ -1231,13 +1321,14 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center"></td>
                     <td className="py-3.5 px-4 uppercase text-center">TỔNG CỘNG</td>
                     <td className="py-3.5 px-3 text-center text-sm">{totalWorks}</td>
-                    <td className="py-3.5 px-3 text-center">{employeeStats.reduce((a, b) => a + b.assignedCount, 0)}</td>
+                    <td className="py-3.5 px-3 text-center">{employeeStats.reduce((a, b) => a + b.assignedCount, 0)} lượt</td>
                     <td className="py-3.5 px-3 text-center text-emerald-700">{totalCompleted}</td>
                     <td className="py-3.5 px-3 text-center text-indigo-700">{totalApproved}</td>
                     <td className="py-3.5 px-3 text-center text-red-700">{totalDelayed}</td>
                     <td className="py-3.5 px-4 text-center text-emerald-800">{completionRate}%</td>
                     <td className="py-3.5 px-3 text-center text-purple-800">{totalProductQty}</td>
-                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
+                    <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
                     <td className="py-3.5 px-3 text-center text-amber-800">{formatScore(totalOtHours)}h</td>
                   </tr>
                 </tfoot>
@@ -1257,7 +1348,7 @@ export default function Stats() {
                 Sổ Chi tiết Toàn bộ Công việc trong giai đoạn lọc
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Hiển thị chi tiết từng đầu việc, dự án, nội dung, sản phẩm đầu ra, tính chất và điểm số quy đổi.
+                Hiển thị chi tiết từng đầu việc, dự án, nội dung, sản phẩm đầu ra, tính chất, điểm quy đổi công việc tự chấm và điểm quy đổi công việc duyệt (tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng).
               </p>
             </div>
             <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-xs">
@@ -1276,9 +1367,10 @@ export default function Stats() {
                   <th className="py-3 px-3 text-left">Dự án / Nội dung</th>
                   <th className="py-3 px-2.5">Sản phẩm</th>
                   <th className="py-3 px-2.5">Tính chất</th>
-                  <th className="py-3 px-2.5 text-right">Điểm B</th>
+                  <th className="py-3 px-2.5 text-right">Điểm quy đổi công việc tự chấm</th>
+                  <th className="py-3 px-2.5 text-right">Điểm quy đổi công việc duyệt</th>
                   <th className="py-3 px-2.5">Tiến độ</th>
-                  <th className="py-3 px-2.5">Duyệt</th>
+                  <th className="py-3 px-2.5">Trạng thái duyệt</th>
                   <th className="py-3 px-2.5">Hạn chót</th>
                   <th className="py-3 px-2.5 w-12 text-center">Chi tiết</th>
                 </tr>
@@ -1286,68 +1378,90 @@ export default function Stats() {
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {filteredWorks.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="text-center py-12 text-slate-400">
+                    <td colSpan={13} className="text-center py-12 text-slate-400">
                       Không có công việc nào thỏa mãn tiêu chí tìm kiếm.
                     </td>
                   </tr>
                 ) : (
-                  filteredWorks.map((w, idx) => (
-                    <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="py-3 px-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="py-3 px-2.5 text-center font-bold text-slate-700">{formatMonth(w.month)}</td>
-                      <td className="py-3 px-3">
-                        <div className="font-bold text-slate-900">{w.user?.name || '-'}</div>
-                        <div className="text-[10px] text-slate-500">{cleanPosition(w.user?.position)}</div>
-                      </td>
-                      <td className="py-3 px-3 max-w-xs">
-                        <span className="text-[10px] font-bold text-[#1F4E78] block">[{w.taskGroup || 'Khác'}]</span>
-                        <span className="font-bold text-slate-800">{w.taskName}</span>
-                      </td>
-                      <td className="py-3 px-3 max-w-xs">
-                        {w.project && <div className="text-[10px] font-bold text-indigo-700 truncate">{w.project}</div>}
-                        <div className="text-slate-600 line-clamp-2 text-[11px]">{w.detail || '-'}</div>
-                      </td>
-                      <td className="py-3 px-2.5 text-center">
-                        <span className="font-bold text-purple-700 block">{w.productQty || 1} {w.unit || ''}</span>
-                        <span className="text-[10px] text-slate-500">{w.productType || '-'}</span>
-                      </td>
-                      <td className="py-3 px-2.5 text-center">
-                        <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-700">
-                          {w.approvedNature || w.proposedNature || 'Trung bình'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5 text-right font-black text-[#1F4E78] text-sm">
-                        {formatScore(w.convertedScore)}
-                      </td>
-                      <td className="py-3 px-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          w.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800' :
-                          w.status === 'Chậm' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'
-                        }`}>
-                          {w.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          w.leaderApproval === 'Duyệt' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {w.leaderApproval || 'Chưa duyệt'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5 text-center text-slate-500 text-[11px]">
-                        {formatDate(w.endDate)}
-                      </td>
-                      <td className="py-3 px-2.5 text-center">
-                        <button
-                          onClick={() => setViewingWork(w)}
-                          className="p-1.5 text-[#1F4E78] hover:bg-blue-100 rounded-lg transition-colors"
-                          title="Xem chi tiết phiếu công việc"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  filteredWorks.map((w, idx) => {
+                    const selfScoreVal = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
+                    const approvedScoreVal = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
+                    
+                    return (
+                      <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-3 px-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                        <td className="py-3 px-2.5 text-center font-bold text-slate-700">{formatMonth(w.month)}</td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900">{w.user?.name || '-'}</div>
+                          <div className="text-[10px] text-slate-500">{cleanPosition(w.user?.position)}</div>
+                        </td>
+                        <td className="py-3 px-3 max-w-xs">
+                          <span className="text-[10px] font-bold text-[#1F4E78] block">[{w.taskGroup || 'Khác'}]</span>
+                          <span className="font-bold text-slate-800">{w.taskName}</span>
+                        </td>
+                        <td className="py-3 px-3 max-w-xs">
+                          {w.project && <div className="text-[10px] font-bold text-indigo-700 truncate">{w.project}</div>}
+                          <div className="text-slate-600 line-clamp-2 text-[11px]">{w.detail || '-'}</div>
+                        </td>
+                        <td className="py-3 px-2.5 text-center">
+                          <span className="font-bold text-purple-700 block">{w.productQty || 1} {w.unit || ''}</span>
+                          <span className="text-[10px] text-slate-500">{w.productType || '-'}</span>
+                        </td>
+                        <td className="py-3 px-2.5 text-center">
+                          <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-700">
+                            {w.approvedNature || w.proposedNature || 'Trung bình'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2.5 text-right font-semibold text-slate-700 text-xs">
+                          {formatScore(selfScoreVal)}
+                        </td>
+                        <td className="py-3 px-2.5 text-right">
+                          {w.leaderApproval === 'Duyệt' ? (
+                            <span className="font-black text-[#1F4E78] text-sm">
+                              {formatScore(approvedScoreVal)}
+                            </span>
+                          ) : w.leaderApproval === 'Không duyệt' ? (
+                            <span className="text-red-500 font-bold text-[11px]">Không duyệt</span>
+                          ) : (
+                            <span className="text-amber-600 font-bold text-[11px]">Chờ duyệt</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            w.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800' :
+                            w.status === 'Chậm' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {w.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            w.leaderApproval === 'Duyệt' ? 'bg-emerald-100 text-emerald-800' :
+                            w.leaderApproval === 'Không duyệt' ? 'bg-red-100 text-red-700' :
+                            w.leaderApproval === 'Cần bổ sung' ? 'bg-amber-100 text-amber-800' :
+                            'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {w.leaderApproval === 'Duyệt' ? 'Đã duyệt' :
+                             w.leaderApproval === 'Không duyệt' ? 'Không duyệt' :
+                             w.leaderApproval === 'Cần bổ sung' ? 'Cần bổ sung' :
+                             'Chờ duyệt'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2.5 text-center text-slate-500 text-[11px]">
+                          {formatDate(w.endDate)}
+                        </td>
+                        <td className="py-3 px-2.5 text-center">
+                          <button
+                            onClick={() => setViewingWork(w)}
+                            className="p-1.5 text-[#1F4E78] hover:bg-blue-100 rounded-lg transition-colors"
+                            title="Xem chi tiết phiếu công việc"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1399,9 +1513,39 @@ export default function Stats() {
                 <span className="text-slate-500 font-bold block mb-1">Tính chất & Điểm chuẩn:</span>
                 <span className="font-bold text-slate-800">{viewingWork.approvedNature || viewingWork.proposedNature || 'Trung bình'} (Điểm chuẩn: {viewingWork.baseScore || '0'}đ)</span>
               </div>
-              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
-                <span className="text-[#1F4E78] font-bold block mb-1">Điểm KPI B quy đổi:</span>
-                <span className="font-black text-[#1F4E78] text-lg">{formatScore(viewingWork.convertedScore)} đ</span>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-slate-500 font-bold block mb-1">Điểm quy đổi công việc tự chấm:</span>
+                <span className="font-bold text-slate-800 text-base">
+                  {formatScore(viewingWork.selfConvertedScore !== undefined && viewingWork.selfConvertedScore !== null ? viewingWork.selfConvertedScore : viewingWork.convertedScore)} đ
+                </span>
+              </div>
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 col-span-2">
+                <span className="text-[#1F4E78] font-bold block mb-1">Điểm quy đổi công việc duyệt:</span>
+                <div className="flex items-center gap-3">
+                  {viewingWork.leaderApproval === 'Duyệt' ? (
+                    <span className="font-black text-[#1F4E78] text-lg">
+                      {formatScore(viewingWork.approvedConvertedScore !== undefined && viewingWork.approvedConvertedScore !== null ? viewingWork.approvedConvertedScore : viewingWork.convertedScore)} đ
+                    </span>
+                  ) : viewingWork.leaderApproval === 'Không duyệt' ? (
+                    <span className="text-red-600 font-bold text-base">Không duyệt</span>
+                  ) : (
+                    <span className="text-amber-600 font-bold text-base">Chờ duyệt</span>
+                  )}
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                    viewingWork.leaderApproval === 'Duyệt' ? 'bg-emerald-100 text-emerald-800' :
+                    viewingWork.leaderApproval === 'Không duyệt' ? 'bg-red-100 text-red-800' :
+                    viewingWork.leaderApproval === 'Cần bổ sung' ? 'bg-amber-100 text-amber-800' :
+                    'bg-amber-50 text-amber-700 border border-amber-200'
+                  }`}>
+                    {viewingWork.leaderApproval === 'Duyệt' ? 'Đã duyệt' :
+                     viewingWork.leaderApproval === 'Không duyệt' ? 'Không duyệt' :
+                     viewingWork.leaderApproval === 'Cần bổ sung' ? 'Cần bổ sung' :
+                     'Chờ duyệt'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-normal italic block mt-1.5">
+                  * Đây là tổng điểm quy đổi từ công việc, không phải điểm KPI B1 + B2 cuối cùng.
+                </span>
               </div>
             </div>
 
@@ -1432,9 +1576,15 @@ export default function Stats() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 font-bold">Lãnh đạo duyệt:</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
-                  viewingWork.leaderApproval === 'Duyệt' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                  viewingWork.leaderApproval === 'Duyệt' ? 'bg-emerald-100 text-emerald-800' :
+                  viewingWork.leaderApproval === 'Không duyệt' ? 'bg-red-100 text-red-800' :
+                  viewingWork.leaderApproval === 'Cần bổ sung' ? 'bg-amber-100 text-amber-800' :
+                  'bg-amber-50 text-amber-700 border border-amber-200'
                 }`}>
-                  {viewingWork.leaderApproval || 'Chưa duyệt'}
+                  {viewingWork.leaderApproval === 'Duyệt' ? 'Đã duyệt' :
+                   viewingWork.leaderApproval === 'Không duyệt' ? 'Không duyệt' :
+                   viewingWork.leaderApproval === 'Cần bổ sung' ? 'Cần bổ sung' :
+                   'Chờ duyệt'}
                 </span>
               </div>
 

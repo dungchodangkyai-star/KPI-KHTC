@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "frequency": "daily",
+  "dailyTime": "23:30",
+  "weeklyDay": 0,
+  "maxCopies": 30,
+  "offsite": {
+    "enabled": true,
+    "provider": "google_drive",
+    "destinationUrl": "https://script.google.com/macros/s/test/exec",
+    "authHeaderName": "",
+    "authHeaderValue": "",
+    "sendAsMultipart": false
+  },
+  "lastBackupAt": "",
+  "lastBackupStatus": "idle",
+  "lastBackupMessage": "Chưa có bản sao lưu nào được thực hiện"
+}

@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { Printer, Download, ArrowLeft, Calendar, FileText } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function PrintPersonalKpi() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { orgConfig } = useOrgConfig();
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+
+  const queryUserId = searchParams.get('userId');
+  const queryMonth = searchParams.get('month');
+
+  const [selectedMonth, setSelectedMonth] = useState(queryMonth || '08-2026');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [targetUser, setTargetUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [kpiData, setKpiData] = useState<any>(null);
 
@@ -19,8 +25,17 @@ export default function PrintPersonalKpi() {
       if (dU.success && dU.data && dU.data.length > 0) {
         const activeUser = getActiveLoggedInUser(dU.data);
         setCurrentUser(activeUser);
-        if (activeUser) {
-          await loadKpiDetail(targetMonth, activeUser.id);
+
+        let userToLoad = activeUser;
+        if (queryUserId) {
+          const found = dU.data.find((x: any) => String(x.id) === String(queryUserId));
+          if (found) {
+            userToLoad = found;
+          }
+        }
+        setTargetUser(userToLoad);
+        if (userToLoad) {
+          await loadKpiDetail(targetMonth, userToLoad.id);
         }
       }
     } catch (err) {
@@ -31,14 +46,18 @@ export default function PrintPersonalKpi() {
   };
 
   useEffect(() => {
-    fetchUserAndData(selectedMonth);
+    const monthToUse = queryMonth || selectedMonth;
+    if (queryMonth && queryMonth !== selectedMonth) {
+      setSelectedMonth(queryMonth);
+    }
+    fetchUserAndData(monthToUse);
 
     const handleUserChange = () => {
-      fetchUserAndData(selectedMonth);
+      fetchUserAndData(monthToUse);
     };
     window.addEventListener('kpi_user_changed', handleUserChange);
     return () => window.removeEventListener('kpi_user_changed', handleUserChange);
-  }, []);
+  }, [queryUserId, queryMonth]);
 
   const loadKpiDetail = async (month: string, uId: number) => {
     try {
@@ -54,48 +73,64 @@ export default function PrintPersonalKpi() {
     }
   };
 
-
   const handleMonthChange = (m: string) => {
     setSelectedMonth(m);
-    if (currentUser) {
-      loadKpiDetail(m, currentUser.id);
+    const uToLoad = targetUser || currentUser;
+    if (uToLoad) {
+      loadKpiDetail(m, uToLoad.id);
     }
   };
 
-  const u = kpiData?.user || currentUser;
+  const u = kpiData?.user || targetUser || currentUser;
   const sum = kpiData?.summary;
   const detA = kpiData?.detailsA;
   const detC = kpiData?.detailsC;
   const detD = kpiData?.detailsD;
 
-  // Scores
+  // Scores A
   const selfA = detA?.selfTotal !== null && detA?.selfTotal !== undefined ? detA.selfTotal : null;
   const approvedA = detA?.approvedTotal !== null && detA?.approvedTotal !== undefined ? detA.approvedTotal : null;
+  const isStatusAApproved = detA?.statusA === 'Đã duyệt';
+  const isStatusCApproved = detC?.statusC === 'Đã duyệt';
+  const isStatusDApproved = detD?.statusD === 'Đã duyệt';
+  const isAllApproved = isStatusAApproved && isStatusCApproved && isStatusDApproved && approvedA !== null && approvedA !== undefined;
 
-  const scoreB = sum?.bTotal ?? 0;
-  const scoreB1 = sum?.b1 ?? 0;
-  const scoreB2 = sum?.b2 ?? 0;
+  // Scores B (Self & Approved)
+  const selfB1 = sum?.selfB1 ?? 0;
+  const selfB2 = sum?.selfB2 ?? 0;
+  const selfBTotal = sum?.selfBTotal ?? 0;
 
-  const scoreC1 = detC?.c1 ?? detC?.autoC1 ?? 0;
+  const hasApprovedWorks = (sum?.approvedWorks || 0) > 0;
+  const approvedB1 = sum?.approvedB1 ?? 0;
+  const approvedB2 = sum?.approvedB2 ?? 0;
+  const approvedBTotal = sum?.approvedBTotal ?? 0;
+
+  // Scores C (Self automatic C & Approved C)
+  const selfAutoC1 = detC?.selfAutoC1 ?? detC?.autoC1 ?? detC?.c1 ?? 0;
+  const approvedAutoC1 = detC?.approvedAutoC1 ?? detC?.autoC1 ?? detC?.c1 ?? 0;
+  const selfC = Math.min(10, selfAutoC1);
+  const scoreC1 = approvedAutoC1;
   const scoreC2 = detC?.c2 ?? 0;
-  const scoreC = Math.min(10, scoreC1 + scoreC2);
+  const approvedC = Math.min(10, scoreC1 + scoreC2);
 
-  const scoreD = (detD?.items || []).reduce(
-    (s: number, it: any) => s + (parseFloat(it.officialD ?? (it.autoD || '0')) || 0),
-    0
-  );
+  // Scores D (Self automatic D & Approved D)
+  const autoDTotal = detD?.totalAutoD !== undefined
+    ? detD.totalAutoD
+    : (detD?.items || []).reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
+  const selfD = autoDTotal;
 
-  // Totals
-  const totalSelf = selfA !== null ? Math.min(100, Math.max(0, selfA + scoreB + scoreC - scoreD)) : null;
-  const totalApproved = approvedA !== null ? Math.min(100, Math.max(0, approvedA + scoreB + scoreC - scoreD)) : Math.min(100, Math.max(0, scoreB + scoreC - scoreD));
+  const approvedD = detD?.totalOfficialD !== undefined
+    ? detD.totalOfficialD
+    : (detD?.items || []).reduce(
+        (s: number, it: any) => s + (parseFloat(it.officialD !== undefined ? it.officialD : (it.autoD || '0')) || 0),
+        0
+      );
 
-  const getRank = (score: number | null) => {
-    if (score === null) return normalizeNFC('Chưa xếp loại');
-    if (score >= 95) return normalizeNFC('Hoàn thành xuất sắc');
-    if (score >= 80) return normalizeNFC('Hoàn thành tốt');
-    if (score >= 65) return normalizeNFC('Hoàn thành');
-    return normalizeNFC('Không hoàn thành');
-  };
+  // Server-authoritative totals & rankings
+  const totalSelf = kpiData?.selfKpiTotal ?? sum?.selfKpiTotal ?? 0;
+  const selfRankStr = kpiData?.selfRank ?? sum?.selfRank ?? (selfA !== null ? 'Chưa xếp loại' : 'Chưa tự chấm A');
+  const totalApproved = kpiData?.approvedKpiTotal ?? sum?.approvedKpiTotal ?? null;
+  const approvedRankStr = kpiData?.approvedRank ?? sum?.approvedRank ?? 'Chờ duyệt';
 
   const handlePrint = () => {
     window.print();
@@ -189,7 +224,13 @@ export default function PrintPersonalKpi() {
       <div className="flex flex-wrap items-center justify-between gap-4 print:hidden no-print">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/kpi')}
+            onClick={() => {
+              if (queryUserId) {
+                navigate(`/department-kpi?month=${selectedMonth}`);
+              } else {
+                navigate(`/kpi?month=${selectedMonth}`);
+              }
+            }}
             className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full transition cursor-pointer"
             title="Quay lại"
           >
@@ -243,7 +284,10 @@ export default function PrintPersonalKpi() {
             </select>
           </div>
           <button
-            onClick={() => currentUser && loadKpiDetail(selectedMonth, currentUser.id)}
+            onClick={() => {
+              const uToLoad = targetUser || currentUser;
+              if (uToLoad) loadKpiDetail(selectedMonth, uToLoad.id);
+            }}
             className="bg-[#1F4E78] hover:bg-[#173a5a] text-white px-4 py-1.5 rounded-lg text-sm font-bold transition shadow-sm cursor-pointer"
           >
             Cập nhật phiếu
@@ -350,7 +394,7 @@ export default function PrintPersonalKpi() {
                   {selfA !== null ? `${formatScore(selfA)}` : normalizeNFC('Chưa tự chấm')}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#1F4E78' }}>
-                  {approvedA !== null ? `${formatScore(approvedA)}` : normalizeNFC('Chưa duyệt')}
+                  {isStatusAApproved && approvedA !== null ? `${formatScore(approvedA)}` : normalizeNFC('Chờ duyệt')}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -361,12 +405,14 @@ export default function PrintPersonalKpi() {
                 <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm B - Thực hiện nhiệm vụ thường xuyên')}</div>
                   <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
-                    {normalizeNFC(`(B1: ${formatScore(scoreB1)}đ + B2: ${formatScore(scoreB2)}đ; ${sum?.approvedWorks || 0} việc đã duyệt)`)}
+                    {normalizeNFC(`(Tự chấm: B1 ${formatScore(selfB1)}đ + B2 ${formatScore(selfB2)}đ; Duyệt: ${hasApprovedWorks ? `B1 ${formatScore(approvedB1)}đ + B2 ${formatScore(approvedB2)}đ` : 'Chờ duyệt'})`)}
                   </div>
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>60</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{formatScore(scoreB)}</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{formatScore(scoreB)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>{formatScore(selfBTotal)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>
+                  {hasApprovedWorks ? formatScore(approvedBTotal) : normalizeNFC('Chờ duyệt')}
+                </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
@@ -376,12 +422,14 @@ export default function PrintPersonalKpi() {
                 <td style={{ padding: '5px 6px', border: '1px solid black' }}>
                   <div style={{ fontWeight: 'bold' }}>{normalizeNFC('Điểm C - Thưởng/tính chất công việc/việc khó')}</div>
                   <div style={{ fontSize: '9.5pt', color: '#444', fontStyle: 'italic' }}>
-                    {normalizeNFC(`(C1 tự động: ${formatScore(scoreC1)}đ; C2 lãnh đạo chấm: ${formatScore(scoreC2)}đ)`)}
+                    {normalizeNFC(`(C1 tự động: ${formatScore(selfC)}đ; C2 lãnh đạo chấm: ${isStatusCApproved ? `${formatScore(scoreC2)}đ` : 'Chờ duyệt'})`)}
                   </div>
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>10</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{formatScore(scoreC)}</td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{formatScore(scoreC)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>+{formatScore(selfC)}</td>
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>
+                  {isStatusCApproved ? `+${formatScore(approvedC)}` : normalizeNFC('Chờ duyệt')}
+                </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
 
@@ -396,10 +444,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '5px 3px', border: '1px solid black', textAlign: 'center', fontStyle: 'italic' }}>{normalizeNFC('Trừ')}</td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
-                  {scoreD > 0 ? `-${formatScore(scoreD)}` : '0'}
+                  {selfD > 0 ? `-${formatScore(selfD)}` : '0'}
                 </td>
-                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>
-                  {scoreD > 0 ? `-${formatScore(scoreD)}` : '0'}
+                <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: isStatusDApproved ? '#b91c1c' : undefined }}>
+                  {isStatusDApproved ? (approvedD > 0 ? `-${formatScore(approvedD)}` : '0') : normalizeNFC('Chờ duyệt')}
                 </td>
                 <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -413,10 +461,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11pt' }}>100</td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#0f2440' }}>
-                  {totalSelf !== null ? formatScore(totalSelf) : '-'}
+                  {selfA !== null ? formatScore(totalSelf) : `${formatScore(totalSelf)} (*Chưa tự chấm A)`}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '11.5pt', color: '#1F4E78' }}>
-                  {formatScore(totalApproved)}
+                  {isAllApproved && totalApproved !== null ? formatScore(totalApproved) : normalizeNFC('Chờ duyệt')}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -430,10 +478,10 @@ export default function PrintPersonalKpi() {
                 </td>
                 <td style={{ padding: '6px 3px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}></td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '10.5pt' }}>
-                  {getRank(totalSelf)}
+                  {normalizeNFC(selfRankStr)}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', fontSize: '10.5pt' }}>
-                  {getRank(totalApproved)}
+                  {normalizeNFC(approvedRankStr)}
                 </td>
                 <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center' }}></td>
               </tr>
@@ -447,10 +495,10 @@ export default function PrintPersonalKpi() {
               {normalizeNFC('1. Điểm A (30đ): Chấp hành nội quy, kỷ luật lao động và phối hợp công tác; điểm chính thức áp dụng theo kết quả phê duyệt của lãnh đạo phòng.')}
             </div>
             <div>
-              {normalizeNFC(`2. Điểm B (60đ): Điểm quy đổi công việc cá nhân: ${formatScore(sum?.convertedScore)}đ, tỷ trọng cá nhân: ${formatScore(sum?.personalShare)}%, tỷ trọng bình quân phòng: ${formatScore(sum?.avgShare)}%.`)}
+              {normalizeNFC(`2. Điểm B (60đ): B tự chấm: ${formatScore(selfBTotal)}đ (B1: ${formatScore(selfB1)}đ + B2: ${formatScore(selfB2)}đ); B duyệt: ${hasApprovedWorks ? `${formatScore(approvedBTotal)}đ (B1: ${formatScore(approvedB1)}đ + B2: ${formatScore(approvedB2)}đ)` : 'Chờ duyệt'}.`)}
             </div>
             <div>
-              {normalizeNFC(`3. Điểm C (10đ): Điểm tính chất tự động C1: ${formatScore(scoreC1)}đ; Điểm việc khó/đột xuất C2: ${formatScore(scoreC2)}đ.`)}
+              {normalizeNFC(`3. Điểm C (10đ): Điểm tính chất tự động C1: ${formatScore(selfC)}đ; Điểm việc khó/đột xuất C2: ${formatScore(scoreC2)}đ.`)}
             </div>
             <div>
               {normalizeNFC('4. Quy định xếp loại: Từ 95 điểm trở lên: Hoàn thành xuất sắc nhiệm vụ; Từ 80 đến dưới 95 điểm: Hoàn thành tốt nhiệm vụ; Từ 65 đến dưới 80 điểm: Hoàn thành nhiệm vụ; Dưới 65 điểm: Không hoàn thành nhiệm vụ.')}

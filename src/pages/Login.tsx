@@ -204,7 +204,11 @@ export default function Login() {
     try {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(pendingUser?.id ? { 'x-user-id': String(pendingUser.id) } : {})
+        },
+        credentials: 'include',
         body: JSON.stringify({
           userId: pendingUser.id,
           oldPassword: password.trim(),

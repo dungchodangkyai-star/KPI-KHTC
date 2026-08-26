@@ -14,7 +14,9 @@ export interface StatsExportOptions {
   totalWorks: number;
   totalCompleted: number;
   totalApproved: number;
-  totalScoreB: number;
+  totalSelfScoreB?: number;
+  totalApprovedScoreB?: number;
+  totalScoreB?: number;
   totalProductQty: number;
 }
 
@@ -211,6 +213,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     totalWorks,
     totalCompleted,
     totalApproved,
+    totalSelfScoreB,
+    totalApprovedScoreB,
     totalScoreB,
     totalProductQty
   } = options;
@@ -237,7 +241,7 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const wsGroup = workbook.addWorksheet('Tổng hợp theo Nhóm việc', {
     views: [{ showGridLines: true }]
   });
-  addAdminHeader(wsGroup, orgConfig, 'BÁO CÁO THỐNG KÊ CÔNG VIỆC THEO NHÓM NHIỆM VỤ', monthsText, scopeText, 'I');
+  addAdminHeader(wsGroup, orgConfig, 'BÁO CÁO THỐNG KÊ CÔNG VIỆC THEO NHÓM NHIỆM VỤ', monthsText, scopeText, 'J');
 
   // Table Headers
   const groupHeaders = [
@@ -249,7 +253,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     'Đã phê duyệt',
     'Chậm tiến độ',
     'Tỷ lệ hoàn thành (%)',
-    'Tổng điểm KPI B quy đổi'
+    'Điểm quy đổi công việc tự chấm',
+    'Điểm quy đổi công việc đã duyệt'
   ];
   const groupHeaderRow = wsGroup.addRow(groupHeaders);
   groupHeaderRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -260,6 +265,9 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
 
   // Rows
   groupStats.forEach((st, idx) => {
+    const selfScore = st.totalSelfScore !== undefined ? st.totalSelfScore : (st.totalSelfScoreB || 0);
+    const approvedScore = st.totalApprovedScore !== undefined ? st.totalApprovedScore : (st.totalApprovedScoreB || 0);
+
     const r = wsGroup.addRow([
       idx + 1,
       st.group,
@@ -269,7 +277,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
       st.approved,
       st.delayed || 0,
       `${st.doneRate}%`,
-      st.totalScore
+      selfScore,
+      approvedScore
     ]);
     r.font = { name: FONT_FAMILY, size: 11 };
     r.alignment = { vertical: 'middle' };
@@ -283,6 +292,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     r.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(9).numFmt = '#,##0.00';
+    r.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+    r.getCell(10).numFmt = '#,##0.00';
     r.eachCell((cell) => { cell.border = THIN_BORDER; });
   });
 
@@ -292,6 +303,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const totalGroupApproved = groupStats.reduce((a, b) => a + b.approved, 0);
   const totalGroupDelayed = groupStats.reduce((a, b) => a + (b.delayed || 0), 0);
   const totalGroupDoneRate = totalWorks > 0 ? Math.round((totalCompleted / totalWorks) * 100) : 0;
+  const totalGroupSelfScore = totalSelfScoreB !== undefined ? totalSelfScoreB : groupStats.reduce((a, b) => a + (b.totalSelfScore || 0), 0);
+  const totalGroupApprovedScore = totalApprovedScoreB !== undefined ? totalApprovedScoreB : groupStats.reduce((a, b) => a + (b.totalApprovedScore || 0), 0);
 
   const groupTotalRow = wsGroup.addRow([
     '',
@@ -302,7 +315,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     totalGroupApproved,
     totalGroupDelayed,
     `${totalGroupDoneRate}%`,
-    Math.round(totalScoreB * 100) / 100
+    Math.round(totalGroupSelfScore * 100) / 100,
+    Math.round(totalGroupApprovedScore * 100) / 100
   ]);
   groupTotalRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FF0F2440' } };
   groupTotalRow.fill = TOTAL_FILL;
@@ -316,9 +330,11 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   groupTotalRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
   groupTotalRow.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
   groupTotalRow.getCell(9).numFmt = '#,##0.00';
+  groupTotalRow.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+  groupTotalRow.getCell(10).numFmt = '#,##0.00';
   groupTotalRow.eachCell((cell) => { cell.border = DOUBLE_BOTTOM_BORDER; });
 
-  addSignatureBlock(wsGroup, orgConfig, '', 'A', 'D', 'G');
+  addSignatureBlock(wsGroup, orgConfig, '', 'A', 'E', 'H');
   autoFitColumns(wsGroup);
 
   // ==========================================
@@ -327,7 +343,7 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const wsTask = workbook.addWorksheet('Tổng hợp theo Nhiệm vụ', {
     views: [{ showGridLines: true }]
   });
-  addAdminHeader(wsTask, orgConfig, 'BÁO CÁO THỐNG KÊ CÔNG VIỆC THEO DANH MỤC NHIỆM VỤ', monthsText, scopeText, 'H');
+  addAdminHeader(wsTask, orgConfig, 'BÁO CÁO THỐNG KÊ CÔNG VIỆC THEO DANH MỤC NHIỆM VỤ', monthsText, scopeText, 'I');
 
   const taskHeaders = [
     'STT',
@@ -337,7 +353,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     'Số việc phát sinh',
     'Đã hoàn thành',
     'Tỷ lệ xong (%)',
-    'Tổng điểm KPI B'
+    'Điểm quy đổi công việc tự chấm',
+    'Điểm quy đổi công việc đã duyệt'
   ];
   const taskHeaderRow = wsTask.addRow(taskHeaders);
   taskHeaderRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -347,6 +364,9 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   taskHeaderRow.eachCell((cell) => { cell.border = THIN_BORDER; });
 
   taskStats.forEach((st, idx) => {
+    const selfScore = st.totalSelfScore !== undefined ? st.totalSelfScore : (st.totalSelfScoreB || 0);
+    const approvedScore = st.totalApprovedScore !== undefined ? st.totalApprovedScore : (st.totalApprovedScoreB || 0);
+
     const r = wsTask.addRow([
       idx + 1,
       st.code || '-',
@@ -355,7 +375,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
       st.count,
       st.done,
       `${st.doneRate}%`,
-      st.totalScore
+      selfScore,
+      approvedScore
     ]);
     r.font = { name: FONT_FAMILY, size: 11 };
     r.alignment = { vertical: 'middle' };
@@ -368,8 +389,13 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     r.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(8).numFmt = '#,##0.00';
+    r.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+    r.getCell(9).numFmt = '#,##0.00';
     r.eachCell((cell) => { cell.border = THIN_BORDER; });
   });
+
+  const totalTaskSelfScore = totalSelfScoreB !== undefined ? totalSelfScoreB : taskStats.reduce((a, b) => a + (b.totalSelfScore || 0), 0);
+  const totalTaskApprovedScore = totalApprovedScoreB !== undefined ? totalApprovedScoreB : taskStats.reduce((a, b) => a + (b.totalApprovedScore || 0), 0);
 
   const taskTotalRow = wsTask.addRow([
     '',
@@ -379,7 +405,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     totalWorks,
     totalCompleted,
     `${totalGroupDoneRate}%`,
-    Math.round(totalScoreB * 100) / 100
+    Math.round(totalTaskSelfScore * 100) / 100,
+    Math.round(totalTaskApprovedScore * 100) / 100
   ]);
   taskTotalRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FF0F2440' } };
   taskTotalRow.fill = TOTAL_FILL;
@@ -390,6 +417,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   taskTotalRow.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' };
   taskTotalRow.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
   taskTotalRow.getCell(8).numFmt = '#,##0.00';
+  taskTotalRow.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+  taskTotalRow.getCell(9).numFmt = '#,##0.00';
   taskTotalRow.eachCell((cell) => { cell.border = DOUBLE_BOTTOM_BORDER; });
 
   addSignatureBlock(wsTask, orgConfig, '', 'A', 'D', 'G');
@@ -401,7 +430,7 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const wsProduct = workbook.addWorksheet('Tổng hợp theo Loại sản phẩm', {
     views: [{ showGridLines: true }]
   });
-  addAdminHeader(wsProduct, orgConfig, 'BÁO CÁO THỐNG KÊ SẢN PHẨM ĐẦU RA CỦA PHÒNG', monthsText, scopeText, 'G');
+  addAdminHeader(wsProduct, orgConfig, 'BÁO CÁO THỐNG KÊ SẢN PHẨM ĐẦU RA CỦA PHÒNG', monthsText, scopeText, 'H');
 
   const prodHeaders = [
     'STT',
@@ -410,7 +439,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     'Tổng số lượng sản phẩm',
     'Số công việc tạo ra SP',
     'Số SP đã hoàn thành',
-    'Tổng điểm KPI B tương ứng'
+    'Điểm quy đổi công việc tự chấm',
+    'Điểm quy đổi công việc đã duyệt'
   ];
   const prodHeaderRow = wsProduct.addRow(prodHeaders);
   prodHeaderRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -420,6 +450,9 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   prodHeaderRow.eachCell((cell) => { cell.border = THIN_BORDER; });
 
   productStats.forEach((st, idx) => {
+    const selfScore = st.totalSelfScore !== undefined ? st.totalSelfScore : (st.totalSelfScoreB || 0);
+    const approvedScore = st.totalApprovedScore !== undefined ? st.totalApprovedScore : (st.totalApprovedScoreB || 0);
+
     const r = wsProduct.addRow([
       idx + 1,
       st.productType,
@@ -427,7 +460,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
       st.totalQty,
       st.workCount,
       st.doneCount,
-      st.totalScore
+      selfScore,
+      approvedScore
     ]);
     r.font = { name: FONT_FAMILY, size: 11 };
     r.alignment = { vertical: 'middle' };
@@ -439,11 +473,14 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     r.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(7).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(7).numFmt = '#,##0.00';
+    r.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+    r.getCell(8).numFmt = '#,##0.00';
     r.eachCell((cell) => { cell.border = THIN_BORDER; });
   });
 
   const totalProdQtySum = productStats.reduce((a, b) => a + b.totalQty, 0);
-  const totalProdScoreSum = productStats.reduce((a, b) => a + b.totalScore, 0);
+  const totalProdSelfScoreSum = productStats.reduce((a, b) => a + (b.totalSelfScore || 0), 0);
+  const totalProdApprovedScoreSum = productStats.reduce((a, b) => a + (b.totalApprovedScore || 0), 0);
 
   const prodTotalRow = wsProduct.addRow([
     '',
@@ -452,7 +489,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     totalProdQtySum,
     totalWorks,
     totalCompleted,
-    Math.round(totalProdScoreSum * 100) / 100
+    Math.round(totalProdSelfScoreSum * 100) / 100,
+    Math.round(totalProdApprovedScoreSum * 100) / 100
   ]);
   prodTotalRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FF0F2440' } };
   prodTotalRow.fill = TOTAL_FILL;
@@ -463,6 +501,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   prodTotalRow.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' };
   prodTotalRow.getCell(7).alignment = { horizontal: 'right', vertical: 'middle' };
   prodTotalRow.getCell(7).numFmt = '#,##0.00';
+  prodTotalRow.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+  prodTotalRow.getCell(8).numFmt = '#,##0.00';
   prodTotalRow.eachCell((cell) => { cell.border = DOUBLE_BOTTOM_BORDER; });
 
   addSignatureBlock(wsProduct, orgConfig, '', 'A', 'C', 'F');
@@ -474,7 +514,7 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const wsStaff = workbook.addWorksheet('Thống kê theo Nhân sự', {
     views: [{ showGridLines: true }]
   });
-  addAdminHeader(wsStaff, orgConfig, 'BÁO CÁO HIỆU SUẤT CÔNG VIỆC VÀ ĐIỂM KPI TỪNG NHÂN SỰ', monthsText, scopeText, 'K');
+  addAdminHeader(wsStaff, orgConfig, 'BÁO CÁO HIỆU SUẤT CÔNG VIỆC VÀ ĐIỂM KPI TỪNG NHÂN SỰ', monthsText, scopeText, 'L');
 
   const staffHeaders = [
     'STT',
@@ -486,7 +526,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     'Đã phê duyệt',
     'Chậm tiến độ',
     'Tỷ lệ hoàn thành (%)',
-    'Tổng điểm KPI B',
+    'Điểm quy đổi công việc tự chấm',
+    'Điểm quy đổi công việc đã duyệt',
     'Giờ làm thêm (OT)'
   ];
   const staffHeaderRow = wsStaff.addRow(staffHeaders);
@@ -497,6 +538,9 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   staffHeaderRow.eachCell((cell) => { cell.border = THIN_BORDER; });
 
   employeeStats.forEach((st, idx) => {
+    const selfScore = st.totalSelfScoreB !== undefined ? st.totalSelfScoreB : (st.totalSelfScore || 0);
+    const approvedScore = st.totalApprovedScoreB !== undefined ? st.totalApprovedScoreB : (st.totalApprovedScore || 0);
+
     const r = wsStaff.addRow([
       idx + 1,
       st.user.name,
@@ -507,7 +551,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
       st.approvedCount,
       st.delayedCount,
       `${st.completionRate}%`,
-      st.totalScoreB,
+      selfScore,
+      approvedScore,
       st.totalOtHours > 0 ? st.totalOtHours : '-'
     ]);
     r.font = { name: FONT_FAMILY, size: 11 };
@@ -524,9 +569,13 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     r.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(10).numFmt = '#,##0.00';
     r.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' };
+    r.getCell(11).numFmt = '#,##0.00';
+    r.getCell(12).alignment = { horizontal: 'right', vertical: 'middle' };
     r.eachCell((cell) => { cell.border = THIN_BORDER; });
   });
 
+  const totalStaffSelfScore = totalSelfScoreB !== undefined ? totalSelfScoreB : employeeStats.reduce((a, b) => a + (b.totalSelfScoreB || 0), 0);
+  const totalStaffApprovedScore = totalApprovedScoreB !== undefined ? totalApprovedScoreB : employeeStats.reduce((a, b) => a + (b.totalApprovedScoreB || 0), 0);
   const totalStaffOt = employeeStats.reduce((a, b) => a + (b.totalOtHours || 0), 0);
 
   const staffTotalRow = wsStaff.addRow([
@@ -539,7 +588,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     totalApproved,
     employeeStats.reduce((a, b) => a + b.delayedCount, 0),
     `${totalGroupDoneRate}%`,
-    Math.round(totalScoreB * 100) / 100,
+    Math.round(totalStaffSelfScore * 100) / 100,
+    Math.round(totalStaffApprovedScore * 100) / 100,
     totalStaffOt > 0 ? totalStaffOt : '-'
   ]);
   staffTotalRow.font = { name: FONT_FAMILY, size: 11, bold: true, color: { argb: 'FF0F2440' } };
@@ -555,6 +605,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   staffTotalRow.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
   staffTotalRow.getCell(10).numFmt = '#,##0.00';
   staffTotalRow.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' };
+  staffTotalRow.getCell(11).numFmt = '#,##0.00';
+  staffTotalRow.getCell(12).alignment = { horizontal: 'right', vertical: 'middle' };
   staffTotalRow.eachCell((cell) => { cell.border = DOUBLE_BOTTOM_BORDER; });
 
   addSignatureBlock(wsStaff, orgConfig, '', 'A', 'E', 'I');
@@ -566,7 +618,7 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   const wsDetail = workbook.addWorksheet('Danh sách công việc chi tiết', {
     views: [{ showGridLines: true }]
   });
-  addAdminHeader(wsDetail, orgConfig, 'DANH SÁCH CHI TIẾT CÔNG VIỆC THỰC HIỆN CỦA PHÒNG', monthsText, scopeText, 'P');
+  addAdminHeader(wsDetail, orgConfig, 'DANH SÁCH CHI TIẾT CÔNG VIỆC THỰC HIỆN CỦA PHÒNG', monthsText, scopeText, 'T');
 
   const detailHeaders = [
     'STT',
@@ -582,7 +634,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     'ĐVT',
     'Tính chất',
     'Điểm chuẩn',
-    'Điểm quy đổi (B)',
+    'Điểm quy đổi công việc tự chấm',
+    'Điểm quy đổi công việc đã duyệt',
     'Tiến độ',
     'Lãnh đạo duyệt',
     'Ngày bắt đầu',
@@ -597,7 +650,15 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   detailHeaderRow.eachCell((cell) => { cell.border = THIN_BORDER; });
 
   filteredWorks.forEach((w, idx) => {
-    const scoreVal = parseFloat(w.convertedScore || '0') || 0;
+    const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null 
+      ? (parseFloat(w.selfConvertedScore) || 0) 
+      : (parseFloat(w.convertedScore || '0') || 0);
+    const approvedScore = w.leaderApproval === 'Duyệt'
+      ? (w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null 
+          ? (parseFloat(w.approvedConvertedScore) || 0) 
+          : (parseFloat(w.convertedScore || '0') || 0))
+      : 0;
+
     const r = wsDetail.addRow([
       idx + 1,
       w.month || '',
@@ -612,7 +673,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
       w.unit || '',
       w.approvedNature || w.proposedNature || '',
       parseFloat(w.baseScore || '0') || '',
-      scoreVal,
+      selfScore,
+      approvedScore,
       w.status || '',
       w.leaderApproval || 'Chưa duyệt',
       formatDate(w.startDate),
@@ -636,11 +698,13 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
     r.getCell(13).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(14).alignment = { horizontal: 'right', vertical: 'middle' };
     r.getCell(14).numFmt = '#,##0.00';
-    r.getCell(15).alignment = { horizontal: 'center', vertical: 'middle' };
+    r.getCell(15).alignment = { horizontal: 'right', vertical: 'middle' };
+    r.getCell(15).numFmt = '#,##0.00';
     r.getCell(16).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(17).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(18).alignment = { horizontal: 'center', vertical: 'middle' };
     r.getCell(19).alignment = { horizontal: 'center', vertical: 'middle' };
+    r.getCell(20).alignment = { horizontal: 'center', vertical: 'middle' };
     r.eachCell((cell) => { cell.border = THIN_BORDER; });
   });
 

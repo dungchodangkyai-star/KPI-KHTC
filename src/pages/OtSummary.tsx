@@ -47,6 +47,14 @@ export default function OtSummary() {
     return match ? match[0] : m;
   };
 
+  const formatOtHours = (hrs: number | string | null | undefined) => {
+    if (hrs === null || hrs === undefined || hrs === '') return '0';
+    const num = typeof hrs === 'string' ? parseFloat(hrs) : hrs;
+    if (isNaN(num)) return '0';
+    const rounded = Math.round(num * 10) / 10;
+    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
+  };
+
   const calculateHours = (start: string, end: string) => {
     if (!start || !end) return 0;
     const [h1, m1] = start.split(':').map(Number);
@@ -384,10 +392,10 @@ export default function OtSummary() {
                       {row.days.size}
                     </td>
                     <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold' }}>
-                      {row.totalHours}
+                      {formatOtHours(row.totalHours)}
                     </td>
                     <td style={{ padding: '5px 4px', border: '1px solid black', textAlign: 'center', fontWeight: 'bold', color: '#1F4E78' }}>
-                      {row.approvedHours}
+                      {formatOtHours(row.approvedHours)}
                     </td>
                   </tr>
                 ))
@@ -408,10 +416,10 @@ export default function OtSummary() {
                     {grandTotalDays}
                   </td>
                   <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontSize: '11.5pt' }}>
-                    {grandTotalHours}
+                    {formatOtHours(grandTotalHours)}
                   </td>
                   <td style={{ padding: '6px 4px', border: '1px solid black', textAlign: 'center', fontSize: '11.5pt', color: '#1F4E78' }}>
-                    {grandTotalApproved}
+                    {formatOtHours(grandTotalApproved)}
                   </td>
                 </tr>
               )}
@@ -421,8 +429,8 @@ export default function OtSummary() {
           {/* Summary notes */}
           <div style={{ fontSize: '11pt', fontWeight: 'bold', margin: '14px 0', lineHeight: '1.6' }}>
             <div>{normalizeNFC(`- Tổng số nhân sự làm thêm ngoài giờ: ${summaryData.filter(s => s.count > 0).length} cán bộ`)}</div>
-            <div>{normalizeNFC(`- Tổng số giờ làm thêm đăng ký toàn phòng: ${grandTotalHours} giờ`)}</div>
-            <div>{normalizeNFC(`- Tổng số giờ làm thêm đã được phê duyệt: ${grandTotalApproved} giờ`)}</div>
+            <div>{normalizeNFC(`- Tổng số giờ làm thêm đăng ký toàn phòng: ${formatOtHours(grandTotalHours)} giờ`)}</div>
+            <div>{normalizeNFC(`- Tổng số giờ làm thêm đã được phê duyệt: ${formatOtHours(grandTotalApproved)} giờ`)}</div>
           </div>
 
           {/* Signatures */}
@@ -447,14 +455,12 @@ export default function OtSummary() {
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10.5pt' }}>
-                      {normalizeNFC(orgConfig.approverTitle || 'LÃNH ĐẠO PHÒNG')}
+                      {normalizeNFC(orgConfig.approverTitle || 'TRƯỞNG PHÒNG')}
                     </div>
                     <div style={{ fontStyle: 'italic', fontSize: '9.5pt', marginBottom: '60px' }}>
                       {normalizeNFC('(Ký, ghi rõ họ tên)')}
                     </div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11pt' }}>
-                      {normalizeNFC('Khuất Văn Sơn')}
-                    </div>
+                    <div style={{ fontWeight: 'bold', fontSize: '11pt' }}></div>
                   </td>
                   <td style={{ width: '33.3%', padding: 0, verticalAlign: 'top', border: 'none', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10.5pt' }}>
