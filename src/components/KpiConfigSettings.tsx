@@ -19,7 +19,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { KpiConfig, KpiRankingTier, KpiCriterionA, KpiPenaltyRule } from '../types';
-import { DEFAULT_KPI_CONFIG, calculateTotalKpi, evaluateKpiRank, normalizeNFC } from '../utils';
+import { DEFAULT_KPI_CONFIG, calculateTotalKpi, evaluateKpiRank, normalizeNFC, safeFetchJson } from '../utils';
 
 interface Props {
   onRecalculateSuccess?: () => void;
@@ -129,19 +129,17 @@ export default function KpiConfigSettings({ onRecalculateSuccess }: Props) {
       setMessage(null);
       
       // Auto-save current config first
-      await fetch('/api/kpi/config', {
+      await safeFetchJson('/api/kpi/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
       });
 
-      const res = await fetch('/api/kpi/recalculate-all', {
+      const data: any = await safeFetchJson('/api/kpi/recalculate-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: targetMonth })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-      const data = await res.json();
       if (data.success) {
         setMessage({ type: 'success', text: data.message || `Đã tính lại KPI tháng ${targetMonth} thành công!` });
         if (onRecalculateSuccess) onRecalculateSuccess();

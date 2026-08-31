@@ -149,7 +149,7 @@ export default function Dashboard() {
   return (
     <div className="max-w-[1400px] mx-auto flex flex-col gap-6 pb-12 px-2 sm:px-4">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-300 pb-4 bg-white p-5 rounded-2xl border shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-300 pb-4 bg-[#67a2cf] p-5 rounded-2xl border shadow-sm">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
             <LayoutDashboard className="w-3.5 h-3.5" />
@@ -170,7 +170,7 @@ export default function Dashboard() {
             id="dash-select-month"
             value={selectedMonth} 
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-sm font-black text-[#1F4E78] outline-none cursor-pointer shadow-2xs"
+            className="bg-[#d9a1a1] border border-slate-300 rounded-lg px-2.5 py-1 text-sm font-black text-[#1f5278] outline-none cursor-pointer shadow-2xs"
           >
             <option value="Tất cả">Tất cả các tháng</option>
             {STANDARD_MONTHS.map(m => (

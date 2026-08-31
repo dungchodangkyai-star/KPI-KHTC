@@ -56,9 +56,33 @@ export async function runSeeder() {
         { code: 'PROD_HSGPMB', name: 'Hồ sơ đền bù/GPMB', type: 'PRODUCT_TYPE', order: 8, properties: { unit: 'Hồ sơ' }, status: 'Đang dùng' },
         { code: 'PROD_BIENBAN', name: 'Biên bản', type: 'PRODUCT_TYPE', order: 9, properties: { unit: 'Biên bản' }, status: 'Đang dùng' },
         { code: 'PROD_KHAC', name: 'Khác', type: 'PRODUCT_TYPE', order: 10, properties: { unit: 'Sản phẩm' }, status: 'Đang dùng' },
+        { code: 'NAT_01', name: 'Rất đơn giản', type: 'WORK_NATURE', order: 1, properties: { coef: 0.5, c1Point: 0, description: 'Nhiệm vụ thường xuyên, định kỳ đơn giản, quy trình rõ ràng' }, status: 'Đang dùng' },
+        { code: 'NAT_02', name: 'Đơn giản', type: 'WORK_NATURE', order: 2, properties: { coef: 0.6, c1Point: 0, description: 'Công việc đơn giản, ít bước xử lý' }, status: 'Đang dùng' },
+        { code: 'NAT_03', name: 'Trung bình', type: 'WORK_NATURE', order: 3, properties: { coef: 0.8, c1Point: 0, description: 'Công việc trung bình, yêu cầu nghiệp vụ chuyên môn tiêu chuẩn' }, status: 'Đang dùng' },
+        { code: 'NAT_04', name: 'Phức tạp', type: 'WORK_NATURE', order: 4, properties: { coef: 1.0, c1Point: 1, description: 'Công việc phức tạp, phối hợp nhiều khâu hoặc nhiều bên' }, status: 'Đang dùng' },
+        { code: 'NAT_05', name: 'Rất phức tạp', type: 'WORK_NATURE', order: 5, properties: { coef: 1.2, c1Point: 2, description: 'Công việc rất phức tạp, quy mô lớn hoặc tiến độ gấp' }, status: 'Đang dùng' },
+        { code: 'NAT_06', name: 'Đặc biệt phức tạp', type: 'WORK_NATURE', order: 6, properties: { coef: 1.5, c1Point: 3, description: 'Công việc đột xuất trọng điểm, đặc biệt khó khăn, chuyên sâu' }, status: 'Đang dùng' },
       ];
       for (const cat of defaultCategories) {
         await db.insert(categories).values(cat).onConflictDoNothing();
+      }
+    } else {
+      // Ensure WORK_NATURE entries exist even if categories already has items
+      const existingNatures = await db.query.categories.findMany({
+        where: (cat, { eq }) => eq(cat.type, 'WORK_NATURE')
+      });
+      if (existingNatures.length === 0) {
+        const defaultNatures = [
+          { code: 'NAT_01', name: 'Rất đơn giản', type: 'WORK_NATURE', order: 1, properties: { coef: 0.5, c1Point: 0, description: 'Nhiệm vụ thường xuyên, định kỳ đơn giản, quy trình rõ ràng' }, status: 'Đang dùng' },
+          { code: 'NAT_02', name: 'Đơn giản', type: 'WORK_NATURE', order: 2, properties: { coef: 0.6, c1Point: 0, description: 'Công việc đơn giản, ít bước xử lý' }, status: 'Đang dùng' },
+          { code: 'NAT_03', name: 'Trung bình', type: 'WORK_NATURE', order: 3, properties: { coef: 0.8, c1Point: 0, description: 'Công việc trung bình, yêu cầu nghiệp vụ chuyên môn tiêu chuẩn' }, status: 'Đang dùng' },
+          { code: 'NAT_04', name: 'Phức tạp', type: 'WORK_NATURE', order: 4, properties: { coef: 1.0, c1Point: 1, description: 'Công việc phức tạp, phối hợp nhiều khâu hoặc nhiều bên' }, status: 'Đang dùng' },
+          { code: 'NAT_05', name: 'Rất phức tạp', type: 'WORK_NATURE', order: 5, properties: { coef: 1.2, c1Point: 2, description: 'Công việc rất phức tạp, quy mô lớn hoặc tiến độ gấp' }, status: 'Đang dùng' },
+          { code: 'NAT_06', name: 'Đặc biệt phức tạp', type: 'WORK_NATURE', order: 6, properties: { coef: 1.5, c1Point: 3, description: 'Công việc đột xuất trọng điểm, đặc biệt khó khăn, chuyên sâu' }, status: 'Đang dùng' },
+        ];
+        for (const nat of defaultNatures) {
+          await db.insert(categories).values(nat).onConflictDoNothing();
+        }
       }
     }
 

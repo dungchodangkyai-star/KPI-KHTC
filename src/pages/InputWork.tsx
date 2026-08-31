@@ -15,7 +15,14 @@ import {
   formatDateInput,
   getActiveLoggedInUser,
   getWorkStatusFactor,
-  computeWorkConvertedScore
+  computeWorkConvertedScore,
+  formatScore,
+  getWorkNatureList,
+  setGlobalWorkNatures,
+  getNatureCoef,
+  WorkNatureItem,
+  safeFetch,
+  safeParseResponse
 } from '../utils';
 import { User as UserType } from '../types';
 
@@ -38,6 +45,7 @@ export default function InputWork() {
   const [taskGroups, setTaskGroups] = useState<string[]>([]);
   const [taskDict, setTaskDict] = useState<Record<string, any[]>>({});
   const [productTypes, setProductTypes] = useState<string[]>([]);
+  const [workNatures, setWorkNatures] = useState<WorkNatureItem[]>(getWorkNatureList());
 
   const [showProposeModal, setShowProposeModal] = useState(false);
   const [proposal, setProposal] = useState({ name: '', taskGroup: '', score: 10, nature: 'Trung bình', productType: 'Bảng tổng hợp' });
@@ -129,11 +137,11 @@ export default function InputWork() {
     const fetchUsersAndCatalog = async () => {
       try {
         const [usersRes, catRes] = await Promise.all([
-          fetch('/api/users'),
-          fetch('/api/categories')
+          safeFetch('/api/users'),
+          safeFetch('/api/categories')
         ]);
         
-        const d = await usersRes.json();
+        const d = await safeParseResponse(usersRes);
         if (d.success && d.data?.length > 0) {
           setUsers(d.data);
           const active = getActiveLoggedInUser(d.data);
@@ -147,9 +155,13 @@ export default function InputWork() {
           }
         }
 
-        const c = await catRes.json();
+        const c = await safeParseResponse(catRes);
         if (c.success) {
           const catData = c.data;
+          setGlobalWorkNatures(catData);
+          const dynamicNatures = getWorkNatureList(catData);
+          setWorkNatures(dynamicNatures);
+
           const directGroups = catData.filter((x: any) => x.type === 'TASK_GROUP' && x.status === 'Đang dùng').map((x: any) => x.name);
           const taskGroupNames = catData.filter((x: any) => x.type === 'TASK' && x.status === 'Đang dùng').map((x: any) => x.properties?.taskGroup).filter(Boolean);
           const groups = Array.from(new Set([...directGroups, ...taskGroupNames]));
@@ -166,7 +178,7 @@ export default function InputWork() {
                 code: t.code,
                 name: t.name,
                 score: t.properties?.score || 10,
-                nature: t.properties?.nature || 'Trung bình',
+                nature: t.properties?.nature || (dynamicNatures[0]?.name || 'Trung bình'),
                 productType: t.properties?.productType || 'Khác',
                 unit: t.properties?.unit || 'Sản phẩm'
               });
@@ -183,7 +195,7 @@ export default function InputWork() {
             const availableTasks = dict[firstGroup] || [];
             if (availableTasks.length > 0) {
               const firstTask = availableTasks[0];
-              const coef = WORK_NATURE_COEFS[firstTask.nature]?.coef ?? 0.8;
+              const coef = getNatureCoef(firstTask.nature);
               setFormData(prev => ({
                 ...prev,
                 taskGroup: firstGroup,
@@ -228,7 +240,7 @@ export default function InputWork() {
 
   const handleProposeSubmit = async () => {
     try {
-      const res = await fetch('/api/categories', {
+      const res = await safeFetch('/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -245,7 +257,7 @@ export default function InputWork() {
           }
         })
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success) {
         alert('Đề xuất công việc mới đã được gửi thành công!');
         setShowProposeModal(false);
@@ -261,7 +273,7 @@ export default function InputWork() {
     const availableTasks = taskDict[group] || [];
     if (availableTasks.length > 0) {
       const first = availableTasks[0];
-      const coef = WORK_NATURE_COEFS[first.nature]?.coef ?? 0.8;
+      const coef = getNatureCoef(first.nature);
       const conv = recomputeConvertedScore(String(first.score), String(coef), formData.status);
       setSelectedTaskIndex(0);
       setFormData(prev => ({
@@ -296,7 +308,7 @@ export default function InputWork() {
     const list = taskDict[formData.taskGroup] || [];
     const task = list[taskIdx];
     if (task) {
-      const coef = WORK_NATURE_COEFS[task.nature]?.coef ?? 0.8;
+      const coef = getNatureCoef(task.nature);
       const conv = recomputeConvertedScore(String(task.score), String(coef), formData.status);
       setFormData(prev => ({
         ...prev,
@@ -314,7 +326,7 @@ export default function InputWork() {
 
   // When Nature changes
   const handleNatureChange = (nature: string) => {
-    const coef = WORK_NATURE_COEFS[nature]?.coef ?? 0.8;
+    const coef = getNatureCoef(nature);
     const conv = recomputeConvertedScore(formData.baseScore, String(coef), formData.status);
     setFormData(prev => ({
       ...prev,
@@ -462,8 +474,7 @@ export default function InputWork() {
             ? parseFloat(String(rawCoef))
             : 0;
 
-          const natureObj = proposedNature ? WORK_NATURE_COEFS[proposedNature] : null;
-          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (natureObj ? natureObj.coef : 0);
+          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (proposedNature ? getNatureCoef(proposedNature) : 0);
 
           const hasExplicitSelfScore = rawSelfScore !== undefined && rawSelfScore !== null && String(rawSelfScore).trim() !== '' && !isNaN(parseFloat(String(rawSelfScore)));
           const hasValidStatus = Boolean(status && status.length > 0);
@@ -583,12 +594,12 @@ export default function InputWork() {
         ...formData,
         selfConvertedScore: formData.convertedScore
       };
-      const res = await fetch('/api/works', {
+      const res = await safeFetch('/api/works', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success) {
         setSuccessMessage(`Đã đăng ký công việc "${formData.taskName}" thành công vào tháng ${formData.month}!`);
         if (stayOnPage) {
@@ -955,11 +966,11 @@ export default function InputWork() {
                 onChange={(e) => handleNatureChange(e.target.value)}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-900 outline-none shadow-2xs"
               >
-                <option value="Đơn giản">Đơn giản (K = 0.6)</option>
-                <option value="Trung bình">Trung bình (K = 0.8)</option>
-                <option value="Phức tạp">Phức tạp (K = 1.0)</option>
-                <option value="Rất phức tạp">Rất phức tạp (K = 1.2)</option>
-                <option value="Đặc biệt phức tạp">Đặc biệt phức tạp (K = 1.5)</option>
+                {workNatures.map(nat => (
+                  <option key={nat.code || nat.name} value={nat.name}>
+                    {nat.name} (K = {formatScore(nat.coef)})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1212,7 +1223,7 @@ export default function InputWork() {
                     onChange={e => setProposal({ ...proposal, nature: e.target.value })} 
                     className="w-full p-2 border border-slate-300 rounded"
                   >
-                    {Object.keys(WORK_NATURE_COEFS).map(n => <option key={n} value={n}>{n}</option>)}
+                    {workNatures.map(n => <option key={n.code || n.name} value={n.name}>{n.name} (K={formatScore(n.coef)})</option>)}
                   </select>
                 </div>
               </div>

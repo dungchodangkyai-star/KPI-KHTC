@@ -194,12 +194,210 @@ export const getDaysDiff = (targetDateStr: string | null | undefined): number | 
   }
 };
 
-export const WORK_NATURE_COEFS: Record<string, { coef: number; c1Point: number }> = {
-  'Đơn giản': { coef: 0.6, c1Point: 0 },
-  'Trung bình': { coef: 0.8, c1Point: 0 },
-  'Phức tạp': { coef: 1.0, c1Point: 1 },
-  'Rất phức tạp': { coef: 1.2, c1Point: 2 },
-  'Đặc biệt phức tạp': { coef: 1.5, c1Point: 3 },
+export interface WorkNatureItem {
+  id?: number;
+  code?: string;
+  name: string;
+  coef: number;
+  c1Point: number;
+  description?: string;
+  status?: string;
+  order?: number;
+}
+
+export const WORK_NATURE_COEFS: Record<string, { coef: number; c1Point: number; description?: string }> = {
+  'Rất đơn giản': { coef: 0.5, c1Point: 0, description: 'Nhiệm vụ thường xuyên, định kỳ đơn giản, quy trình rõ ràng' },
+  'Đơn giản': { coef: 0.6, c1Point: 0, description: 'Công việc đơn giản, ít bước xử lý' },
+  'Trung bình': { coef: 0.8, c1Point: 0, description: 'Công việc trung bình, yêu cầu nghiệp vụ chuyên môn tiêu chuẩn' },
+  'Phức tạp': { coef: 1.0, c1Point: 1, description: 'Công việc phức tạp, phối hợp nhiều khâu hoặc nhiều bên' },
+  'Rất phức tạp': { coef: 1.2, c1Point: 2, description: 'Công việc rất phức tạp, quy mô lớn hoặc tiến độ gấp' },
+  'Đặc biệt phức tạp': { coef: 1.5, c1Point: 3, description: 'Công việc đột xuất trọng điểm, đặc biệt khó khăn, chuyên sâu' },
+};
+
+export const DEFAULT_WORK_NATURE_LIST: WorkNatureItem[] = [
+  { code: 'NAT_01', name: 'Rất đơn giản', coef: 0.5, c1Point: 0, description: 'Nhiệm vụ thường xuyên, định kỳ đơn giản, quy trình rõ ràng', order: 1, status: 'Đang dùng' },
+  { code: 'NAT_02', name: 'Đơn giản', coef: 0.6, c1Point: 0, description: 'Công việc đơn giản, ít bước xử lý', order: 2, status: 'Đang dùng' },
+  { code: 'NAT_03', name: 'Trung bình', coef: 0.8, c1Point: 0, description: 'Công việc trung bình, yêu cầu nghiệp vụ chuyên môn tiêu chuẩn', order: 3, status: 'Đang dùng' },
+  { code: 'NAT_04', name: 'Phức tạp', coef: 1.0, c1Point: 1, description: 'Công việc phức tạp, phối hợp nhiều khâu hoặc nhiều bên', order: 4, status: 'Đang dùng' },
+  { code: 'NAT_05', name: 'Rất phức tạp', coef: 1.2, c1Point: 2, description: 'Công việc rất phức tạp, quy mô lớn hoặc tiến độ gấp', order: 5, status: 'Đang dùng' },
+  { code: 'NAT_06', name: 'Đặc biệt phức tạp', coef: 1.5, c1Point: 3, description: 'Công việc đột xuất trọng điểm, đặc biệt khó khăn, chuyên sâu', order: 6, status: 'Đang dùng' },
+];
+
+/**
+ * Global dynamic store for work natures loaded from database categories
+ */
+export let dynamicWorkNatureMap: Record<string, WorkNatureItem> = {};
+
+// Auto initialize from localStorage if running in browser
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const cached = window.localStorage.getItem('cached_work_natures');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach((item: any) => {
+          if (item.name) {
+            dynamicWorkNatureMap[item.name.trim()] = item;
+          }
+        });
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+/**
+ * Updates global work nature map from API categories response or raw list
+ */
+export const setGlobalWorkNatures = (listOrCategories: any[] | Record<string, any>) => {
+  if (!listOrCategories) return;
+  const newMap: Record<string, WorkNatureItem> = {};
+  const listToSave: WorkNatureItem[] = [];
+
+  if (Array.isArray(listOrCategories)) {
+    const natureItems = listOrCategories.filter((x: any) => {
+      if (!x) return false;
+      if (x.type) return x.type === 'WORK_NATURE';
+      return true;
+    });
+
+    natureItems.forEach((item: any) => {
+      const name = (item.name || item.code || '').trim();
+      if (!name) return;
+      const props = item.properties || {};
+      const coef = props.coef !== undefined ? Number(props.coef) : (item.coef !== undefined ? Number(item.coef) : 0.8);
+      const c1Point = props.c1Point !== undefined ? Number(props.c1Point) : (item.c1Point !== undefined ? Number(item.c1Point) : 0);
+      const description = props.description || item.description || '';
+      const order = item.order !== undefined ? Number(item.order) : (props.order !== undefined ? Number(props.order) : 0);
+      const status = item.status || 'Đang dùng';
+
+      const entry: WorkNatureItem = {
+        id: item.id,
+        code: item.code,
+        name,
+        coef: isNaN(coef) ? 0.8 : coef,
+        c1Point: isNaN(c1Point) ? 0 : c1Point,
+        description,
+        order,
+        status
+      };
+
+      newMap[name] = entry;
+      listToSave.push(entry);
+    });
+
+    if (Object.keys(newMap).length > 0) {
+      dynamicWorkNatureMap = newMap;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.setItem('cached_work_natures', JSON.stringify(listToSave));
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  } else if (typeof listOrCategories === 'object') {
+    Object.entries(listOrCategories).forEach(([k, v]: [string, any]) => {
+      const name = k.trim();
+      if (!name) return;
+      const entry: WorkNatureItem = {
+        name,
+        coef: typeof v === 'number' ? v : (v.coef !== undefined ? Number(v.coef) : 0.8),
+        c1Point: v.c1Point !== undefined ? Number(v.c1Point) : 0,
+        description: v.description || '',
+        order: v.order || 0,
+        status: v.status || 'Đang dùng'
+      };
+      newMap[name] = entry;
+      listToSave.push(entry);
+    });
+    dynamicWorkNatureMap = newMap;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('cached_work_natures', JSON.stringify(listToSave));
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+};
+
+/**
+ * Returns formatted list of active work natures sorted by order
+ */
+export const getWorkNatureList = (categories?: any[]): WorkNatureItem[] => {
+  if (categories && Array.isArray(categories)) {
+    const rawNatures = categories.filter((c: any) => c.type === 'WORK_NATURE' && c.status !== 'Tạm khóa');
+    if (rawNatures.length > 0) {
+      return rawNatures.map((c: any) => {
+        const props = c.properties || {};
+        const coef = props.coef !== undefined ? Number(props.coef) : 0.8;
+        const c1Point = props.c1Point !== undefined ? Number(props.c1Point) : 0;
+        return {
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          coef: isNaN(coef) ? 0.8 : coef,
+          c1Point: isNaN(c1Point) ? 0 : c1Point,
+          description: props.description || '',
+          status: c.status || 'Đang dùng',
+          order: c.order !== undefined ? Number(c.order) : 0
+        };
+      }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }
+  }
+
+  const dynamicKeys = Object.keys(dynamicWorkNatureMap);
+  if (dynamicKeys.length > 0) {
+    return Object.values(dynamicWorkNatureMap)
+      .filter(x => x.status !== 'Tạm khóa')
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
+
+  return DEFAULT_WORK_NATURE_LIST;
+};
+
+/**
+ * Resolves work nature coefficient and C1 point object with custom category support and fuzzy fallback
+ */
+export const getNatureCoefObj = (
+  natureName: string | null | undefined, 
+  customMap?: Record<string, { coef: number; c1Point: number; description?: string }>
+): { coef: number; c1Point: number; description?: string } => {
+  if (!natureName) return { coef: 0.8, c1Point: 0 };
+  const trimmed = String(natureName).trim();
+  if (customMap && customMap[trimmed]) return customMap[trimmed];
+  if (dynamicWorkNatureMap[trimmed]) return dynamicWorkNatureMap[trimmed];
+  if (WORK_NATURE_COEFS[trimmed]) return WORK_NATURE_COEFS[trimmed];
+
+  const norm = normalizeNFC(trimmed).toLowerCase();
+  if (customMap) {
+    for (const [k, v] of Object.entries(customMap)) {
+      if (normalizeNFC(k).toLowerCase() === norm) return v;
+    }
+  }
+  for (const [k, v] of Object.entries(dynamicWorkNatureMap)) {
+    if (normalizeNFC(k).toLowerCase() === norm) return v;
+  }
+  for (const [k, v] of Object.entries(WORK_NATURE_COEFS)) {
+    if (normalizeNFC(k).toLowerCase() === norm) return v;
+  }
+  return { coef: 0.8, c1Point: 0 };
+};
+
+export const getNatureCoef = (
+  natureName: string | null | undefined, 
+  customMap?: Record<string, { coef: number; c1Point: number; description?: string }>
+): number => {
+  return getNatureCoefObj(natureName, customMap).coef;
+};
+
+export const getNatureBonusC1 = (
+  natureName: string | null | undefined, 
+  customMap?: Record<string, { coef: number; c1Point: number; description?: string }>
+): number => {
+  return getNatureCoefObj(natureName, customMap).c1Point;
 };
 
 /**
@@ -327,8 +525,8 @@ export const getWorkSelfConvertedScore = (work: any): number => {
 
   if (coef === null) {
     const nature = work.proposedNature || work.approvedNature;
-    if (nature && WORK_NATURE_COEFS[nature]) {
-      coef = WORK_NATURE_COEFS[nature].coef;
+    if (nature) {
+      coef = getNatureCoef(nature);
     }
   }
 
@@ -375,7 +573,7 @@ export const getWorkApprovedConvertedScore = (work: any): number => {
     ? parseFloat(String(work.baseScore)) 
     : 10;
   const nature = work.approvedNature || work.proposedNature || 'Trung bình';
-  const natureCoef = WORK_NATURE_COEFS[nature]?.coef ?? 0.8;
+  const natureCoef = getNatureCoef(nature);
   const coef = (work.coef && !isNaN(parseFloat(String(work.coef)))) ? parseFloat(String(work.coef)) : natureCoef;
   return computeWorkConvertedScore(rawBase, coef, work.status);
 };
@@ -1028,6 +1226,55 @@ export const clearActiveLoggedInUser = () => {
 };
 
 /**
+ * Safe parse response to JSON with protection against HTML, text, and "Rate exceeded" errors
+ */
+export async function safeParseResponse<T = any>(
+  res: Response | Promise<Response>
+): Promise<{ success: boolean; data?: T; error?: string; [key: string]: any }> {
+  try {
+    const response = await res;
+    if (!response) {
+      return { success: false, error: 'Không nhận được phản hồi từ máy chủ.', data: [] as any };
+    }
+
+    const contentType = response.headers?.get('content-type') || '';
+    const text = await response.text();
+
+    if (!text || text.trim() === '') {
+      return { success: response.ok, data: [] as any };
+    }
+
+    // Check if response is text or contains Rate exceeded
+    if (text.includes('Rate exceeded') || text.trim().startsWith('<') || !contentType.includes('application/json')) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        if (text.includes('Rate exceeded')) {
+          return {
+            success: false,
+            error: 'Tần suất gửi yêu cầu tạm thời vượt giới hạn. Hệ thống đang tự động tải lại dữ liệu.',
+            data: [] as any
+          };
+        }
+        return {
+          success: false,
+          error: response.ok ? 'Dữ liệu nhận về không phải JSON hợp lệ.' : `Lỗi máy chủ (${response.status} ${response.statusText})`,
+          data: [] as any
+        };
+      }
+    }
+
+    return JSON.parse(text);
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Lỗi xử lý phản hồi máy chủ.',
+      data: [] as any
+    };
+  }
+}
+
+/**
  * Safe fetch with automatic retry and exponential backoff
  */
 export async function safeFetch(url: string, options?: RequestInit, retries = 2, delayMs = 400): Promise<Response> {
@@ -1035,11 +1282,16 @@ export async function safeFetch(url: string, options?: RequestInit, retries = 2,
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url, options);
+      if (res.status === 429 && i < retries) {
+        // Rate exceeded - exponential backoff + jitter
+        await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, i) + Math.random() * 200));
+        continue;
+      }
       return res;
     } catch (err) {
       lastError = err;
       if (i < retries) {
-        await new Promise((r) => setTimeout(r, delayMs * Math.pow(1.5, i)));
+        await new Promise((r) => setTimeout(r, delayMs * Math.pow(1.5, i) + Math.random() * 200));
       }
     }
   }
@@ -1047,23 +1299,20 @@ export async function safeFetch(url: string, options?: RequestInit, retries = 2,
 }
 
 /**
- * Safe fetch JSON with error handling
+ * Safe fetch JSON with error handling and HTML/Non-JSON response guard
  */
 export async function safeFetchJson<T = any>(
   url: string, 
   options?: RequestInit, 
   retries = 2
-): Promise<{ success: boolean; data?: T; error?: string }> {
+): Promise<{ success: boolean; data?: T; error?: string; [key: string]: any }> {
   try {
     const res = await safeFetch(url, options, retries);
-    if (!res.ok) {
-      return { success: false, error: `HTTP ${res.status}: ${res.statusText}` };
-    }
-    const json = await res.json();
-    return json;
+    return await safeParseResponse<T>(res);
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Failed to fetch' };
+    return { success: false, error: err?.message || 'Không thể kết nối đến máy chủ.', data: [] as any };
   }
 }
+
 
 

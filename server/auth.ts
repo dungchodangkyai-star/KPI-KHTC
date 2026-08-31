@@ -24,7 +24,7 @@ function createSessionToken(userId: number): string {
   return `${payload}.${signature}`;
 }
 
-function readSessionToken(req: express.Request): AuthSession | null {
+export function readSessionToken(req: express.Request): AuthSession | null {
   try {
     let token: string | null = null;
     const authHeader = String(req.headers.authorization || '');

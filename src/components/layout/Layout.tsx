@@ -6,7 +6,8 @@ import {
   Edit, Award, FileText, 
   Send, CheckSquare, Settings, 
   Database, Users, LayoutDashboard, BarChart3, Radio, ChevronDown, UserCheck,
-  Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock, Server
+  Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock, Server,
+  PanelLeftClose, PanelLeftOpen, Menu, ChevronLeft
 } from 'lucide-react';
 import { 
   cn, 
@@ -17,7 +18,9 @@ import {
   formatDate,
   DEFAULT_INITIAL_PASSWORD,
   ADMIN_EMAIL,
-  cleanPosition
+  cleanPosition,
+  safeFetch,
+  safeParseResponse
 } from '../../utils';
 import { useOrgConfig } from '../../contexts/OrgContext';
 
@@ -99,6 +102,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [userList, setUserList] = useState<any[]>([]);
   const [showSwitchMenu, setShowSwitchMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('kpi_sidebar_open');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('kpi_sidebar_open', String(next));
+      } catch (e) {
+        console.warn('Cannot persist sidebar state:', e);
+      }
+      return next;
+    });
+  };
+
   const [pendingAssignmentsCount, setPendingAssignmentsCount] = useState(0);
   const [pendingOvertimesCount, setPendingOvertimesCount] = useState(0);
   const [pendingWorksCount, setPendingWorksCount] = useState(0);
@@ -117,26 +141,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [pwdSuccess, setPwdSuccess] = useState('');
   const [pwdLoading, setPwdLoading] = useState(false);
 
+  const fetchInFlightRef = React.useRef(false);
+
   const fetchLayoutData = async (user?: any) => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     try {
       const [resUsers, resAssign, resNotif, resOvertimes, resWorks] = await Promise.all([
-        fetch('/api/users'),
-        fetch('/api/assignments'),
-        fetch('/api/notifications'),
-        fetch('/api/overtimes'),
-        fetch('/api/works')
+        safeFetch('/api/users'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/notifications'),
+        safeFetch('/api/overtimes'),
+        safeFetch('/api/works')
       ]);
       const [dUsers, dAssign, dNotif, dOt, dWorks] = await Promise.all([
-        resUsers.json(),
-        resAssign.json(),
-        resNotif.json(),
-        resOvertimes.json(),
-        resWorks.json()
+        safeParseResponse(resUsers),
+        safeParseResponse(resAssign),
+        safeParseResponse(resNotif),
+        safeParseResponse(resOvertimes),
+        safeParseResponse(resWorks)
       ]);
 
       let activeU = user || currentUser;
 
-      if (dUsers.success && dUsers.data?.length > 0) {
+      if (dUsers.success && Array.isArray(dUsers.data) && dUsers.data.length > 0) {
         setUserList(dUsers.data);
         if (!activeU) {
           activeU = getActiveLoggedInUser(dUsers.data);
@@ -162,30 +190,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       setIsLoaded(true);
 
       const uid = activeU?.id;
-      if (dAssign.success && uid) {
+      if (dAssign.success && uid && Array.isArray(dAssign.data)) {
         const pending = (dAssign.data || []).filter((a: any) => 
           a.receiverId === uid && (!a.receiveStatus || a.receiveStatus.includes('Chưa') || a.receiveStatus.includes('Chờ'))
         );
         setPendingAssignmentsCount(pending.length);
       }
 
-      if (dOt.success) {
+      if (dOt.success && Array.isArray(dOt.data)) {
         const pendingOt = (dOt.data || []).filter((o: any) => !o.isDeleted && (!o.approvalStatus || o.approvalStatus === 'Chờ duyệt'));
         setPendingOvertimesCount(pendingOt.length);
       }
 
-      if (dWorks.success) {
+      if (dWorks.success && Array.isArray(dWorks.data)) {
         const pendingW = (dWorks.data || []).filter((w: any) => !w.isDeleted && (!w.leaderApproval || w.leaderApproval === 'Chưa duyệt'));
         setPendingWorksCount(pendingW.length);
       }
 
-      if (dNotif.success && uid) {
+      if (dNotif.success && uid && Array.isArray(dNotif.data)) {
         const myNotifs = (dNotif.data || []).filter((n: any) => n.receiverId === uid);
         setNotifications(myNotifs);
       }
     } catch (err) {
       console.error(err);
       setIsLoaded(true);
+    } finally {
+      fetchInFlightRef.current = false;
     }
   };
 
@@ -233,11 +263,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       sendHeartbeat(active);
     };
 
+    let debounceTimer: any = null;
     const refreshForActiveUser = () => {
-      const active = getActiveLoggedInUser();
-      if (!active) return;
-      fetchLayoutData(active);
-      sendHeartbeat(active);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const active = getActiveLoggedInUser();
+        if (!active) return;
+        fetchLayoutData(active);
+        sendHeartbeat(active);
+      }, 300);
     };
 
     const refreshWhenVisible = () => {
@@ -248,10 +282,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     window.addEventListener('focus', refreshForActiveUser);
     document.addEventListener('visibilitychange', refreshWhenVisible);
 
-    // Keep the internal bell current even while the app stays open.
-    const interval = setInterval(refreshForActiveUser, 10000);
+    // Keep the internal bell current with moderate polling interval (30s)
+    const interval = setInterval(refreshForActiveUser, 30000);
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('kpi_user_changed', handleUserChange);
       window.removeEventListener('focus', refreshForActiveUser);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
@@ -465,153 +500,194 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full bg-[#edf2f7] font-sans text-slate-900 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block app-layout-root">
       {/* Sidebar - strictly hidden when printing */}
-      <aside className="w-[285px] flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print">
-        {/* Sidebar Header Brand */}
-        <div className="p-4 bg-gradient-to-br from-[#1F4E78] to-[#173a5a] text-white flex items-center gap-3 border-b border-[#173a5a] shadow-xs">
-          <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-xs text-white shrink-0 shadow-inner tracking-wider uppercase">
-            {orgConfig.shortName && orgConfig.shortName.length <= 4 ? orgConfig.shortName : 'KPI'}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="font-black text-sm tracking-tight text-white uppercase truncate" title={orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}>
-              {orgConfig.departmentName ? orgConfig.departmentName.toUpperCase() : 'PHÒNG KẾ HOẠCH - TÀI CHÍNH'}
-            </span>
-            <span className="text-[11px] text-blue-200 font-semibold truncate">
-              Hệ thống điều hành & KPI
-            </span>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="p-3.5">
-            <div className="flex items-center justify-between px-2 mb-3.5">
-              <span className="text-slate-600 font-extrabold text-[11px] uppercase tracking-wider">DANH MỤC CHỨC NĂNG</span>
-              {isAdmin && (
-                <span className="text-[10px] bg-purple-100 text-purple-900 font-extrabold px-2 py-0.5 rounded-md border border-purple-300">
-                  Toàn quyền
+      <aside className={cn(
+        "flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print transition-all duration-300 ease-in-out relative overflow-hidden",
+        isSidebarOpen ? "w-[285px] opacity-100" : "w-0 opacity-0 border-r-0 pointer-events-none"
+      )}>
+        <div className="w-[285px] flex flex-col h-full flex-shrink-0">
+          {/* Sidebar Header Brand */}
+          <div className="p-4 bg-gradient-to-br from-[#1F4E78] to-[#173a5a] text-white flex items-center justify-between gap-2 border-b border-[#173a5a] shadow-xs">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-xs text-white shrink-0 shadow-inner tracking-wider uppercase">
+                {orgConfig.shortName && orgConfig.shortName.length <= 4 ? orgConfig.shortName : 'KPI'}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-black text-sm tracking-tight text-white uppercase truncate" title={orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}>
+                  {orgConfig.departmentName ? orgConfig.departmentName.toUpperCase() : 'PHÒNG KẾ HOẠCH - TÀI CHÍNH'}
                 </span>
-              )}
+                <span className="text-[11px] text-blue-200 font-semibold truncate">
+                  Hệ thống điều hành & KPI
+                </span>
+              </div>
             </div>
+            {/* Quick collapse button in sidebar header */}
+            <button
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition flex items-center justify-center shrink-0 cursor-pointer"
+              title="Ẩn thanh menu (mở rộng không gian làm việc)"
+            >
+              <PanelLeftClose className="w-4 h-4 text-blue-100 hover:text-white" />
+            </button>
+          </div>
 
-            <div className="space-y-5">
-              {authorizedNavGroups.map((group, idx) => (
-                <div key={idx} className="space-y-1">
-                  <div className="flex items-center justify-between px-2 mb-1.5 cursor-pointer group">
-                    <div className="flex items-center gap-1.5">
-                      <h3 className="text-[11px] font-black text-[#1F4E78] uppercase tracking-wider">{group.title}</h3>
-                      {group.isPersonal ? (
-                        <span className="text-[9px] font-extrabold bg-blue-100 text-[#1F4E78] px-1.5 py-0.5 rounded border border-blue-300">
-                          Cá nhân
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
-                          Quản lý
-                        </span>
-                      )}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="p-3.5 bg-[#eefafb]">
+              <div className="flex items-center justify-between px-2 mb-3.5">
+                <span className="text-slate-600 font-extrabold text-[11px] uppercase tracking-wider">DANH MỤC CHỨC NĂNG</span>
+                {isAdmin && (
+                  <span className="text-[10px] bg-purple-100 text-purple-900 font-extrabold px-2 py-0.5 rounded-md border border-purple-300">
+                    Toàn quyền
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-5">
+                {authorizedNavGroups.map((group, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center justify-between px-2 mb-1.5 cursor-pointer group">
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-[11px] font-black text-[#1F4E78] uppercase tracking-wider">{group.title}</h3>
+                        {group.isPersonal ? (
+                          <span className="text-[9px] font-extrabold bg-blue-100 text-[#1F4E78] px-1.5 py-0.5 rounded border border-blue-300">
+                            Cá nhân
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
+                            Quản lý
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    {group.items.map((item: any) => {
-                      const isActive = location.pathname === item.href;
-                      let badgeCount = 0;
-                      let badgeText = '';
-                      if (item.hasBadge && pendingAssignmentsCount > 0) {
-                        badgeCount = pendingAssignmentsCount;
-                        badgeText = `${badgeCount} việc mới`;
-                      } else if (item.badgeKey === 'overtimes' && pendingOvertimesCount > 0) {
-                        badgeCount = pendingOvertimesCount;
-                        badgeText = `${badgeCount} chờ duyệt`;
-                      } else if (item.badgeKey === 'works' && pendingWorksCount > 0) {
-                        badgeCount = pendingWorksCount;
-                        badgeText = `${badgeCount} chờ duyệt`;
-                      }
-                      const hasAlert = badgeCount > 0;
-                      return (
-                        <Link
-                          key={item.name}
-                          to={item.href}
-                          className={cn(
-                            "flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border relative",
-                            isActive 
-                              ? "bg-gradient-to-r from-[#1F4E78] to-[#2B6CB0] text-white border-blue-800 shadow-md shadow-blue-950/20" 
-                              : "bg-transparent text-slate-800 border-transparent hover:bg-slate-100/90 hover:border-slate-200 hover:text-[#1F4E78]"
-                          )}
-                        >
-                          <div className={cn(
-                            "mt-0.5 p-1 rounded-lg flex items-center justify-center shrink-0 transition-colors relative",
-                            isActive ? "bg-white/20 text-white" : "bg-blue-50 text-[#1F4E78] border border-blue-200"
-                          )}>
-                            <item.icon className="w-4 h-4" />
-                            {hasAlert && (
-                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
+                    <div className="space-y-1">
+                      {group.items.map((item: any) => {
+                        const isActive = location.pathname === item.href;
+                        let badgeCount = 0;
+                        let badgeText = '';
+                        if (item.hasBadge && pendingAssignmentsCount > 0) {
+                          badgeCount = pendingAssignmentsCount;
+                          badgeText = `${badgeCount} việc mới`;
+                        } else if (item.badgeKey === 'overtimes' && pendingOvertimesCount > 0) {
+                          badgeCount = pendingOvertimesCount;
+                          badgeText = `${badgeCount} chờ duyệt`;
+                        } else if (item.badgeKey === 'works' && pendingWorksCount > 0) {
+                          badgeCount = pendingWorksCount;
+                          badgeText = `${badgeCount} chờ duyệt`;
+                        }
+                        const hasAlert = badgeCount > 0;
+                        return (
+                          <Link
+                            key={item.name}
+                            to={item.href}
+                            className={cn(
+                              "flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border relative",
+                              isActive 
+                                ? "bg-gradient-to-r from-[#1F4E78] to-[#2B6CB0] text-white border-blue-800 shadow-md shadow-blue-950/20" 
+                                : "bg-transparent text-slate-800 border-transparent hover:bg-slate-100/90 hover:border-slate-200 hover:text-[#1F4E78]"
                             )}
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className={cn(
-                                "text-[13px] font-bold leading-tight truncate",
-                                isActive ? "text-white" : "text-slate-900"
-                              )}>{item.name}</span>
+                          >
+                            <div className={cn(
+                              "mt-0.5 p-1 rounded-lg flex items-center justify-center shrink-0 transition-colors relative",
+                              isActive ? "bg-white/20 text-white" : "bg-blue-50 text-[#1F4E78] border border-blue-200"
+                            )}>
+                              <item.icon className="w-4 h-4" />
                               {hasAlert && (
-                                <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse shrink-0">
-                                  {badgeText}
-                                </span>
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
                               )}
                             </div>
-                            <span className={cn(
-                              "text-[10px] leading-tight mt-0.5 truncate",
-                              isActive ? "text-blue-100 font-medium" : "text-slate-500"
-                            )}>
-                              {item.desc}
-                            </span>
-                          </div>
-                        </Link>
-                      );
-                    })}
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className={cn(
+                                  "text-[13px] font-bold leading-tight truncate",
+                                  isActive ? "text-white" : "text-slate-900"
+                                )}>{item.name}</span>
+                                {hasAlert && (
+                                  <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse shrink-0">
+                                    {badgeText}
+                                  </span>
+                                )}
+                              </div>
+                              <span className={cn(
+                                "text-[10px] leading-tight mt-0.5 truncate",
+                                isActive ? "text-blue-100 font-medium" : "text-slate-500"
+                              )}>
+                                {item.desc}
+                              </span>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-center">
-          <p className="text-[10px] font-semibold text-slate-600">© 2026 {orgConfig.footerNote || 'Quản lý công việc & Đánh giá KPI'}</p>
-          <p className="text-[10px] text-slate-500">Tác giả: Khuất Văn Sơn ({ADMIN_EMAIL})</p>
+          <div className="p-3.5 bg-slate-50 border-t border-slate-200 text-center">
+            <p className="text-[10px] font-semibold text-slate-600">© 2026 {orgConfig.footerNote || 'Quản lý công việc & Đánh giá KPI'}</p>
+            <p className="text-[10px] text-slate-500">Tác giả: Khuất Văn Sơn ({ADMIN_EMAIL})</p>
+          </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
         {/* Top Header - strictly hidden when printing */}
-        <header className="flex-shrink-0 bg-white border-b border-slate-300 px-6 py-3 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
+        <header className="flex-shrink-0 bg-[#6bc782] border-b border-slate-300 px-6 py-3 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#1F4E78] via-[#2F75B5] to-[#4A90E2]" />
           
-          <div className="flex flex-col pt-0.5">
-            <span className="text-[11px] font-extrabold text-slate-600 tracking-wide uppercase">
-              {orgConfig.parentAgency || 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk'}
-            </span>
-            <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5">
-              {orgConfig.systemTitle || 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI'}
-            </span>
-            <span className="text-xs font-bold text-[#1F4E78] mt-0.5 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-              {orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}
-              {orgConfig.shortName && (
-                <span className="text-[10px] font-extrabold bg-blue-50 text-[#1F4E78] px-1.5 py-0.2 rounded border border-blue-200">
-                  {orgConfig.shortName}
-                </span>
+          <div className="flex items-center gap-3.5 min-w-0">
+            {/* Toggle Sidebar Button */}
+            <button
+              onClick={toggleSidebar}
+              className={cn(
+                "px-3 py-2 rounded-xl border transition-all shadow-xs flex items-center gap-2 shrink-0 cursor-pointer group",
+                isSidebarOpen
+                  ? "bg-slate-100 hover:bg-slate-200/90 border-slate-300 text-slate-700 hover:text-[#1F4E78]"
+                  : "bg-gradient-to-r from-[#1F4E78] to-[#2B6CB0] hover:from-[#183d5e] hover:to-[#22578e] border-blue-900 text-white shadow-md shadow-blue-900/25 ring-2 ring-blue-400/40"
               )}
-            </span>
+              title={isSidebarOpen ? "Ẩn thanh menu để mở rộng không gian làm việc" : "Hiện thanh menu điều hướng"}
+            >
+              {isSidebarOpen ? (
+                <>
+                  <PanelLeftClose className="w-4 h-4 text-slate-600 group-hover:text-[#1F4E78]" />
+                  <span className="text-xs font-bold hidden sm:inline text-slate-700 group-hover:text-[#1F4E78]">Ẩn Menu</span>
+                </>
+              ) : (
+                <>
+                  <PanelLeftOpen className="w-4 h-4 text-white" />
+                  <span className="text-xs font-black text-white">Hiện Menu</span>
+                </>
+              )}
+            </button>
+
+            <div className="flex flex-col pt-0.5 min-w-0">
+              <span className="text-[11px] font-extrabold text-[#4657d1] tracking-wide uppercase truncate">
+                {orgConfig.parentAgency || 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk'}
+              </span>
+              <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5 truncate">
+                {orgConfig.systemTitle || 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI'}
+              </span>
+              <span className="text-xs font-bold text-[#1F4E78] mt-0.5 flex items-center gap-1.5 truncate">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0"></span>
+                <span className="truncate">{orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}</span>
+                {orgConfig.shortName && (
+                  <span className="text-[10px] font-extrabold bg-blue-50 text-[#1F4E78] px-1.5 py-0.2 rounded border border-blue-200 shrink-0">
+                    {orgConfig.shortName}
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
           
-          <div className="relative flex items-center gap-3 bg-slate-100/90 p-2 rounded-2xl border border-slate-300 shadow-xs">
+          <div className="relative flex items-center gap-3 bg-[#c3ddec] p-2 rounded-2xl border border-slate-300 shadow-xs">
             {/* Notification Bell */}
             <div className="relative">
               <button
                 onClick={() => setShowNotificationMenu(!showNotificationMenu)}
-                className="p-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs"
+                className="p-2 bg-[#28c363] hover:bg-slate-50 border border-slate-300 rounded-xl relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs"
                 title="Thông báo & Nhắc việc"
               >
-                <Bell className="w-4 h-4" />
+                <Bell className="w-4 h-4 bg-[#dccb2f]" />
                 {pendingAssignmentsCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
                     {pendingAssignmentsCount}

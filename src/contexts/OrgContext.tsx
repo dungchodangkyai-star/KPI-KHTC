@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { OrgConfig } from '../types';
-import { DEFAULT_ORG_CONFIG } from '../utils';
+import { DEFAULT_ORG_CONFIG, safeFetch, safeParseResponse } from '../utils';
 
 interface OrgContextType {
   orgConfig: OrgConfig;
@@ -37,17 +37,15 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchOrgConfig = async () => {
     try {
-      const res = await fetch('/api/org-config');
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          const merged = { ...DEFAULT_ORG_CONFIG, ...json.data };
-          setOrgConfig(merged);
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-          } catch (e) {
-            console.warn("Error caching org config:", e);
-          }
+      const res = await safeFetch('/api/org-config');
+      const json = await safeParseResponse(res);
+      if (json.success && json.data) {
+        const merged = { ...DEFAULT_ORG_CONFIG, ...json.data };
+        setOrgConfig(merged);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        } catch (e) {
+          console.warn("Error caching org config:", e);
         }
       }
     } catch (err) {
@@ -64,12 +62,12 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateOrgConfig = async (newConfig: Partial<OrgConfig>) => {
     try {
       const payload = { ...orgConfig, ...newConfig };
-      const res = await fetch('/api/org-config', {
+      const res = await safeFetch('/api/org-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success && data.data) {
         const merged = { ...DEFAULT_ORG_CONFIG, ...data.data };
         setOrgConfig(merged);
@@ -89,11 +87,11 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetOrgConfig = async () => {
     try {
-      const res = await fetch('/api/org-config/reset', {
+      const res = await safeFetch('/api/org-config/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success && data.data) {
         const merged = { ...DEFAULT_ORG_CONFIG, ...data.data };
         setOrgConfig(merged);

@@ -3,7 +3,7 @@ import { db } from '../src/db/index.ts';
 import { users, categories, works, assignments, overtimes, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword } from './auth.ts';
-import { formatMonth, WORK_NATURE_COEFS, getWorkStatusFactor } from '../src/utils.ts';
+import { formatMonth, WORK_NATURE_COEFS, getWorkStatusFactor, getNatureCoef } from '../src/utils.ts';
 import { calculateAndSaveUserKpi, recalculateKpiForMonth } from './kpiRoutes.ts';
 
 export const syncRouter = express.Router();
@@ -762,8 +762,7 @@ syncRouter.post('/batch', async (req, res) => {
             ? parseFloat(String(rawCoef))
             : 0;
 
-          const natureObj = proposedNature ? WORK_NATURE_COEFS[proposedNature] : null;
-          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (natureObj ? natureObj.coef : 0);
+          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (proposedNature ? getNatureCoef(proposedNature) : 0);
 
           const evidence = getFieldValue(row, ['Minh chứng', 'Link minh chứng', 'File', 'evidence']) || '';
           const productType = getFieldValue(row, ['Loại sản phẩm', 'Sản phẩm', 'productType']) || 'Báo cáo';
@@ -808,8 +807,7 @@ syncRouter.post('/batch', async (req, res) => {
               finalApprovedConvertedScore = String(parseFloat(String(rawApprovedScore)));
             } else if (hasValidStatus && hasValidBaseScore) {
               const appNature = approvedNature || proposedNature;
-              const appNatureObj = appNature ? WORK_NATURE_COEFS[appNature] : natureObj;
-              const appCoef = parsedCoef > 0 ? parsedCoef : (appNatureObj ? appNatureObj.coef : resolvedCoef);
+              const appCoef = parsedCoef > 0 ? parsedCoef : (appNature ? getNatureCoef(appNature) : resolvedCoef);
               if (appCoef > 0) {
                 const factor = getWorkStatusFactor(status);
                 const computedAppScore = Math.round(parsedBase * appCoef * factor * 10) / 10;
@@ -1179,3 +1177,64 @@ syncRouter.post('/reset-data', async (req, res) => {
     res.status(500).json({ error: String(error) });
   }
 });
+
+/**
+ * 5. GET /api/sync/dry-run-scores
+ * Reports discrepancy between current selfConvertedScore and formula
+ * without modifying database data. Preserves explicit scores.
+ */
+syncRouter.get('/dry-run-scores', async (req, res) => {
+  try {
+    const allWorks = await db.query.works.findMany({
+      orderBy: (w, { desc }) => [desc(w.createdAt)],
+    });
+
+    const discrepancies: any[] = [];
+    let checkedCount = 0;
+    let discrepancyCount = 0;
+
+    for (const w of allWorks) {
+      if (w.dataStatus === 'Đã xóa mềm') continue;
+      checkedCount++;
+
+      const base = parseFloat(String(w.baseScore || '0')) || 0;
+      const coef = parseFloat(String(w.coef || '0')) || (w.proposedNature ? getNatureCoef(w.proposedNature) : 0);
+      const factor = getWorkStatusFactor(w.status || '');
+      const formulaScore = Math.round(base * coef * factor * 10) / 10;
+      const currentScore = parseFloat(String(w.selfConvertedScore || '0')) || 0;
+
+      // Discrepancy if difference is significant and not just a small precision artifact
+      if (Math.abs(formulaScore - currentScore) > 0.01) {
+        discrepancyCount++;
+        discrepancies.push({
+          id: w.id,
+          workId: w.workId,
+          month: w.month,
+          userId: w.userId,
+          taskName: w.taskName,
+          baseScore: w.baseScore,
+          coef: w.coef,
+          proposedNature: w.proposedNature,
+          status: w.status,
+          currentSelfConvertedScore: w.selfConvertedScore,
+          expectedFormulaScore: String(formulaScore),
+          difference: Math.round((currentScore - formulaScore) * 10) / 10,
+          source: w.source,
+          leaderApproval: w.leaderApproval,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      checkedCount,
+      discrepancyCount,
+      message: `Đã kiểm tra ${checkedCount} bản ghi công việc. Phát hiện ${discrepancyCount} bản ghi có điểm tự chấm khác công thức hiện hành (dry-run, không sửa đổi dữ liệu).`,
+      discrepancies,
+    });
+  } catch (error) {
+    console.error('Dry-run scores error:', error);
+    res.status(500).json({ error: String(error) });
+  }
+});
+

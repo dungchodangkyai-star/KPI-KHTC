@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { 
   CheckSquare, Filter, Search, CheckCircle2, AlertCircle, RefreshCw, 
   Eye, FileText, Download, Check, X, Clock, AlertTriangle, ExternalLink,
@@ -16,7 +16,14 @@ import {
   isSoftDeleted,
   getActiveLoggedInUser,
   formatScore,
-  cleanPosition
+  cleanPosition,
+  getWorkNatureList,
+  setGlobalWorkNatures,
+  getNatureCoefObj,
+  getNatureCoef,
+  WorkNatureItem,
+  safeFetch,
+  safeParseResponse
 } from '../utils';
 import { Work, User as UserType, Assignment } from '../types';
 
@@ -39,14 +46,21 @@ export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
   const startDateStr = formatDate(start);
   const endDateStr = formatDate(end || deadline);
 
-  // Calculate days worked
-  let daysCount = w.days ? Number(w.days) : 0;
-  if (!daysCount && start && (w.actualEndDate || w.endDate)) {
+  // Calculate days worked based on actual date range if available
+  let daysCount = 0;
+  if (start && (w.actualEndDate || w.endDate)) {
     const targetEnd = w.actualEndDate ? new Date(w.actualEndDate) : new Date(w.endDate!);
-    const diffMs = targetEnd.getTime() - start.getTime();
+    const s = new Date(start);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(targetEnd);
+    e.setHours(0, 0, 0, 0);
+    const diffMs = e.getTime() - s.getTime();
     daysCount = Math.max(1, Math.round(diffMs / 86400000) + 1);
+  } else if (w.days && Number(w.days) > 0) {
+    daysCount = Number(w.days);
+  } else {
+    daysCount = 1;
   }
-  if (!daysCount) daysCount = 1;
 
   // Calculate schedule comparison
   let scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue' = 'in_progress';
@@ -124,6 +138,410 @@ const QUICK_LEADER_SUGGESTIONS = [
   'Số liệu chưa khớp với báo cáo nguồn vốn, cần kiểm tra lại.'
 ];
 
+const LeaderNoteSection = memo(({ 
+  initialValue, 
+  onChange 
+}: { 
+  initialValue: string; 
+  onChange: (val: string) => void;
+}) => {
+  const [localNote, setLocalNote] = useState(initialValue);
+
+  useEffect(() => {
+    setLocalNote(initialValue);
+  }, [initialValue]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalNote(val);
+    onChange(val);
+  };
+
+  const handleSuggestionClick = (sug: string) => {
+    setLocalNote(sug);
+    onChange(sug);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs font-bold text-slate-800">
+          Ý kiến chỉ đạo / Nhận xét của Lãnh đạo phòng
+        </label>
+        <span className="text-[10px] text-slate-400">Tùy chọn</span>
+      </div>
+      <textarea
+        rows={3}
+        value={localNote}
+        onChange={handleChange}
+        placeholder="Ghi rõ ý kiến chỉ đạo, lý do cần bổ sung hoặc đánh giá chất lượng hồ sơ..."
+        className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+      />
+
+      {/* Quick suggestions chips */}
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        <span className="text-[10px] font-bold text-slate-400 self-center">Gợi ý nhanh:</span>
+        {QUICK_LEADER_SUGGESTIONS.map((sug, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => handleSuggestionClick(sug)}
+            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer border border-slate-200 text-left"
+          >
+            {sug}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+interface WorkReviewModalProps {
+  work: Work;
+  currentUser: any;
+  workNatures?: WorkNatureItem[];
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+  refreshAll: () => Promise<void>;
+}
+
+const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSuccess, refreshAll }: WorkReviewModalProps) => {
+  const natureList = workNatures && workNatures.length > 0 ? workNatures : getWorkNatureList();
+  const initialNature = work.approvedNature || work.proposedNature || (natureList[0]?.name || 'Trung bình');
+  const initialCoefObj = getNatureCoefObj(initialNature);
+
+  const [reviewDecision, setReviewDecision] = useState<'Duyệt' | 'Cần bổ sung' | 'Không duyệt'>(
+    work.leaderApproval === 'Cần bổ sung' || work.leaderApproval === 'Không duyệt' ? work.leaderApproval : 'Duyệt'
+  );
+  const [reviewApprovedNature, setReviewApprovedNature] = useState<string>(initialNature);
+  const [reviewApprovedCoef, setReviewApprovedCoef] = useState<number>(initialCoefObj.coef);
+  const [reviewNote, setReviewNote] = useState<string>(work.leaderNote || '');
+  const [reviewScore, setReviewScore] = useState<number | ''>(() => {
+    if (work.approvedConvertedScore && !isNaN(Number(work.approvedConvertedScore))) {
+      return Number(work.approvedConvertedScore);
+    } else if (work.convertedScore && !isNaN(Number(work.convertedScore))) {
+      return Number(work.convertedScore);
+    } else if (work.selfConvertedScore && !isNaN(Number(work.selfConvertedScore))) {
+      return Number(work.selfConvertedScore);
+    } else {
+      const baseSc = Number(work.baseScore) || 10;
+      return Math.round(baseSc * initialCoefObj.coef * 10) / 10;
+    }
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const sched = useMemo(() => calculateWorkSchedule(work), [work]);
+
+  const handleNatureChange = (newNature: string) => {
+    const natureCoefObj = getNatureCoefObj(newNature);
+    setReviewApprovedNature(newNature);
+    setReviewApprovedCoef(natureCoefObj.coef);
+
+    // Recalculate score automatically
+    const baseSc = Number(work.baseScore) || 10;
+    const calculated = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
+    setReviewScore(calculated);
+  };
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setErrorMsg('');
+    try {
+      const payload: any = {
+        leaderApproval: reviewDecision,
+        approvedNature: reviewApprovedNature,
+        coef: String(reviewApprovedCoef),
+        leaderNote: reviewNote,
+        approverId: currentUser?.id || null,
+        approvalDate: new Date()
+      };
+
+      if (reviewScore !== '' && !isNaN(Number(reviewScore))) {
+        payload.approvedConvertedScore = String(reviewScore);
+        payload.convertedScore = String(reviewScore);
+      }
+
+      const res = await safeFetch(`/api/works/${work.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const d = await safeParseResponse(res);
+      if (d.success) {
+        onSuccess(`Đã phê duyệt công việc của ${work.user?.name || 'nhân viên'} thành công!`);
+        onClose();
+        refreshAll();
+      } else {
+        setErrorMsg(d.error || 'Có lỗi khi lưu kết quả phê duyệt');
+      }
+    } catch (e: any) {
+      setErrorMsg(String(e));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+      <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div className="flex items-center gap-2 text-[#1F4E78] font-black text-base">
+            <CheckSquare className="w-5 h-5" />
+            <span>Thẩm định & Phê duyệt kết quả công việc</span>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Comprehensive Task Details Card */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
+            <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
+              <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
+                {work.taskCode || 'CV'}
+              </span>
+              <span>{work.taskName}</span>
+            </div>
+            {work.source === 'Giao việc' ? (
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
+                Việc Lãnh đạo giao
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
+                Việc tự đăng ký
+              </span>
+            )}
+          </div>
+
+          {/* 4-column inspection grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
+              <span className="font-bold text-slate-900 text-xs">{work.user?.name}</span>
+              <div className="text-[10px] text-slate-500">{cleanPosition(work.user?.position)}</div>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
+              <span className="font-bold text-slate-900 text-xs">Tháng {work.month}</span>
+              <div className="text-[10px] text-slate-500 truncate" title={work.taskGroup || ''}>
+                {work.taskGroup || 'Khác'}
+              </div>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
+              <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
+              <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
+              <span className="font-bold text-slate-900 text-xs block">{work.status || 'Đang xử lý'}</span>
+              <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
+                sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+              }`}>
+                {sched.scheduleText}
+              </span>
+            </div>
+          </div>
+
+          {/* Product Info Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
+              <span className="font-bold text-slate-800">{work.productType || 'Báo cáo'}</span> ({work.productQty || 1} {work.unit || 'Sản phẩm'})
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
+              <span className="font-black text-[#1F4E78] text-xs">{formatScore(work.baseScore || 10)} điểm</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
+              <span className="font-bold text-slate-800">{work.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(work.coef || 0.8)})
+            </div>
+          </div>
+
+          {/* Detail content */}
+          {work.detail && (
+            <div>
+              <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
+              <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
+                {work.detail}
+              </p>
+            </div>
+          )}
+
+          {/* Evidence */}
+          {work.evidence && (
+            <div>
+              <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
+              <a 
+                href={work.evidence.startsWith('http') ? work.evidence : `https://${work.evidence}`} 
+                target="_blank" 
+                rel="noreferrer"
+                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
+              >
+                <ExternalLink className="w-4 h-4 shrink-0" />
+                <span className="break-all">{work.evidence}</span>
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Approval Decision Controls */}
+        <div className="space-y-4 pt-1">
+          {/* Nature of Work Approval Control */}
+          <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-[#1F4E78]" />
+                <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
+              </label>
+              <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <select
+                  value={reviewApprovedNature}
+                  onChange={(e) => handleNatureChange(e.target.value)}
+                  className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                >
+                  {natureList.map(nat => (
+                    <option key={nat.code || nat.name} value={nat.name}>
+                      {nat.name} (Hệ số {formatScore(nat.coef)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
+                <span className="font-black text-[#1F4E78] text-sm">{formatScore(reviewApprovedCoef)}</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
+                <span className="font-bold text-slate-800">{formatScore(work.baseScore || 10)}</span>
+              </div>
+            </div>
+
+            {/* Score formula explanation */}
+            <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
+              <span>Công thức tự tính: <strong>{formatScore(work.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
+              <span className="font-black text-xs text-[#1F4E78]">= {formatScore(reviewScore)} đ</span>
+            </div>
+          </div>
+
+          {/* 3 Decision Buttons */}
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-1.5">Quyết định phê duyệt</label>
+            <div className="grid grid-cols-3 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setReviewDecision('Duyệt')}
+                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  reviewDecision === 'Duyệt'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                <span>Duyệt đạt</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReviewDecision('Cần bổ sung')}
+                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  reviewDecision === 'Cần bổ sung'
+                    ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span>Cần bổ sung</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReviewDecision('Không duyệt')}
+                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  reviewDecision === 'Không duyệt'
+                    ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <X className="w-4 h-4" />
+                <span>Không duyệt</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Official Converted Score Input */}
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
+              <span>Điểm quy đổi KPI chính thức</span>
+              <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                Tự động cập nhật theo Tính chất duyệt
+              </span>
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={reviewScore}
+              onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
+              placeholder="Nhập điểm quy đổi chính thức"
+              className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+            />
+          </div>
+
+          {/* Leader Note & Quick Suggestions (Isolated for ultra-fast typing) */}
+          <LeaderNoteSection 
+            initialValue={reviewNote} 
+            onChange={(val) => setReviewNote(val)} 
+          />
+        </div>
+
+        {/* Modal Actions */}
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+          >
+            Hủy
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="px-6 py-2.5 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>{isSubmitting ? 'Đang lưu...' : 'Lưu kết quả phê duyệt'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function ApproveWork() {
   const [works, setWorks] = useState<Work[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
@@ -144,25 +562,26 @@ export default function ApproveWork() {
   const [isBatchApproving, setIsBatchApproving] = useState(false);
 
   // Modal State for Reviewing & Scoring single item
+  const [workNatures, setWorkNatures] = useState<WorkNatureItem[]>(getWorkNatureList());
   const [reviewingWork, setReviewingWork] = useState<Work | null>(null);
-  const [reviewDecision, setReviewDecision] = useState<'Duyệt' | 'Cần bổ sung' | 'Không duyệt'>('Duyệt');
-  const [reviewApprovedNature, setReviewApprovedNature] = useState<string>('Trung bình');
-  const [reviewApprovedCoef, setReviewApprovedCoef] = useState<number>(0.8);
-  const [reviewNote, setReviewNote] = useState('');
-  const [reviewScore, setReviewScore] = useState<number | ''>('');
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const fetchAll = async () => {
     setIsLoading(true);
     try {
-      const [resW, resU, resA] = await Promise.all([
-        fetch('/api/works'),
-        fetch('/api/users'),
-        fetch('/api/assignments')
+      const [resW, resU, resA, resC] = await Promise.all([
+        safeFetch('/api/works'),
+        safeFetch('/api/users'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/categories')
       ]);
-      const [dW, dU, dA] = await Promise.all([resW.json(), resU.json(), resA.json()]);
+      const [dW, dU, dA, dC] = await Promise.all([
+        safeParseResponse(resW),
+        safeParseResponse(resU),
+        safeParseResponse(resA),
+        safeParseResponse(resC)
+      ]);
 
       if (dW.success) setWorks(dW.data || []);
       if (dU.success && dU.data?.length > 0) {
@@ -171,6 +590,11 @@ export default function ApproveWork() {
         setCurrentUser(active);
       }
       if (dA.success) setAssignments(dA.data || []);
+      if (dC.success && Array.isArray(dC.data)) {
+        setGlobalWorkNatures(dC.data);
+        const dynNatures = getWorkNatureList(dC.data);
+        setWorkNatures(dynNatures);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -191,123 +615,54 @@ export default function ApproveWork() {
     return () => window.removeEventListener('kpi_user_changed', handleUserChange);
   }, [users.length]);
 
-  // Filtered Works List
-  const filteredWorks = works.filter(w => {
-    if (isSoftDeleted(w)) return false;
-    if (selectedMonth !== 'Tất cả' && formatMonth(w.month) !== selectedMonth) return false;
-    if (selectedUserId !== 'all' && w.userId !== selectedUserId) return false;
-    if (selectedGroup !== 'all' && w.taskGroup !== selectedGroup) return false;
+  // Filtered Works List - memoized to prevent re-filtering on unrelated updates
+  const filteredWorks = useMemo(() => {
+    return works.filter(w => {
+      if (isSoftDeleted(w)) return false;
+      if (selectedMonth !== 'Tất cả' && formatMonth(w.month) !== selectedMonth) return false;
+      if (selectedUserId !== 'all' && w.userId !== selectedUserId) return false;
+      if (selectedGroup !== 'all' && w.taskGroup !== selectedGroup) return false;
 
-    // Source filter
-    if (selectedSource === 'assigned' && w.source !== 'Giao việc' && !w.sysNote?.includes('Giao bởi')) return false;
-    if (selectedSource === 'self' && (w.source === 'Giao việc' || w.sysNote?.includes('Giao bởi'))) return false;
+      // Source filter
+      if (selectedSource === 'assigned' && w.source !== 'Giao việc' && !w.sysNote?.includes('Giao bởi')) return false;
+      if (selectedSource === 'self' && (w.source === 'Giao việc' || w.sysNote?.includes('Giao bởi'))) return false;
 
-    // Approval status filter
-    if (selectedApproval !== 'all') {
-      const appr = String(w.leaderApproval || 'Chưa duyệt').trim();
-      if (selectedApproval === 'Chưa duyệt' && (appr === 'Duyệt' || appr === 'Cần bổ sung' || appr === 'Không duyệt')) return false;
-      if (selectedApproval === 'Duyệt' && appr !== 'Duyệt') return false;
-      if (selectedApproval === 'Cần bổ sung' && appr !== 'Cần bổ sung') return false;
-      if (selectedApproval === 'Không duyệt' && appr !== 'Không duyệt') return false;
-    }
+      // Approval status filter
+      if (selectedApproval !== 'all') {
+        const appr = String(w.leaderApproval || 'Chưa duyệt').trim();
+        if (selectedApproval === 'Chưa duyệt' && (appr === 'Duyệt' || appr === 'Cần bổ sung' || appr === 'Không duyệt')) return false;
+        if (selectedApproval === 'Duyệt' && appr !== 'Duyệt') return false;
+        if (selectedApproval === 'Cần bổ sung' && appr !== 'Cần bổ sung') return false;
+        if (selectedApproval === 'Không duyệt' && appr !== 'Không duyệt') return false;
+      }
 
-    if (searchKeyword.trim()) {
-      const kw = searchKeyword.toLowerCase();
-      const matchName = (w.taskName || '').toLowerCase().includes(kw);
-      const matchCode = (w.taskCode || '').toLowerCase().includes(kw);
-      const matchUser = (w.user?.name || '').toLowerCase().includes(kw);
-      const matchDetail = (w.detail || '').toLowerCase().includes(kw);
-      if (!matchName && !matchCode && !matchUser && !matchDetail) return false;
-    }
-    return true;
-  });
+      if (searchKeyword.trim()) {
+        const kw = searchKeyword.toLowerCase();
+        const matchName = (w.taskName || '').toLowerCase().includes(kw);
+        const matchCode = (w.taskCode || '').toLowerCase().includes(kw);
+        const matchUser = (w.user?.name || '').toLowerCase().includes(kw);
+        const matchDetail = (w.detail || '').toLowerCase().includes(kw);
+        if (!matchName && !matchCode && !matchUser && !matchDetail) return false;
+      }
+      return true;
+    });
+  }, [works, selectedMonth, selectedUserId, selectedGroup, selectedSource, selectedApproval, searchKeyword]);
 
-  // Calculate metrics for current month
-  const monthWorks = works.filter(w => !isSoftDeleted(w) && (selectedMonth === 'Tất cả' || formatMonth(w.month) === selectedMonth));
-  const totalCount = monthWorks.length;
-  const pendingCount = monthWorks.filter(w => !w.leaderApproval || w.leaderApproval === 'Chưa duyệt').length;
-  const approvedCount = monthWorks.filter(w => w.leaderApproval === 'Duyệt').length;
-  const supplementCount = monthWorks.filter(w => w.leaderApproval === 'Cần bổ sung').length;
-  const rejectedCount = monthWorks.filter(w => w.leaderApproval === 'Không duyệt').length;
+  // Calculate metrics for current month - memoized
+  const { totalCount, pendingCount, approvedCount, supplementCount, rejectedCount } = useMemo(() => {
+    const monthWorks = works.filter(w => !isSoftDeleted(w) && (selectedMonth === 'Tất cả' || formatMonth(w.month) === selectedMonth));
+    return {
+      totalCount: monthWorks.length,
+      pendingCount: monthWorks.filter(w => !w.leaderApproval || w.leaderApproval === 'Chưa duyệt').length,
+      approvedCount: monthWorks.filter(w => w.leaderApproval === 'Duyệt').length,
+      supplementCount: monthWorks.filter(w => w.leaderApproval === 'Cần bổ sung').length,
+      rejectedCount: monthWorks.filter(w => w.leaderApproval === 'Không duyệt').length
+    };
+  }, [works, selectedMonth]);
 
   // Open review modal
   const handleOpenReview = (w: Work) => {
     setReviewingWork(w);
-    setReviewDecision(w.leaderApproval === 'Cần bổ sung' || w.leaderApproval === 'Không duyệt' ? w.leaderApproval : 'Duyệt');
-    setReviewNote(w.leaderNote || '');
-
-    // Default Approved Nature to what user proposed or already approved
-    const initialNature = w.approvedNature || w.proposedNature || 'Trung bình';
-    const natureCoefObj = WORK_NATURE_COEFS[initialNature] || { coef: 0.8 };
-    setReviewApprovedNature(initialNature);
-    setReviewApprovedCoef(natureCoefObj.coef);
-
-    // Initial converted score
-    if (w.approvedConvertedScore && !isNaN(Number(w.approvedConvertedScore))) {
-      setReviewScore(Number(w.approvedConvertedScore));
-    } else if (w.convertedScore && !isNaN(Number(w.convertedScore))) {
-      setReviewScore(Number(w.convertedScore));
-    } else if (w.selfConvertedScore && !isNaN(Number(w.selfConvertedScore))) {
-      setReviewScore(Number(w.selfConvertedScore));
-    } else {
-      const baseSc = Number(w.baseScore) || 10;
-      const calc = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
-      setReviewScore(calc);
-    }
-  };
-
-  // Handle nature change inside review modal
-  const handleReviewNatureChange = (newNature: string) => {
-    if (!reviewingWork) return;
-    const natureCoefObj = WORK_NATURE_COEFS[newNature] || { coef: 0.8 };
-    setReviewApprovedNature(newNature);
-    setReviewApprovedCoef(natureCoefObj.coef);
-
-    // Recalculate score automatically
-    const baseSc = Number(reviewingWork.baseScore) || 10;
-    const calculated = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
-    setReviewScore(calculated);
-  };
-
-  // Submit single review
-  const handleSubmitReview = async () => {
-    if (!reviewingWork) return;
-    setIsSubmittingReview(true);
-    setErrorMsg('');
-    try {
-      const payload: any = {
-        leaderApproval: reviewDecision,
-        approvedNature: reviewApprovedNature,
-        coef: String(reviewApprovedCoef),
-        leaderNote: reviewNote,
-        approverId: currentUser?.id || null,
-        approvalDate: new Date()
-      };
-
-      if (reviewScore !== '' && !isNaN(Number(reviewScore))) {
-        payload.approvedConvertedScore = String(reviewScore);
-        payload.convertedScore = String(reviewScore);
-      }
-
-      const res = await fetch(`/api/works/${reviewingWork.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const d = await res.json();
-      if (d.success) {
-        setSuccessMsg(`Đã phê duyệt công việc của ${reviewingWork.user?.name || 'nhân viên'} thành công!`);
-        setReviewingWork(null);
-        fetchAll();
-        setTimeout(() => setSuccessMsg(''), 4000);
-      } else {
-        setErrorMsg(d.error || 'Có lỗi khi lưu kết quả phê duyệt');
-      }
-    } catch (e: any) {
-      setErrorMsg(String(e));
-    } finally {
-      setIsSubmittingReview(false);
-    }
   };
 
   // Batch Approve All Selected
@@ -818,288 +1173,21 @@ export default function ApproveWork() {
         </div>
       </div>
 
-      {/* Review & Scoring Modal */}
+      {/* Review & Scoring Modal (Isolated & Fast Local State) */}
       {reviewingWork && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2 text-[#1F4E78] font-black text-base">
-                <CheckSquare className="w-5 h-5" />
-                <span>Thẩm định & Phê duyệt kết quả công việc</span>
-              </div>
-              <button 
-                onClick={() => setReviewingWork(null)} 
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Comprehensive Task Details Card */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
-                <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
-                  <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
-                    {reviewingWork.taskCode || 'CV'}
-                  </span>
-                  <span>{reviewingWork.taskName}</span>
-                </div>
-                {reviewingWork.source === 'Giao việc' ? (
-                  <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
-                    Việc Lãnh đạo giao
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
-                    Việc tự đăng ký
-                  </span>
-                )}
-              </div>
-
-              {/* 4-column inspection grid */}
-              {(() => {
-                const sched = calculateWorkSchedule(reviewingWork);
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
-                      <span className="font-bold text-slate-900 text-xs">{reviewingWork.user?.name}</span>
-                      <div className="text-[10px] text-slate-500">{cleanPosition(reviewingWork.user?.position)}</div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
-                      <span className="font-bold text-slate-900 text-xs">Tháng {reviewingWork.month}</span>
-                      <div className="text-[10px] text-slate-500 truncate" title={reviewingWork.taskGroup || ''}>
-                        {reviewingWork.taskGroup || 'Khác'}
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
-                      <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
-                      <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
-                    </div>
-
-                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
-                      <span className="font-bold text-slate-900 text-xs block">{reviewingWork.status || 'Đang xử lý'}</span>
-                      <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
-                        sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {sched.scheduleText}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Product Info Row */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
-                  <span className="font-bold text-slate-800">{reviewingWork.productType || 'Báo cáo'}</span> ({reviewingWork.productQty || 1} {reviewingWork.unit || 'Sản phẩm'})
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
-                  <span className="font-black text-[#1F4E78] text-xs">{formatScore(reviewingWork.baseScore || 10)} điểm</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
-                  <span className="font-bold text-slate-800">{reviewingWork.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(reviewingWork.coef || 0.8)})
-                </div>
-              </div>
-
-              {/* Detail content */}
-              {reviewingWork.detail && (
-                <div>
-                  <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
-                  <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
-                    {reviewingWork.detail}
-                  </p>
-                </div>
-              )}
-
-              {/* Evidence */}
-              {reviewingWork.evidence && (
-                <div>
-                  <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
-                  <a 
-                    href={reviewingWork.evidence.startsWith('http') ? reviewingWork.evidence : `https://${reviewingWork.evidence}`} 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
-                  >
-                    <ExternalLink className="w-4 h-4 shrink-0" />
-                    <span className="break-all">{reviewingWork.evidence}</span>
-                  </a>
-                </div>
-              )}
-            </div>
-
-            {/* Approval Decision Controls */}
-            <div className="space-y-4 pt-1">
-              {/* Nature of Work Approval Control */}
-              <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-[#1F4E78]" />
-                    <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
-                  </label>
-                  <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <select
-                      value={reviewApprovedNature}
-                      onChange={(e) => handleReviewNatureChange(e.target.value)}
-                      className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
-                    >
-                      {Object.keys(WORK_NATURE_COEFS).map(nat => (
-                        <option key={nat} value={nat}>
-                          {nat} (Hệ số {formatScore(WORK_NATURE_COEFS[nat].coef)})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs">
-                    <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
-                    <span className="font-black text-[#1F4E78] text-sm">{formatScore(reviewApprovedCoef)}</span>
-                    <span className="text-slate-300">|</span>
-                    <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
-                    <span className="font-bold text-slate-800">{formatScore(reviewingWork.baseScore || 10)}</span>
-                  </div>
-                </div>
-
-                {/* Score formula explanation */}
-                <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
-                  <span>Công thức tự tính: <strong>{formatScore(reviewingWork.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
-                  <span className="font-black text-xs text-[#1F4E78]">= {formatScore(reviewScore)} đ</span>
-                </div>
-              </div>
-
-              {/* 3 Decision Buttons */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">Quyết định phê duyệt</label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setReviewDecision('Duyệt')}
-                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      reviewDecision === 'Duyệt'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Check className="w-4 h-4" />
-                    <span>Duyệt đạt</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setReviewDecision('Cần bổ sung')}
-                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      reviewDecision === 'Cần bổ sung'
-                        ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>Cần bổ sung</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setReviewDecision('Không duyệt')}
-                    className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      reviewDecision === 'Không duyệt'
-                        ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <X className="w-4 h-4" />
-                    <span>Không duyệt</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Official Converted Score Input */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                  <span>Điểm quy đổi KPI chính thức</span>
-                  <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Tự động cập nhật theo Tính chất duyệt
-                  </span>
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={reviewScore}
-                  onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                  placeholder="Nhập điểm quy đổi chính thức"
-                  className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
-                />
-              </div>
-
-              {/* Leader Note & Quick Suggestions */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-800">
-                    Ý kiến chỉ đạo / Nhận xét của Lãnh đạo phòng
-                  </label>
-                  <span className="text-[10px] text-slate-400">Tùy chọn</span>
-                </div>
-                <textarea
-                  rows={3}
-                  value={reviewNote}
-                  onChange={(e) => setReviewNote(e.target.value)}
-                  placeholder="Ghi rõ ý kiến chỉ đạo, lý do cần bổ sung hoặc đánh giá chất lượng hồ sơ..."
-                  className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
-                />
-
-                {/* Quick suggestions chips */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className="text-[10px] font-bold text-slate-400 self-center">Gợi ý nhanh:</span>
-                  {QUICK_LEADER_SUGGESTIONS.map((sug, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setReviewNote(sug)}
-                      className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer border border-slate-200 text-left"
-                    >
-                      {sug}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setReviewingWork(null)}
-                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitReview}
-                disabled={isSubmittingReview}
-                className="px-6 py-2.5 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{isSubmittingReview ? 'Đang lưu...' : 'Lưu kết quả phê duyệt'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <WorkReviewModal
+          work={reviewingWork}
+          currentUser={currentUser}
+          workNatures={workNatures}
+          onClose={() => setReviewingWork(null)}
+          onSuccess={(msg) => {
+            setSuccessMsg(msg);
+            setTimeout(() => setSuccessMsg(''), 4000);
+          }}
+          refreshAll={fetchAll}
+        />
       )}
     </div>
   );
 }
+

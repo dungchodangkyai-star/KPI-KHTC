@@ -3,10 +3,10 @@ import {
   Download, Upload, FileDown, Settings, Plus, Edit2, Trash2, 
   Check, X, AlertCircle, Sliders, Building2, Search, Filter, 
   Layers, CheckCircle2, RefreshCw, FolderTree, Package, Sparkles,
-  FileSpreadsheet, Database, Archive, RotateCcw, ShieldCheck
+  FileSpreadsheet, Database, Archive, RotateCcw, ShieldCheck, Award
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { WORK_NATURE_COEFS } from '../utils';
+import { WORK_NATURE_COEFS, formatScore } from '../utils';
 import { 
   exportStyledExcel, 
   exportMultiSheetExcel, 
@@ -20,7 +20,7 @@ import OrgConfigSettings from '../components/OrgConfigSettings';
 export default function AdminSettings() {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'ORG_CONFIG' | 'KPI_CONFIG' | 'TASK' | 'TASK_GROUP' | 'PRODUCT_TYPE'>('TASK');
+  const [activeTab, setActiveTab] = useState<'ORG_CONFIG' | 'KPI_CONFIG' | 'TASK' | 'TASK_GROUP' | 'PRODUCT_TYPE' | 'WORK_NATURE'>('TASK');
   
   const [isEditing, setIsEditing] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -58,6 +58,7 @@ export default function AdminSettings() {
   const taskGroups = categories.filter(c => c.type === 'TASK_GROUP');
   const productTypes = categories.filter(c => c.type === 'PRODUCT_TYPE');
   const tasks = categories.filter(c => c.type === 'TASK');
+  const workNatures = categories.filter(c => c.type === 'WORK_NATURE');
 
   const handleEdit = (cat: any) => {
     setIsEditing(cat.id);
@@ -84,6 +85,7 @@ export default function AdminSettings() {
           tasks: tasks.length,
           taskGroups: taskGroups.length,
           productTypes: productTypes.length,
+          workNatures: workNatures.length,
           total: categories.length
         },
         data: categories
@@ -231,6 +233,29 @@ export default function AdminSettings() {
       }));
       await exportStyledExcel(data, cols, `Danh_Muc_Loai_San_Pham_${dateStr}.xlsx`, 'Loai_San_Pham');
       showNotice('success', `Đã xuất ${productTypes.length} loại sản phẩm sang file Excel chuẩn (#1F4E78).`);
+    } else if (activeTab === 'WORK_NATURE') {
+      const cols: ExportColumn[] = [
+        { header: 'STT', key: 'stt', width: 8, align: 'center' },
+        { header: 'Mã tính chất', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên tính chất công việc', key: 'name', width: 32, align: 'left' },
+        { header: 'Hệ số tính chất (K)', key: 'coef', width: 18, align: 'center', numFmt: '0.0' },
+        { header: 'Điểm thưởng C1', key: 'c1Point', width: 16, align: 'center' },
+        { header: 'Quy ước áp dụng / Ghi chú', key: 'description', width: 45, align: 'left' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+      ];
+      const data = workNatures.map((c, idx) => ({
+        stt: idx + 1,
+        code: c.code || `NAT_${idx + 1}`,
+        name: c.name,
+        coef: c.properties?.coef !== undefined ? Number(c.properties.coef) : 0.8,
+        c1Point: c.properties?.c1Point !== undefined ? Number(c.properties.c1Point) : 0,
+        description: c.properties?.description || '',
+        order: c.order || idx + 1,
+        status: c.status || 'Đang dùng',
+      }));
+      await exportStyledExcel(data, cols, `Danh_Muc_Tinh_Chat_Cong_Viec_${dateStr}.xlsx`, 'Tinh_Chat_Cong_Viec');
+      showNotice('success', `Đã xuất ${workNatures.length} tính chất công việc sang file Excel chuẩn (#1F4E78).`);
     }
   };
 
@@ -299,15 +324,38 @@ export default function AdminSettings() {
           order: c.order || idx + 1,
           status: c.status || 'Đang dùng',
         }))
+      },
+      {
+        sheetName: 'Danh_Muc_Tinh_Chat',
+        columns: [
+          { header: 'STT', key: 'stt', width: 8, align: 'center' },
+          { header: 'Mã tính chất', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên tính chất công việc', key: 'name', width: 32, align: 'left' },
+          { header: 'Hệ số tính chất (K)', key: 'coef', width: 18, align: 'center', numFmt: '0.0' },
+          { header: 'Điểm thưởng C1', key: 'c1Point', width: 16, align: 'center' },
+          { header: 'Quy ước áp dụng / Ghi chú', key: 'description', width: 45, align: 'left' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+          { header: 'Trạng thái', key: 'status', width: 16, align: 'center' },
+        ],
+        data: workNatures.map((c, idx) => ({
+          stt: idx + 1,
+          code: c.code || `NAT_${idx + 1}`,
+          name: c.name,
+          coef: c.properties?.coef !== undefined ? Number(c.properties.coef) : 0.8,
+          c1Point: c.properties?.c1Point !== undefined ? Number(c.properties.c1Point) : 0,
+          description: c.properties?.description || '',
+          order: c.order || idx + 1,
+          status: c.status || 'Đang dùng',
+        }))
       }
     ];
 
-    await exportMultiSheetExcel(sheets, `Tong_Hop_Danh_Muc_He_Thong_3in1_${dateStr}.xlsx`);
-    showNotice('success', 'Đã tải thành công tệp Excel tổng hợp 3-in-1 chứa đầy đủ Danh mục nhiệm vụ, Nhóm việc và Loại SP!');
+    await exportMultiSheetExcel(sheets, `Tong_Hop_Danh_Muc_He_Thong_4in1_${dateStr}.xlsx`);
+    showNotice('success', 'Đã tải thành công tệp Excel tổng hợp 4-in-1 chứa đầy đủ Nhiệm vụ, Nhóm việc, Loại SP và Tính chất công việc!');
   };
 
   // --------------------------------------------------------------------------
-  // DOWNLOAD EXCEL TEMPLATES (SINGLE & MASTER 3-IN-1)
+  // DOWNLOAD EXCEL TEMPLATES (SINGLE & MASTER 4-IN-1)
   // --------------------------------------------------------------------------
   const handleDownloadTemplate = async () => {
     if (activeTab === 'TASK') {
@@ -364,6 +412,24 @@ export default function AdminSettings() {
         { code: 'PROD_PLHD', name: 'PL hợp đồng', unit: 'Bộ', order: 10 },
       ];
       await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Loai_San_Pham.xlsx', 'Loai_San_Pham');
+    } else if (activeTab === 'WORK_NATURE') {
+      const cols: ExportColumn[] = [
+        { header: 'Mã tính chất', key: 'code', width: 18, align: 'center' },
+        { header: 'Tên tính chất công việc', key: 'name', width: 32, align: 'left' },
+        { header: 'Hệ số tính chất (K)', key: 'coef', width: 18, align: 'center', numFmt: '0.0' },
+        { header: 'Điểm thưởng C1', key: 'c1Point', width: 16, align: 'center' },
+        { header: 'Quy ước áp dụng / Ghi chú', key: 'description', width: 45, align: 'left' },
+        { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+      ];
+      const sample = [
+        { code: 'NAT_01', name: 'Rất đơn giản', coef: 0.5, c1Point: 0, description: 'Các công việc thường xuyên, thủ tục đơn giản, thao tác nhanh', order: 1 },
+        { code: 'NAT_02', name: 'Đơn giản', coef: 0.6, c1Point: 0, description: 'Các văn bản, báo cáo định kỳ theo mẫu có sẵn', order: 2 },
+        { code: 'NAT_03', name: 'Trung bình', coef: 0.8, c1Point: 0, description: 'Nhiệm vụ chuyên môn tiêu chuẩn, cần phối hợp cơ bản', order: 3 },
+        { code: 'NAT_04', name: 'Phức tạp', coef: 1.0, c1Point: 1, description: 'Hồ sơ chuyên sâu, thẩm định đa ngành, khối lượng lớn', order: 4 },
+        { code: 'NAT_05', name: 'Rất phức tạp', coef: 1.2, c1Point: 2, description: 'Dự án trọng điểm, xử lý vướng mắc pháp lý, khối lượng đặc biệt lớn', order: 5 },
+        { code: 'NAT_06', name: 'Đặc biệt phức tạp', coef: 1.5, c1Point: 3, description: 'Chuyên đề đột phá, tham mưu chỉ đạo liên ngành, thời hạn gấp', order: 6 },
+      ];
+      await downloadStyledTemplate(sample, cols, 'Mau_Chuan_Tinh_Chat_Cong_Viec.xlsx', 'Tinh_Chat_Cong_Viec');
     }
   };
 
@@ -425,11 +491,30 @@ export default function AdminSettings() {
           { code: 'PROD_BIENBAN', name: 'Biên bản', unit: 'Biên bản', order: 9 },
           { code: 'PROD_PLHD', name: 'PL hợp đồng', unit: 'Bộ', order: 10 },
         ]
+      },
+      {
+        sheetName: 'Danh_Muc_Tinh_Chat',
+        columns: [
+          { header: 'Mã tính chất', key: 'code', width: 18, align: 'center' },
+          { header: 'Tên tính chất công việc', key: 'name', width: 32, align: 'left' },
+          { header: 'Hệ số tính chất (K)', key: 'coef', width: 18, align: 'center', numFmt: '0.0' },
+          { header: 'Điểm thưởng C1', key: 'c1Point', width: 16, align: 'center' },
+          { header: 'Quy ước áp dụng / Ghi chú', key: 'description', width: 45, align: 'left' },
+          { header: 'Thứ tự', key: 'order', width: 12, align: 'center' },
+        ],
+        data: [
+          { code: 'NAT_01', name: 'Rất đơn giản', coef: 0.5, c1Point: 0, description: 'Các công việc thường xuyên, thủ tục đơn giản, thao tác nhanh', order: 1 },
+          { code: 'NAT_02', name: 'Đơn giản', coef: 0.6, c1Point: 0, description: 'Các văn bản, báo cáo định kỳ theo mẫu có sẵn', order: 2 },
+          { code: 'NAT_03', name: 'Trung bình', coef: 0.8, c1Point: 0, description: 'Nhiệm vụ chuyên môn tiêu chuẩn, cần phối hợp cơ bản', order: 3 },
+          { code: 'NAT_04', name: 'Phức tạp', coef: 1.0, c1Point: 1, description: 'Hồ sơ chuyên sâu, thẩm định đa ngành, khối lượng lớn', order: 4 },
+          { code: 'NAT_05', name: 'Rất phức tạp', coef: 1.2, c1Point: 2, description: 'Dự án trọng điểm, xử lý vướng mắc pháp lý, khối lượng đặc biệt lớn', order: 5 },
+          { code: 'NAT_06', name: 'Đặc biệt phức tạp', coef: 1.5, c1Point: 3, description: 'Chuyên đề đột phá, tham mưu chỉ đạo liên ngành, thời hạn gấp', order: 6 },
+        ]
       }
     ];
 
-    await exportMultiSheetExcel(sheets, 'Mau_Chuan_Tong_Hop_Danh_Muc_3in1.xlsx');
-    showNotice('success', 'Đã tải thành công tệp Excel mẫu chuẩn tổng hợp 3-in-1!');
+    await exportMultiSheetExcel(sheets, 'Mau_Chuan_Tong_Hop_Danh_Muc_4in1.xlsx');
+    showNotice('success', 'Đã tải thành công tệp Excel mẫu chuẩn tổng hợp 4-in-1!');
   };
 
   // --------------------------------------------------------------------------
@@ -457,6 +542,7 @@ export default function AdminSettings() {
         let importedTasks = 0;
         let importedGroups = 0;
         let importedProducts = 0;
+        let importedNatures = 0;
         let syncedGroups = new Set<string>();
         let syncedProducts = new Set<string>();
 
@@ -474,10 +560,13 @@ export default function AdminSettings() {
           // Check if this sheet is PRODUCT_TYPE
           const isProdSheet = sClean.includes('loaisanpham') || sClean.includes('producttype') || (rows[0] && (getVal(rows[0], ['Tên loại sản phẩm', 'Tên loại SP', 'ProductTypeName']) !== undefined || (getVal(rows[0], ['Đơn vị tính', 'ĐVT']) !== undefined && getVal(rows[0], ['Điểm chuẩn', 'Score']) === undefined)));
 
+          // Check if this sheet is WORK_NATURE
+          const isNatureSheet = sClean.includes('tinhchat') || sClean.includes('nature') || (rows[0] && (getVal(rows[0], ['Hệ số tính chất (K)', 'Hệ số tính chất', 'Hệ số K', 'Coef', 'Điểm thưởng C1']) !== undefined && getVal(rows[0], ['Điểm chuẩn', 'Score']) === undefined));
+
           // Check if this sheet is TASK
           const isTaskSheet = sClean.includes('danhmuc') || sClean.includes('nhiemvu') || sClean.includes('task') || rows.some(r => getVal(r, ['Nhóm việc (Nếu là TASK)', 'Nhóm việc', 'Điểm chuẩn (Nếu là TASK)', 'Điểm chuẩn', 'Tính chất']) !== undefined);
 
-          if (isGroupSheet && !isTaskSheet) {
+          if (isGroupSheet && !isTaskSheet && !isNatureSheet) {
             // Import Task Groups
             for (let i = 0; i < rows.length; i++) {
               const row = rows[i];
@@ -494,7 +583,7 @@ export default function AdminSettings() {
               });
               importedGroups++;
             }
-          } else if (isProdSheet && !isTaskSheet) {
+          } else if (isProdSheet && !isTaskSheet && !isNatureSheet) {
             // Import Product Types
             for (let i = 0; i < rows.length; i++) {
               const row = rows[i];
@@ -511,6 +600,37 @@ export default function AdminSettings() {
                 body: JSON.stringify({ code, name, type: 'PRODUCT_TYPE', status, order, properties: { unit } })
               });
               importedProducts++;
+            }
+          } else if (isNatureSheet && !isTaskSheet) {
+            // Import Work Natures
+            for (let i = 0; i < rows.length; i++) {
+              const row = rows[i];
+              const name = getVal(row, ['Tên tính chất công việc', 'Tên tính chất', 'Tên', 'NatureName', 'Name']);
+              if (!name) continue;
+              const code = getVal(row, ['Mã', 'Mã tính chất', 'NatureCode']) || `NAT_${Date.now()}_${i + 1}`;
+              const coefVal = parseFloat(getVal(row, ['Hệ số tính chất (K)', 'Hệ số tính chất', 'Hệ số K', 'Hệ số', 'Coef', 'K']) || '0.8');
+              const c1Val = parseFloat(getVal(row, ['Điểm thưởng C1', 'Điểm C1', 'C1Point', 'C1']) || '0');
+              const description = getVal(row, ['Quy ước áp dụng / Ghi chú', 'Quy ước áp dụng', 'Ghi chú', 'Mô tả', 'Description']) || '';
+              const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+              const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+
+              await fetch('/api/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  code,
+                  name,
+                  type: 'WORK_NATURE',
+                  status,
+                  order,
+                  properties: {
+                    coef: isNaN(coefVal) ? 0.8 : coefVal,
+                    c1Point: isNaN(c1Val) ? 0 : c1Val,
+                    description
+                  }
+                })
+              });
+              importedNatures++;
             }
           } else {
             // Default or Task Sheet: If activeTab is active or sheet contains tasks
@@ -548,6 +668,37 @@ export default function AdminSettings() {
                   body: JSON.stringify({ code, name, type: 'PRODUCT_TYPE', status, order, properties: { unit } })
                 });
                 importedProducts++;
+              }
+            } else if (activeTab === 'WORK_NATURE' && wb.SheetNames.length === 1 && !isTaskSheet) {
+              // Single sheet import while on Work Nature tab
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const name = getVal(row, ['Tên tính chất công việc', 'Tên tính chất', 'Tên', 'NatureName', 'Name']);
+                if (!name) continue;
+                const code = getVal(row, ['Mã', 'Mã tính chất', 'NatureCode']) || `NAT_${Date.now()}_${i + 1}`;
+                const coefVal = parseFloat(getVal(row, ['Hệ số tính chất (K)', 'Hệ số tính chất', 'Hệ số K', 'Hệ số', 'Coef', 'K']) || '0.8');
+                const c1Val = parseFloat(getVal(row, ['Điểm thưởng C1', 'Điểm C1', 'C1Point', 'C1']) || '0');
+                const description = getVal(row, ['Quy ước áp dụng / Ghi chú', 'Quy ước áp dụng', 'Ghi chú', 'Mô tả', 'Description']) || '';
+                const status = getVal(row, ['Trạng thái', 'Status']) || 'Đang dùng';
+                const order = Number(getVal(row, ['Thứ tự', 'Order', 'STT'])) || (i + 1);
+
+                await fetch('/api/categories', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    code,
+                    name,
+                    type: 'WORK_NATURE',
+                    status,
+                    order,
+                    properties: {
+                      coef: isNaN(coefVal) ? 0.8 : coefVal,
+                      c1Point: isNaN(c1Val) ? 0 : c1Val,
+                      description
+                    }
+                  })
+                });
+                importedNatures++;
               }
             } else {
               // Task Items
@@ -637,9 +788,17 @@ export default function AdminSettings() {
           }
         }
 
+        const noticeDetails: string[] = [];
+        if (importedTasks > 0) noticeDetails.push(`${importedTasks} nhiệm vụ`);
+        if (importedGroups > 0) noticeDetails.push(`${importedGroups} nhóm việc`);
+        if (importedProducts > 0) noticeDetails.push(`${importedProducts} loại SP`);
+        if (importedNatures > 0) noticeDetails.push(`${importedNatures} tính chất`);
+
         showNotice(
           'success', 
-          `Đã import thành công: ${importedTasks} nhiệm vụ, ${importedGroups} nhóm việc, ${importedProducts} loại sản phẩm (và tự động liên kết dữ liệu)!`
+          noticeDetails.length > 0 
+            ? `Đã import thành công: ${noticeDetails.join(', ')} (và tự động liên kết dữ liệu)!` 
+            : 'Đã hoàn tất kiểm tra và nạp file Excel!'
         );
 
         fetchCategories();
@@ -657,17 +816,29 @@ export default function AdminSettings() {
     const newCat = {
       id: 'new',
       type: activeTab,
-      code: activeTab === 'TASK' ? `TASK-${currentList.length + 1}` : activeTab === 'TASK_GROUP' ? `GRP-${currentList.length + 1}` : `PROD-${currentList.length + 1}`,
+      code: activeTab === 'TASK' 
+        ? `TASK-${currentList.length + 1}` 
+        : activeTab === 'TASK_GROUP' 
+        ? `GRP-${currentList.length + 1}` 
+        : activeTab === 'PRODUCT_TYPE'
+        ? `PROD-${currentList.length + 1}`
+        : `NAT-${currentList.length + 1}`,
       name: '',
       status: 'Đang dùng',
       order: currentList.length + 1,
       properties: activeTab === 'TASK' ? {
         taskGroup: taskGroups[0]?.name || 'Kế hoạch vốn',
         score: 10,
-        nature: 'Trung bình',
+        nature: workNatures[0]?.name || 'Trung bình',
         productType: productTypes[0]?.name || 'Báo cáo',
         unit: 'Sản phẩm'
-      } : activeTab === 'PRODUCT_TYPE' ? { unit: 'Sản phẩm' } : {}
+      } : activeTab === 'PRODUCT_TYPE' ? { 
+        unit: 'Sản phẩm' 
+      } : activeTab === 'WORK_NATURE' ? {
+        coef: 0.8,
+        c1Point: 0,
+        description: ''
+      } : {}
     };
     setIsEditing('new');
     setFormData(newCat);
@@ -795,6 +966,10 @@ export default function AdminSettings() {
             <Package className="w-3.5 h-3.5 text-purple-600" />
             <span>{productTypes.length} Loại SP</span>
           </span>
+          <span className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
+            <Award className="w-3.5 h-3.5 text-amber-600" />
+            <span>{workNatures.length} Tính chất</span>
+          </span>
         </div>
       </div>
 
@@ -830,7 +1005,8 @@ export default function AdminSettings() {
             { id: 'KPI_CONFIG', label: 'Cấu hình phân bổ điểm & Xếp loại KPI', icon: Sliders },
             { id: 'TASK', label: `Danh mục nhiệm vụ (${tasks.length})`, icon: Layers },
             { id: 'TASK_GROUP', label: `Nhóm công việc (${taskGroups.length})`, icon: FolderTree },
-            { id: 'PRODUCT_TYPE', label: `Loại sản phẩm (${productTypes.length})`, icon: Package }
+            { id: 'PRODUCT_TYPE', label: `Loại sản phẩm (${productTypes.length})`, icon: Package },
+            { id: 'WORK_NATURE', label: `Tính chất (${workNatures.length})`, icon: Award }
           ].map(tab => (
             <button
               key={tab.id}
@@ -864,7 +1040,9 @@ export default function AdminSettings() {
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
                     <span>
                       {activeTab === 'TASK' ? 'Danh mục nhiệm vụ công việc' : 
-                       activeTab === 'TASK_GROUP' ? 'Danh mục nhóm công việc' : 'Danh mục loại sản phẩm'}
+                       activeTab === 'TASK_GROUP' ? 'Danh mục nhóm công việc' : 
+                       activeTab === 'PRODUCT_TYPE' ? 'Danh mục loại sản phẩm' :
+                       'Danh mục tính chất công việc & Hệ số K'}
                     </span>
                     <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
                       {filteredCategories.length} mục
@@ -874,6 +1052,7 @@ export default function AdminSettings() {
                     {activeTab === 'TASK' && 'Nhiệm vụ chuẩn với Điểm chuẩn, Tính chất phức tạp và Loại sản phẩm tương ứng'}
                     {activeTab === 'TASK_GROUP' && 'Các nhóm công việc chuyên môn của Phòng Kế hoạch - Tài chính'}
                     {activeTab === 'PRODUCT_TYPE' && 'Các loại hình sản phẩm đầu ra gắn liền với công việc'}
+                    {activeTab === 'WORK_NATURE' && 'Quy ước phân loại độ phức tạp công việc, hệ số nhân K và điểm thưởng vượt trội C1'}
                   </p>
                 </div>
 
@@ -905,7 +1084,7 @@ export default function AdminSettings() {
                     <button
                       onClick={handleDownloadTemplate}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-700 rounded-lg hover:bg-slate-100 font-bold text-xs border border-slate-200 transition-colors shadow-2xs cursor-pointer"
-                      title={`Tải file Excel mẫu chuẩn cho ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : 'Loại sản phẩm'}`}
+                      title={`Tải file Excel mẫu chuẩn cho ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : activeTab === 'PRODUCT_TYPE' ? 'Loại sản phẩm' : 'Tính chất công việc'}`}
                     >
                       <FileDown className="w-3.5 h-3.5 text-slate-600" />
                       <span>Mẫu riêng</span>
@@ -914,38 +1093,38 @@ export default function AdminSettings() {
                     <button
                       onClick={handleExport}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-bold text-xs border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
-                      title={`Xuất dữ liệu thật ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : 'Loại sản phẩm'} (#1F4E78)`}
+                      title={`Xuất dữ liệu thật ${activeTab === 'TASK' ? 'Nhiệm vụ' : activeTab === 'TASK_GROUP' ? 'Nhóm việc' : activeTab === 'PRODUCT_TYPE' ? 'Loại sản phẩm' : 'Tính chất công việc'} (#1F4E78)`}
                     >
                       <Download className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Xuất riêng</span>
                     </button>
                   </div>
 
-                  {/* Combo 3-in-1 Master Actions */}
+                  {/* Combo 4-in-1 Master Actions */}
                   <div className="flex items-center gap-1.5 bg-blue-50/60 p-1 rounded-xl border border-blue-200">
                     <button
                       onClick={handleDownloadMasterTemplate}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-blue-700 rounded-lg hover:bg-blue-50 font-bold text-xs border border-blue-200 transition-colors shadow-2xs cursor-pointer"
-                      title="Tải bộ file mẫu chuẩn tổng hợp 3-in-1 (Nhiệm vụ, Nhóm việc, Loại SP)"
+                      title="Tải bộ file mẫu chuẩn tổng hợp 4-in-1 (Nhiệm vụ, Nhóm việc, Loại SP, Tính chất)"
                     >
                       <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Mẫu chung 3-in-1</span>
+                      <span>Mẫu chung 4-in-1</span>
                     </button>
 
                     <button
                       onClick={handleExportAllMaster}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold text-xs transition-colors shadow-2xs cursor-pointer"
-                      title="Xuất toàn bộ 3 danh mục vào 1 file Excel đa trang (#1F4E78)"
+                      title="Xuất toàn bộ 4 danh mục vào 1 file Excel đa trang (#1F4E78)"
                     >
                       <Download className="w-3.5 h-3.5 text-white" />
-                      <span>Xuất chung 3-in-1</span>
+                      <span>Xuất chung 4-in-1</span>
                     </button>
                   </div>
 
                   {/* Import Excel */}
                   <label 
                     className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 font-bold text-xs border border-indigo-200 cursor-pointer transition-colors shadow-2xs" 
-                    title="Nạp dữ liệu từ file Excel (Tự động nhận diện file đơn hoặc file tổng hợp 3-in-1)"
+                    title="Nạp dữ liệu từ file Excel (Tự động nhận diện file đơn hoặc file tổng hợp 4-in-1)"
                   >
                     <Upload className="w-3.5 h-3.5 text-indigo-600" />
                     <span>Import Excel</span>
@@ -1006,18 +1185,27 @@ export default function AdminSettings() {
                     <tr>
                       <th className="p-3 w-12 text-center">STT</th>
                       <th className="p-3 w-28">Mã</th>
-                      <th className="p-3">Tên mục / Mô tả nhiệm vụ</th>
+                      <th className="p-3">
+                        {activeTab === 'WORK_NATURE' ? 'Tên tính chất công việc' : 'Tên mục / Mô tả nhiệm vụ'}
+                      </th>
                       {activeTab === 'TASK' && (
                         <>
                           <th className="p-3 w-36">Nhóm công việc</th>
                           <th className="p-3 w-24 text-center">Điểm chuẩn</th>
-                          <th className="p-3 w-28 text-center">Tính chất</th>
+                          <th className="p-3 w-32 text-center">Tính chất</th>
                           <th className="p-3 w-32">Loại sản phẩm</th>
                           <th className="p-3 w-24 text-center">ĐVT</th>
                         </>
                       )}
                       {activeTab === 'PRODUCT_TYPE' && (
                         <th className="p-3 w-32 text-center">Đơn vị tính mặc định</th>
+                      )}
+                      {activeTab === 'WORK_NATURE' && (
+                        <>
+                          <th className="p-3 w-28 text-center">Hệ số K</th>
+                          <th className="p-3 w-24 text-center">Điểm C1</th>
+                          <th className="p-3">Quy ước áp dụng / Hướng dẫn</th>
+                        </>
                       )}
                       <th className="p-3 w-20 text-center">Thứ tự</th>
                       <th className="p-3 w-28 text-center">Trạng thái</th>
@@ -1132,6 +1320,50 @@ export default function AdminSettings() {
                             />
                           </td>
                         )}
+                        {activeTab === 'WORK_NATURE' && (
+                          <>
+                            <td className="p-3 text-center">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                max="5"
+                                value={formData.properties?.coef ?? 0.8}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, coef: parseFloat(e.target.value) || 0.8 }
+                                })}
+                                className="w-20 px-2 py-1 bg-white border border-blue-300 rounded text-xs text-center font-bold"
+                              />
+                            </td>
+                            <td className="p-3 text-center">
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="10"
+                                value={formData.properties?.c1Point ?? 0}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, c1Point: parseFloat(e.target.value) || 0 }
+                                })}
+                                className="w-16 px-2 py-1 bg-white border border-blue-300 rounded text-xs text-center font-bold"
+                              />
+                            </td>
+                            <td className="p-3">
+                              <input
+                                type="text"
+                                value={formData.properties?.description || ''}
+                                onChange={e => setFormData({
+                                  ...formData,
+                                  properties: { ...formData.properties, description: e.target.value }
+                                })}
+                                placeholder="Quy ước áp dụng / Ghi chú..."
+                                className="w-full px-2 py-1 bg-white border border-blue-300 rounded text-xs"
+                              />
+                            </td>
+                          </>
+                        )}
                         <td className="p-3 text-center">
                           <input
                             type="number"
@@ -1174,7 +1406,7 @@ export default function AdminSettings() {
                     {/* Category List Rows */}
                     {filteredCategories.length === 0 && isEditing !== 'new' ? (
                       <tr>
-                        <td colSpan={activeTab === 'TASK' ? 10 : 6} className="p-8 text-center text-slate-400 font-semibold">
+                        <td colSpan={activeTab === 'TASK' ? 10 : activeTab === 'WORK_NATURE' ? 8 : 6} className="p-8 text-center text-slate-400 font-semibold">
                           Không tìm thấy bản ghi danh mục nào phù hợp.
                         </td>
                       </tr>
@@ -1232,16 +1464,22 @@ export default function AdminSettings() {
                                 </td>
                                 <td className="p-3 text-center">
                                   <select
-                                    value={formData.properties?.nature || 'Trung bình'}
+                                    value={formData.properties?.nature || (workNatures[0]?.name || 'Trung bình')}
                                     onChange={e => setFormData({
                                       ...formData,
                                       properties: { ...formData.properties, nature: e.target.value }
                                     })}
                                     className="w-full px-1 py-1 bg-white border border-amber-300 rounded text-xs text-center"
                                   >
-                                    {Object.keys(WORK_NATURE_COEFS).map(k => (
-                                      <option key={k} value={k}>{k}</option>
-                                    ))}
+                                    {workNatures.length > 0 ? (
+                                      workNatures.map(n => (
+                                        <option key={n.id} value={n.name}>{n.name} (K={n.properties?.coef ?? 0.8})</option>
+                                      ))
+                                    ) : (
+                                      Object.keys(WORK_NATURE_COEFS).map(k => (
+                                        <option key={k} value={k}>{k}</option>
+                                      ))
+                                    )}
                                   </select>
                                 </td>
                                 <td className="p-3">
@@ -1283,6 +1521,50 @@ export default function AdminSettings() {
                                   className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs text-center"
                                 />
                               </td>
+                            )}
+                            {activeTab === 'WORK_NATURE' && (
+                              <>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0.1"
+                                    max="5"
+                                    value={formData.properties?.coef ?? 0.8}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, coef: parseFloat(e.target.value) || 0.8 }
+                                    })}
+                                    className="w-20 px-2 py-1 bg-white border border-amber-300 rounded text-xs text-center font-bold"
+                                  />
+                                </td>
+                                <td className="p-3 text-center">
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    max="10"
+                                    value={formData.properties?.c1Point ?? 0}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, c1Point: parseFloat(e.target.value) || 0 }
+                                    })}
+                                    className="w-16 px-2 py-1 bg-white border border-amber-300 rounded text-xs text-center font-bold"
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <input
+                                    type="text"
+                                    value={formData.properties?.description || ''}
+                                    onChange={e => setFormData({
+                                      ...formData,
+                                      properties: { ...formData.properties, description: e.target.value }
+                                    })}
+                                    placeholder="Quy ước áp dụng / Ghi chú..."
+                                    className="w-full px-2 py-1 bg-white border border-amber-300 rounded text-xs"
+                                  />
+                                </td>
+                              </>
                             )}
                             <td className="p-3 text-center">
                               <input
@@ -1338,9 +1620,11 @@ export default function AdminSettings() {
                                 </td>
                                 <td className="p-3 text-center">
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    c.properties?.nature === 'Đặc biệt phức tạp' ? 'bg-purple-100 text-purple-800' :
                                     c.properties?.nature === 'Rất phức tạp' ? 'bg-rose-100 text-rose-800' :
                                     c.properties?.nature === 'Phức tạp' ? 'bg-orange-100 text-orange-800' :
                                     c.properties?.nature === 'Trung bình' ? 'bg-blue-100 text-blue-800' :
+                                    c.properties?.nature === 'Đơn giản' ? 'bg-emerald-100 text-emerald-800' :
                                     'bg-slate-100 text-slate-700'
                                   }`}>
                                     {c.properties?.nature || 'Trung bình'}
@@ -1354,6 +1638,27 @@ export default function AdminSettings() {
                               <td className="p-3 text-center font-semibold text-slate-700">
                                 {c.properties?.unit || c.name}
                               </td>
+                            )}
+                            {activeTab === 'WORK_NATURE' && (
+                              <>
+                                <td className="p-3 text-center">
+                                  <span className="px-2.5 py-1 bg-blue-50 border border-blue-200 text-[#1F4E78] font-black rounded-lg text-xs">
+                                    K = {c.properties?.coef !== undefined ? formatScore(Number(c.properties.coef)) : '0.8'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  {Number(c.properties?.c1Point) > 0 ? (
+                                    <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 font-bold rounded-lg text-xs">
+                                      +{c.properties.c1Point}đ
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 font-mono">-</span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-slate-600 text-xs">
+                                  {c.properties?.description || '-'}
+                                </td>
+                              </>
                             )}
                             <td className="p-3 text-center font-mono text-slate-500">{c.order || 0}</td>
                             <td className="p-3 text-center">

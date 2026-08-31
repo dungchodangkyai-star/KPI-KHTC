@@ -17,7 +17,9 @@ import {
   cleanPosition,
   normalizeNFC,
   getWorkSelfConvertedScore,
-  getWorkApprovedConvertedScore
+  getWorkApprovedConvertedScore,
+  safeFetch,
+  safeParseResponse
 } from '../utils';
 import { Work, User, Assignment, Overtime, Category } from '../types';
 import { useOrgConfig } from '../contexts/OrgContext';
@@ -68,18 +70,18 @@ export default function Stats() {
     setIsLoading(true);
     try {
       const [resW, resU, resA, resO, resC] = await Promise.all([
-        fetch('/api/works'),
-        fetch('/api/users'),
-        fetch('/api/assignments'),
-        fetch('/api/overtimes'),
-        fetch('/api/categories')
+        safeFetch('/api/works'),
+        safeFetch('/api/users'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/overtimes'),
+        safeFetch('/api/categories')
       ]);
       const [dW, dU, dA, dO, dC] = await Promise.all([
-        resW.json(),
-        resU.json(),
-        resA.json(),
-        resO.json(),
-        resC.json()
+        safeParseResponse(resW),
+        safeParseResponse(resU),
+        safeParseResponse(resA),
+        safeParseResponse(resO),
+        safeParseResponse(resC)
       ]);
       if (dW.success) setWorks(dW.data || []);
       if (dU.success && dU.data?.length > 0) {

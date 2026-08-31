@@ -15,7 +15,14 @@ import {
   formatDate, 
   formatDateInput, 
   formatMonth,
-  getActiveLoggedInUser 
+  getActiveLoggedInUser,
+  formatScore,
+  getWorkNatureList,
+  setGlobalWorkNatures,
+  getNatureCoef,
+  WorkNatureItem,
+  safeFetch,
+  safeParseResponse
 } from '../utils';
 import { exportStyledExcel, ExportColumn } from '../excelUtils';
 import { User, Assignment, Work } from '../types';
@@ -84,6 +91,7 @@ export default function AssignTask() {
   const [isSavingZalo, setIsSavingZalo] = useState(false);
   const [testPhone, setTestPhone] = useState("");
   const [isTestingZalo, setIsTestingZalo] = useState(false);
+  const [workNatures, setWorkNatures] = useState<WorkNatureItem[]>(getWorkNatureList());
 
   // Form State
   const [formData, setFormData] = useState({
@@ -108,19 +116,27 @@ export default function AssignTask() {
   const fetchAllData = async () => {
     setIsLoading(true);
     try {
-      const [resUsers, resAssign, resWorks, resZalo] = await Promise.all([
-        fetch('/api/users'),
-        fetch('/api/assignments'),
-        fetch('/api/works'),
-        fetch('/api/zalo/config')
+      const [resUsers, resAssign, resWorks, resZalo, resCat] = await Promise.all([
+        safeFetch('/api/users'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/works'),
+        safeFetch('/api/zalo/config'),
+        safeFetch('/api/categories')
       ]);
 
-      const [dUsers, dAssign, dWorks, dZalo] = await Promise.all([
-        resUsers.json(),
-        resAssign.json(),
-        resWorks.json(),
-        resZalo.json()
+      const [dUsers, dAssign, dWorks, dZalo, dCat] = await Promise.all([
+        safeParseResponse(resUsers),
+        safeParseResponse(resAssign),
+        safeParseResponse(resWorks),
+        safeParseResponse(resZalo),
+        safeParseResponse(resCat)
       ]);
+
+      if (dCat.success && Array.isArray(dCat.data)) {
+        setGlobalWorkNatures(dCat.data);
+        const dynNatures = getWorkNatureList(dCat.data);
+        setWorkNatures(dynNatures);
+      }
 
       if (dUsers.success && dUsers.data?.length > 0) {
         setUsers(dUsers.data);
@@ -171,8 +187,8 @@ export default function AssignTask() {
     const defaultTasks = DEFAULT_TASKS[group] || [];
     const firstTask = defaultTasks[0];
     if (firstTask) {
-      const nature = firstTask.nature || 'Trung bình';
-      const coefObj = WORK_NATURE_COEFS[nature] || { coef: 0.8 };
+      const nature = firstTask.nature || (workNatures[0]?.name || 'Trung bình');
+      const coef = getNatureCoef(nature);
       setFormData(prev => ({
         ...prev,
         taskGroup: group,
@@ -180,7 +196,7 @@ export default function AssignTask() {
         taskCode: firstTask.code,
         baseScore: firstTask.score,
         suggestedNature: nature,
-        suggestedCoef: coefObj.coef,
+        suggestedCoef: coef,
         productType: firstTask.productType || 'Báo cáo',
         unit: firstTask.unit || 'Sản phẩm',
         productRequired: firstTask.productType || ''
@@ -192,8 +208,8 @@ export default function AssignTask() {
         taskName: '',
         taskCode: '',
         baseScore: 10,
-        suggestedNature: 'Trung bình',
-        suggestedCoef: 0.8
+        suggestedNature: workNatures[0]?.name || 'Trung bình',
+        suggestedCoef: workNatures[0]?.coef || 0.8
       }));
     }
   };
@@ -203,14 +219,15 @@ export default function AssignTask() {
     const list = DEFAULT_TASKS[formData.taskGroup] || [];
     const found = list.find(t => t.name === taskName);
     if (found) {
-      const coefObj = WORK_NATURE_COEFS[found.nature] || { coef: 0.8 };
+      const nature = found.nature || (workNatures[0]?.name || 'Trung bình');
+      const coef = getNatureCoef(nature);
       setFormData(prev => ({
         ...prev,
         taskName: found.name,
         taskCode: found.code,
         baseScore: found.score,
-        suggestedNature: found.nature,
-        suggestedCoef: coefObj.coef,
+        suggestedNature: nature,
+        suggestedCoef: coef,
         productType: found.productType || 'Báo cáo',
         unit: found.unit || 'Sản phẩm',
         productRequired: found.productType || ''
@@ -222,14 +239,14 @@ export default function AssignTask() {
 
   // Handle nature change
   const handleNatureChange = (nature: string) => {
-    const coefObj = WORK_NATURE_COEFS[nature] || { coef: 0.8 };
+    const coef = getNatureCoef(nature);
     setFormData(prev => ({
       ...prev,
       suggestedNature: nature,
-      suggestedCoef: coefObj.coef
+      suggestedCoef: coef
     }));
     // Update coef in selected receivers for primary lead
-    setSelectedReceivers(prev => prev.map(r => r.role === 'Chủ trì' ? { ...r, coef: coefObj.coef } : r));
+    setSelectedReceivers(prev => prev.map(r => r.role === 'Chủ trì' ? { ...r, coef: coef } : r));
   };
 
   // Multi-receiver helper
@@ -937,8 +954,8 @@ export default function AssignTask() {
               onChange={(e) => handleNatureChange(e.target.value)}
               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800"
             >
-              {Object.keys(WORK_NATURE_COEFS).map(k => (
-                <option key={k} value={k}>{k}</option>
+              {workNatures.map(k => (
+                <option key={k.code || k.name} value={k.name}>{k.name} (K = {formatScore(k.coef)})</option>
               ))}
             </select>
           </div>
