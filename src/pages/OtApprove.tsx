@@ -6,7 +6,7 @@ import {
   Sparkles, Undo2, Ban
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { STANDARD_MONTHS, getActiveLoggedInUser, formatDate, formatMonth } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser, formatDate, formatMonth, safeFetch, safeParseResponse } from '../utils';
 
 export default function OtApprove() {
   const [overtimes, setOvertimes] = useState<any[]>([]);
@@ -38,10 +38,13 @@ export default function OtApprove() {
     setIsLoading(true);
     try {
       const [resO, resU] = await Promise.all([
-        fetch('/api/overtimes'),
-        fetch('/api/users')
+        safeFetch('/api/overtimes'),
+        safeFetch('/api/users')
       ]);
-      const [dO, dU] = await Promise.all([resO.json(), resU.json()]);
+      const [dO, dU] = await Promise.all([
+        safeParseResponse(resO),
+        safeParseResponse(resU)
+      ]);
       
       if (dO.success) {
         setOvertimes(dO.data || []);

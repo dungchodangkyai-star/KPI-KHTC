@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Printer, Calendar, ArrowLeft, Download, FileText, User, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetch, safeParseResponse } from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function OtSummary() {
@@ -20,10 +20,13 @@ export default function OtSummary() {
     try {
       setIsLoading(true);
       const [resU, resO] = await Promise.all([
-        fetch('/api/users'),
-        fetch('/api/overtimes')
+        safeFetch('/api/users'),
+        safeFetch('/api/overtimes')
       ]);
-      const [dU, dO] = await Promise.all([resU.json(), resO.json()]);
+      const [dU, dO] = await Promise.all([
+        safeParseResponse(resU),
+        safeParseResponse(resO)
+      ]);
       if (dU.success && dU.data?.length > 0) {
         setUsers(dU.data);
         const active = getActiveLoggedInUser(dU.data);

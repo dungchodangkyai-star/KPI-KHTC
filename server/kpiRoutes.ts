@@ -85,6 +85,32 @@ export async function getEffectiveKpiConfig(): Promise<any> {
   return DEFAULT_KPI_CONFIG;
 }
 
+export async function getEffectiveWorkNaturePointMap(): Promise<Record<string, number>> {
+  try {
+    const natureCats = await db.query.categories.findMany({
+      where: (cat, { eq, and }) => and(eq(cat.type, 'WORK_NATURE'), eq(cat.status, 'active'))
+    });
+    if (natureCats && natureCats.length > 0) {
+      const map: Record<string, number> = {};
+      for (const cat of natureCats) {
+        const props: any = cat.properties || {};
+        const pt = props.bonusC1 !== undefined ? Number(props.bonusC1) : (props.point !== undefined ? Number(props.point) : 0);
+        map[cat.name] = isNaN(pt) ? 0 : pt;
+      }
+      return map;
+    }
+  } catch (err) {
+    console.error("Error reading WORK_NATURE from DB:", err);
+  }
+  return {
+    'Đặc biệt phức tạp': 3,
+    'Rất phức tạp': 2,
+    'Phức tạp': 1,
+    'Trung bình': 0,
+    'Đơn giản': 0
+  };
+}
+
 // 1. GET ALL KPI RESULTS
 kpiRouter.get('/', async (req, res) => {
   try {
@@ -363,13 +389,7 @@ kpiRouter.get('/detail', async (req, res) => {
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
-    const naturePointMap: Record<string, number> = {
-      'Đặc biệt phức tạp': 3,
-      'Rất phức tạp': 2,
-      'Phức tạp': 1,
-      'Trung bình': 0,
-      'Đơn giản': 0
-    };
+    const naturePointMap = await getEffectiveWorkNaturePointMap();
 
     // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
     let selfPersonalNatureTotal = 0;
@@ -778,13 +798,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
-    const naturePointMap: Record<string, number> = {
-      'Đặc biệt phức tạp': 3,
-      'Rất phức tạp': 2,
-      'Phức tạp': 1,
-      'Trung bình': 0,
-      'Đơn giản': 0
-    };
+    const naturePointMap = await getEffectiveWorkNaturePointMap();
 
     // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
     let selfPersonalNatureTotal = 0;
@@ -1155,9 +1169,9 @@ kpiRouter.post('/calculate', async (req, res) => {
 });
 
 // 9. RECALCULATE ALL OR SPECIFIED USERS FOR A MONTH
-kpiRouter.post('/recalculate-all', async (req, res) => {
+const handleRecalculateAllRequest = async (req: express.Request, res: express.Response) => {
   try {
-    const { month, userIds } = req.body;
+    const { month, userIds } = req.body || {};
     const targetMonth = month || '08-2026';
 
     const result = await recalculateKpiForMonth(targetMonth, userIds);
@@ -1191,7 +1205,10 @@ kpiRouter.post('/recalculate-all', async (req, res) => {
     console.error("Error recalculating KPI:", error);
     res.status(500).json({ error: String(error) });
   }
-});
+};
+
+kpiRouter.post('/recalculate-all', handleRecalculateAllRequest);
+kpiRouter.post('/recalculate', handleRecalculateAllRequest);
 
 // 10. DEPARTMENT KPI SUMMARY (Bảng tổng hợp KPI phòng & Thống kê công việc phòng)
 kpiRouter.get('/department-summary', async (req, res) => {
@@ -1233,13 +1250,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
 
-    const naturePointMap: Record<string, number> = {
-      'Đặc biệt phức tạp': 3,
-      'Rất phức tạp': 2,
-      'Phức tạp': 1,
-      'Trung bình': 0,
-      'Đơn giản': 0
-    };
+    const naturePointMap = await getEffectiveWorkNaturePointMap();
 
     let deptNatureTotal = 0;
     let selfDeptNatureTotal = 0;

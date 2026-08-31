@@ -8,7 +8,7 @@ import {
   FileEdit, FileX, ArrowUpRight, CheckCheck, Sparkles, Layers,
   ListTodo, CheckSquare, BellRing, TrendingUp, Zap
 } from 'lucide-react';
-import { STANDARD_MONTHS, formatScore } from '../utils';
+import { STANDARD_MONTHS, formatScore, safeFetch, safeParseResponse } from '../utils';
 
 interface MetricCardProps {
   id: string;
@@ -325,17 +325,17 @@ export default function Monitor() {
     setIsLoading(true);
     try {
       const [resWorks, resAssignments, resOvertimes, resUsers] = await Promise.all([
-        fetch('/api/works'),
-        fetch('/api/assignments'),
-        fetch('/api/overtimes'),
-        fetch('/api/users')
+        safeFetch('/api/works'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/overtimes'),
+        safeFetch('/api/users')
       ]);
 
       const [dataWorks, dataAssignments, dataOvertimes, dataUsers] = await Promise.all([
-        resWorks.json(),
-        resAssignments.json(),
-        resOvertimes.json(),
-        resUsers.json()
+        safeParseResponse(resWorks),
+        safeParseResponse(resAssignments),
+        safeParseResponse(resOvertimes),
+        safeParseResponse(resUsers)
       ]);
 
       if (dataWorks.success) setWorks(dataWorks.data || []);

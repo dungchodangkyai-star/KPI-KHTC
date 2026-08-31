@@ -20,7 +20,14 @@ import {
   getActiveLoggedInUser,
   formatScore,
   getWorkSelfConvertedScore,
-  getWorkApprovedConvertedScore
+  getWorkApprovedConvertedScore,
+  getWorkStatusFactor,
+  getWorkNatureList,
+  setGlobalWorkNatures,
+  getNatureCoef,
+  WorkNatureItem,
+  safeFetch,
+  safeParseResponse
 } from '../utils';
 import { Work, User as UserType } from '../types';
 
@@ -36,6 +43,7 @@ export default function MyWorks() {
   const [filterSource, setFilterSource] = useState<'all' | 'assigned' | 'self'>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [workNatures, setWorkNatures] = useState<WorkNatureItem[]>(getWorkNatureList());
 
   // Selected Row IDs for Batch Operations
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -58,14 +66,25 @@ export default function MyWorks() {
   const fetchWorks = async () => {
     setIsLoading(true);
     try {
-      const [resW, resU, resA] = await Promise.all([
-        fetch('/api/works'),
-        fetch('/api/users'),
-        fetch('/api/assignments')
+      const [resW, resU, resA, resC] = await Promise.all([
+        safeFetch('/api/works'),
+        safeFetch('/api/users'),
+        safeFetch('/api/assignments'),
+        safeFetch('/api/categories')
       ]);
-      const [dW, dU, dA] = await Promise.all([resW.json(), resU.json(), resA.json()]);
+      const [dW, dU, dA, dC] = await Promise.all([
+        safeParseResponse(resW),
+        safeParseResponse(resU),
+        safeParseResponse(resA),
+        safeParseResponse(resC)
+      ]);
       if (dW.success) setWorks(dW.data || []);
       if (dA.success) setAssignments(dA.data || []);
+      if (dC.success && Array.isArray(dC.data)) {
+        setGlobalWorkNatures(dC.data);
+        const dynNatures = getWorkNatureList(dC.data);
+        setWorkNatures(dynNatures);
+      }
       if (dU.success && dU.data?.length > 0) {
         setUsers(dU.data);
         const active = getActiveLoggedInUser(dU.data);
@@ -94,12 +113,12 @@ export default function MyWorks() {
   const handleAcceptAssignment = async (assignId: number) => {
     setIsAccepting(assignId);
     try {
-      const res = await fetch(`/api/assignments/${assignId}/accept`, {
+      const res = await safeFetch(`/api/assignments/${assignId}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser?.id })
       });
-      const d = await res.json();
+      const d = await safeParseResponse(res);
       if (d.success) {
         alert("Đã tiếp nhận nhiệm vụ thành công! Nhiệm vụ đã được chuyển vào danh sách công việc cá nhân của bạn để triển khai và tính điểm KPI.");
         fetchWorks();
@@ -122,12 +141,12 @@ export default function MyWorks() {
     }
 
     try {
-      const res = await fetch(`/api/assignments/${assignId}/decline`, {
+      const res = await safeFetch(`/api/assignments/${assignId}/decline`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ declineReason: reason.trim(), userId: currentUser?.id })
       });
-      const d = await res.json();
+      const d = await safeParseResponse(res);
       if (d.success) {
         alert("Đã gửi phản hồi từ chối nhiệm vụ đến Lãnh đạo giao việc.");
         fetchWorks();
@@ -216,14 +235,24 @@ export default function MyWorks() {
   };
 
   const handleOpenEdit = (w: Work) => {
-    const nature = w.proposedNature || 'Trung bình';
-    const coef = w.coef || String(WORK_NATURE_COEFS[nature]?.coef ?? 0.8);
+    const nature = w.proposedNature || (workNatures[0]?.name || 'Trung bình');
+    const coef = w.coef || String(getNatureCoef(nature));
     const base = w.baseScore || '10';
+    const baseNum = parseFloat(base) || 10;
+    const coefNum = parseFloat(coef) || 0.8;
+    const factor = getWorkStatusFactor(w.status || 'Đang xử lý');
+    const computedSelfScore = String(Math.round(baseNum * coefNum * factor * 10) / 10);
+    const selfScore = (w.selfConvertedScore !== undefined && w.selfConvertedScore !== null && String(w.selfConvertedScore).trim() !== '')
+      ? String(w.selfConvertedScore)
+      : computedSelfScore;
+
     setEditingWork({
       ...w,
       proposedNature: nature,
       coef,
       baseScore: base,
+      selfConvertedScore: selfScore,
+      convertedScore: selfScore,
       startDate: w.startDate ? formatDateInput(w.startDate) : '',
       endDate: w.endDate ? formatDateInput(w.endDate) : '',
       actualEndDate: w.actualEndDate ? formatDateInput(w.actualEndDate) : '',
@@ -239,19 +268,18 @@ export default function MyWorks() {
     
     // If nature changed, update coef
     if (field === 'proposedNature') {
-      const coef = WORK_NATURE_COEFS[value]?.coef ?? 0.8;
+      const coef = getNatureCoef(value);
       updated.coef = String(coef);
     }
 
-    // Recompute score
+    // 1. Recompute selfConvertedScore: Điểm chuẩn × Hệ số tính chất × Hệ số tiến độ
     const base = parseFloat(updated.baseScore || '10') || 10;
     const coef = parseFloat(updated.coef || '0.8') || 0.8;
-    let factor = 0.7;
-    if (updated.status === 'Hoàn thành') factor = 1.0;
-    else if (updated.status === 'Chậm') factor = 0.5;
-    else if (updated.status === 'Không hoàn thành') factor = 0.0;
+    const factor = getWorkStatusFactor(updated.status);
 
-    updated.convertedScore = String(Math.round(base * coef * factor * 10) / 10);
+    const computed = String(Math.round(base * coef * factor * 10) / 10);
+    updated.selfConvertedScore = computed;
+    updated.convertedScore = computed;
     setEditingWork(updated);
   };
 
@@ -260,15 +288,51 @@ export default function MyWorks() {
     if (!editingWork) return;
     setIsUpdating(true);
     try {
-      const res = await fetch(`/api/works/${editingWork.id}`, {
+      const originalWork = works.find(w => w.id === editingWork.id);
+      const isApprovedBefore = originalWork?.leaderApproval === 'Duyệt';
+      
+      // Kiểm tra các trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month, userId
+      const isKpiFieldModified = originalWork && (
+        String(editingWork.baseScore || '') !== String(originalWork.baseScore || '') ||
+        String(editingWork.coef || '') !== String(originalWork.coef || '') ||
+        String(editingWork.proposedNature || '') !== String(originalWork.proposedNature || '') ||
+        String(editingWork.status || '') !== String(originalWork.status || '') ||
+        String(editingWork.month || '') !== String(originalWork.month || '') ||
+        Number(editingWork.userId || 0) !== Number(originalWork.userId || 0)
+      );
+
+      const payload: any = {
+        ...editingWork,
+        selfConvertedScore: editingWork.selfConvertedScore,
+        convertedScore: editingWork.selfConvertedScore
+      };
+
+      // Chỉ chuyển về Chưa duyệt nếu thay đổi trường thực sự ảnh hưởng KPI
+      if (isApprovedBefore && isKpiFieldModified) {
+        payload.leaderApproval = 'Chưa duyệt';
+        payload.approvedConvertedScore = null;
+        payload.approvalDate = null;
+        payload.approverId = null;
+        const noteSuffix = 'Đã sửa sau duyệt - chuyển về Chưa duyệt để thẩm định lại';
+        payload.editNote = payload.editNote?.trim() 
+          ? `${payload.editNote.trim()} (${noteSuffix})` 
+          : noteSuffix;
+      }
+
+      const res = await safeFetch(`/api/works/${editingWork.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingWork)
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success) {
         setWorks(works.map(w => w.id === editingWork.id ? { ...w, ...data.data } : w));
         setEditingWork(null);
+        if (isApprovedBefore && isKpiFieldModified) {
+          alert("Công việc đã được cập nhật và tự động chuyển về trạng thái 'Chưa duyệt' do thay đổi các trường ảnh hưởng KPI.");
+        } else {
+          alert("Công việc đã được cập nhật thành công!");
+        }
       } else {
         alert("Lỗi khi cập nhật công việc: " + (data.error || "Không xác định"));
       }
@@ -283,19 +347,24 @@ export default function MyWorks() {
   // Confirm and execute soft delete
   const handleConfirmDelete = async () => {
     if (!deletingWork) return;
+    if (deletingWork.leaderApproval === 'Duyệt') {
+      alert("Công việc đã được Lãnh đạo phê duyệt! Nhân viên không thể tự xóa công việc đã duyệt. Vui lòng liên hệ Lãnh đạo phòng xử lý.");
+      setDeletingWork(null);
+      return;
+    }
     try {
-      const res = await fetch(`/api/works/${deletingWork.id}`, {
+      const res = await safeFetch(`/api/works/${deletingWork.id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: deleteReason })
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (data.success) {
         setWorks(works.filter(w => w.id !== deletingWork.id));
         setDeletingWork(null);
         setDeleteReason("");
       } else {
-        alert("Lỗi khi xóa công việc: " + data.error);
+        alert("Lỗi khi xóa công việc: " + (data.error || "Không thể xóa"));
       }
     } catch (e) {
       console.error(e);
@@ -910,9 +979,19 @@ export default function MyWorks() {
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button 
-                          onClick={() => setDeletingWork(w)}
-                          className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                          title="Xóa công việc"
+                          onClick={() => {
+                            if (w.leaderApproval === 'Duyệt') {
+                              alert("Công việc này đã được Lãnh đạo phê duyệt chính thức. Bạn không thể tự xóa công việc đã duyệt. Vui lòng liên hệ Lãnh đạo phòng xử lý hoặc chuyển công việc về luồng chờ duyệt.");
+                              return;
+                            }
+                            setDeletingWork(w);
+                          }}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            w.leaderApproval === 'Duyệt' 
+                              ? 'text-slate-300 hover:text-slate-400 hover:bg-slate-100 cursor-not-allowed' 
+                              : 'text-red-600 hover:bg-red-100'
+                          }`}
+                          title={w.leaderApproval === 'Duyệt' ? "Công việc đã duyệt (Không thể tự xóa)" : "Xóa công việc"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1119,6 +1198,19 @@ export default function MyWorks() {
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Cảnh báo khi sửa công việc đã duyệt */}
+              {editingWork.leaderApproval === 'Duyệt' && (
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 flex items-start gap-2.5 text-amber-900 shadow-2xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <div className="font-black text-amber-950">Lưu ý quan trọng: Công việc đã được Lãnh đạo phê duyệt</div>
+                    <p className="mt-0.5 text-slate-700">
+                      Khi bạn lưu các thay đổi về điểm chuẩn, tính chất, tiến độ hoặc nội dung công việc, hệ thống sẽ <b>tự động chuyển về trạng thái 'Chưa duyệt'</b>, xóa điểm duyệt cũ ({formatScore(editingWork.approvedConvertedScore || editingWork.convertedScore)} đ) và đưa vào luồng chờ Lãnh đạo thẩm định lại.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Task Name & Code */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="sm:col-span-3">
@@ -1161,15 +1253,15 @@ export default function MyWorks() {
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Tính chất NV đề xuất</label>
                   <select
-                    value={editingWork.proposedNature || 'Trung bình'}
+                    value={editingWork.proposedNature || (workNatures[0]?.name || 'Trung bình')}
                     onChange={(e) => handleEditFieldChange('proposedNature', e.target.value)}
                     className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-bold"
                   >
-                    <option value="Đơn giản">Đơn giản (0.6)</option>
-                    <option value="Trung bình">Trung bình (0.8)</option>
-                    <option value="Phức tạp">Phức tạp (1.0)</option>
-                    <option value="Rất phức tạp">Rất phức tạp (1.2)</option>
-                    <option value="Đặc biệt phức tạp">Đặc biệt phức tạp (1.5)</option>
+                    {workNatures.map(nat => (
+                      <option key={nat.code || nat.name} value={nat.name}>
+                        {nat.name} ({formatScore(nat.coef)})
+                      </option>
+                    ))}
                   </select>
                 </div>
 

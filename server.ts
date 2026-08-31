@@ -5,7 +5,7 @@ import { createServer as createViteServer } from "vite";
 import { db, pool } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
-import { authRouter, requireSessionAuthenticated } from "./server/auth.ts";
+import { authRouter, requireSessionAuthenticated, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
 import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
@@ -21,7 +21,7 @@ import {
   formatZaloMessage, 
   DEFAULT_ZALO_TEMPLATE 
 } from "./server/zaloService.ts";
-import { WORK_NATURE_COEFS } from "./src/utils.ts";
+import { WORK_NATURE_COEFS, getNatureCoef, getWorkStatusFactor } from "./src/utils.ts";
 
 
 const webpush: any = (webPushModule as any).default || webPushModule;
@@ -386,6 +386,10 @@ async function startServer() {
         where: eq(works.id, id)
       });
 
+      if (!oldWork) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
+      }
+
       if (p.userId !== undefined) updateData.userId = parseInt(p.userId);
       if (p.taskGroup !== undefined) updateData.taskGroup = p.taskGroup;
       if (p.taskName !== undefined) updateData.taskName = p.taskName;
@@ -405,19 +409,42 @@ async function startServer() {
       if (p.unit !== undefined) updateData.unit = p.unit;
       if (p.project !== undefined) updateData.project = p.project;
       if (p.relatedUnit !== undefined) updateData.relatedUnit = p.relatedUnit;
-      if (p.proposedNature !== undefined) updateData.proposedNature = p.proposedNature;
+      if (p.proposedNature !== undefined) {
+        updateData.proposedNature = p.proposedNature;
+        if (p.coef === undefined) {
+          updateData.coef = String(getNatureCoef(p.proposedNature));
+        }
+      }
       if (p.approvedNature !== undefined) updateData.approvedNature = p.approvedNature;
       if (p.coef !== undefined) updateData.coef = String(p.coef);
       if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
 
+      // 1. Tính toán selfConvertedScore theo công thức: Điểm chuẩn × Hệ số tính chất × Hệ số tiến độ
+      const baseScoreNum = parseFloat(updateData.baseScore ?? p.baseScore ?? oldWork.baseScore ?? '10') || 10;
+      const natureStr = updateData.proposedNature ?? p.proposedNature ?? oldWork.proposedNature ?? 'Trung bình';
+      const coefNum = parseFloat(updateData.coef ?? p.coef ?? oldWork.coef ?? String(getNatureCoef(natureStr))) || 0.8;
+      const statusStr = updateData.status ?? p.status ?? oldWork.status ?? 'Đang xử lý';
+      const statusFactor = getWorkStatusFactor(statusStr);
+      const computedSelfScore = String(Math.round(baseScoreNum * coefNum * statusFactor * 10) / 10);
+
+      if (p.selfConvertedScore !== undefined) {
+        updateData.selfConvertedScore = (p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '') 
+          ? String(p.selfConvertedScore) 
+          : computedSelfScore;
+      } else if (p.baseScore !== undefined || p.proposedNature !== undefined || p.coef !== undefined || p.status !== undefined) {
+        updateData.selfConvertedScore = computedSelfScore;
+      }
+
+      if (p.convertedScore !== undefined) {
+        updateData.convertedScore = (p.convertedScore !== null && String(p.convertedScore).trim() !== '') 
+          ? String(p.convertedScore) 
+          : computedSelfScore;
+      } else if (p.baseScore !== undefined || p.proposedNature !== undefined || p.coef !== undefined || p.status !== undefined) {
+        updateData.convertedScore = computedSelfScore;
+      }
+
       if (p.approvedConvertedScore !== undefined) {
         updateData.approvedConvertedScore = (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') ? String(p.approvedConvertedScore) : null;
-      }
-      if (p.selfConvertedScore !== undefined) {
-        updateData.selfConvertedScore = (p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '') ? String(p.selfConvertedScore) : null;
-      }
-      if (p.convertedScore !== undefined) {
-        updateData.convertedScore = (p.convertedScore !== null && String(p.convertedScore).trim() !== '') ? String(p.convertedScore) : null;
       }
 
       if (p.leaderApproval !== undefined) updateData.leaderApproval = p.leaderApproval;
@@ -431,12 +458,41 @@ async function startServer() {
       if (p.dataStatus !== undefined) updateData.dataStatus = p.dataStatus;
       if (p.sysNote !== undefined) updateData.sysNote = p.sysNote;
 
+      // 2. Chỉ chuyển công việc đã duyệt về Chưa duyệt khi thay đổi trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month, userId hoặc dữ liệu làm thay đổi điểm D. Sửa ghi chú, minh chứng hoặc nội dung không ảnh hưởng điểm thì vẫn giữ trạng thái Duyệt.
+      const isPreviouslyApproved = oldWork.leaderApproval === 'Duyệt';
+      const isExplicitLeaderAction = p.isLeaderAction === true || (p.leaderApproval === 'Duyệt' && (p.approvedConvertedScore !== undefined || p.approverId !== undefined));
+
+      const isKpiFieldModified = 
+        (p.baseScore !== undefined && String(p.baseScore) !== String(oldWork.baseScore)) ||
+        (p.coef !== undefined && String(p.coef) !== String(oldWork.coef)) ||
+        (p.proposedNature !== undefined && p.proposedNature !== oldWork.proposedNature) ||
+        (p.status !== undefined && p.status !== oldWork.status) ||
+        (p.month !== undefined && p.month !== oldWork.month) ||
+        (p.userId !== undefined && Number(p.userId) !== Number(oldWork.userId)) ||
+        p.leaderApproval === 'Chưa duyệt';
+
+      if (isPreviouslyApproved && !isExplicitLeaderAction && isKpiFieldModified) {
+        updateData.leaderApproval = 'Chưa duyệt';
+        updateData.approvedConvertedScore = null;
+        updateData.approvalDate = null;
+        updateData.approverId = null;
+
+        const noteSuffix = 'Đã sửa sau duyệt - chuyển về Chưa duyệt để thẩm định lại';
+        updateData.editNote = p.editNote && String(p.editNote).trim() 
+          ? String(p.editNote).trim() 
+          : (oldWork.editNote ? `${oldWork.editNote}; ${noteSuffix}` : noteSuffix);
+
+        const logEntry = `[${new Date().toISOString()}] Đã tự động chuyển về 'Chưa duyệt' và xóa điểm duyệt do nhân viên sửa trường ảnh hưởng KPI (ĐÃ TỪNG DUYỆT)`;
+        updateData.sysNote = oldWork.sysNote ? `${oldWork.sysNote} | ${logEntry}` : logEntry;
+      }
+
       const updated = await db.update(works).set(updateData).where(eq(works.id, id)).returning();
       const updatedWork = updated[0];
 
       // Tự động tính lại KPI toàn bộ nhân sự đúng phòng và tháng bị ảnh hưởng khi duyệt, sửa, chuyển việc
       if (updatedWork) {
         const isRelevantChange = 
+          isPreviouslyApproved ||
           p.leaderApproval !== undefined ||
           p.approvedConvertedScore !== undefined ||
           p.convertedScore !== undefined ||
@@ -475,9 +531,49 @@ async function startServer() {
       const oldWork = await db.query.works.findFirst({
         where: eq(works.id, id)
       });
+
+      if (!oldWork) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
+      }
+
+      // Xác định quyền nhân sự dựa trên token / cookie phiên đăng nhập thực tế phía server
+      const session = readSessionToken(req);
+      let sessionUser: any = null;
+      if (session?.userId) {
+        sessionUser = await db.query.users.findFirst({
+          where: eq(users.id, session.userId)
+        });
+      }
+
+      const isLeaderOrAdmin = sessionUser && (
+        sessionUser.role === 'ADMIN' || 
+        sessionUser.role === 'LEADER' || 
+        String(sessionUser.email || '').toLowerCase() === ADMIN_EMAIL ||
+        ['Trưởng phòng', 'Phó Trưởng phòng', 'Phó phòng', 'Ban Lãnh đạo'].some(pos => 
+          String(sessionUser.position || '').includes(pos) || String(sessionUser.group || '').includes(pos)
+        )
+      );
+
+      // Kiểm tra công việc đã duyệt hoặc đã từng duyệt
+      const isApprovedOrEverApproved = 
+        oldWork.leaderApproval === 'Duyệt' || 
+        Boolean(oldWork.approvedConvertedScore && String(oldWork.approvedConvertedScore).trim() !== '') ||
+        Boolean(oldWork.approverId) ||
+        Boolean(oldWork.approvalDate) ||
+        String(oldWork.sysNote || '').includes('ĐÃ TỪNG DUYỆT') ||
+        String(oldWork.sysNote || '').includes('Đã sửa sau duyệt');
+
+      // Nhân viên không được phép xóa công việc đã duyệt hoặc từng được duyệt
+      if (!isLeaderOrAdmin && isApprovedOrEverApproved) {
+        return res.status(403).json({ 
+          success: false, 
+          error: "Công việc này đã được phê duyệt (hoặc từng được phê duyệt)! Nhân viên không có quyền xóa. Chỉ Lãnh đạo hoặc Quản trị viên mới có quyền xử lý xóa công việc này." 
+        });
+      }
+
       const updated = await db.update(works).set({
         dataStatus: "Đã xóa mềm",
-        sysNote: `Xóa mềm lúc ${new Date().toISOString()}`,
+        sysNote: `Xóa mềm lúc ${new Date().toISOString()} bởi ${sessionUser?.name || 'Người dùng'}${req.body?.reason ? ` - Lý do: ${req.body.reason}` : ''}`,
         updatedAt: new Date(),
       }).where(eq(works.id, id)).returning();
 
@@ -879,6 +975,13 @@ async function startServer() {
       let workData: any = null;
 
       if (!createdWorkId) {
+        const sDate = assignment.startDate ? new Date(assignment.startDate) : new Date();
+        const eDate = assignment.deadline ? new Date(assignment.deadline) : new Date();
+        sDate.setHours(0, 0, 0, 0);
+        eDate.setHours(0, 0, 0, 0);
+        const diffMs = eDate.getTime() - sDate.getTime();
+        const calculatedDays = Math.max(1, Math.round(diffMs / 86400000) + 1);
+
         const newWork = await db.insert(works).values({
           workId: `W-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           month: assignment.month,
@@ -891,8 +994,8 @@ async function startServer() {
           startTime: "08:00",
           endDate: assignment.deadline || new Date(),
           endTime: "17:00",
-          hours: "8",
-          days: 1,
+          hours: String(calculatedDays * 8),
+          days: calculatedDays,
           proposedNature: assignment.suggestedNature || "Trung bình",
           approvedNature: assignment.suggestedNature || "Trung bình",
           coef: assignment.suggestedCoef || "0.8",

@@ -4,7 +4,7 @@ import {
   Trash2, RefreshCw, CheckCircle2, AlertCircle, Check, X, FileText, User
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser } from '../utils';
+import { STANDARD_MONTHS, getActiveLoggedInUser, safeFetch, safeParseResponse } from '../utils';
 
 export default function OtMy() {
   const [overtimes, setOvertimes] = useState<any[]>([]);
@@ -29,10 +29,13 @@ export default function OtMy() {
     setIsLoading(true);
     try {
       const [resO, resU] = await Promise.all([
-        fetch('/api/overtimes'),
-        fetch('/api/users')
+        safeFetch('/api/overtimes'),
+        safeFetch('/api/users')
       ]);
-      const [dO, dU] = await Promise.all([resO.json(), resU.json()]);
+      const [dO, dU] = await Promise.all([
+        safeParseResponse(resO),
+        safeParseResponse(resU)
+      ]);
       if (dO.success) setOvertimes(dO.data || []);
       if (dU.success && dU.data?.length > 0) {
         setUsers(dU.data);
