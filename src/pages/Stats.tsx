@@ -15,7 +15,9 @@ import {
   getActiveLoggedInUser,
   formatScore,
   cleanPosition,
-  normalizeNFC
+  normalizeNFC,
+  getWorkSelfConvertedScore,
+  getWorkApprovedConvertedScore
 } from '../utils';
 import { Work, User, Assignment, Overtime, Category } from '../types';
 import { useOrgConfig } from '../contexts/OrgContext';
@@ -260,15 +262,12 @@ export default function Stats() {
   
   // Total Score B calculations: Self B vs Approved B
   const totalSelfScoreB = filteredWorks.reduce((acc, cur) => {
-    const s = cur.selfConvertedScore !== undefined && cur.selfConvertedScore !== null ? cur.selfConvertedScore : cur.convertedScore;
-    return acc + (parseFloat(s || '0') || 0);
+    return acc + getWorkSelfConvertedScore(cur);
   }, 0);
 
   const totalApprovedScoreB = filteredWorks
-    .filter(w => w.leaderApproval === 'Duyệt')
     .reduce((acc, cur) => {
-      const s = cur.approvedConvertedScore !== undefined && cur.approvedConvertedScore !== null ? cur.approvedConvertedScore : cur.convertedScore;
-      return acc + (parseFloat(s || '0') || 0);
+      return acc + getWorkApprovedConvertedScore(cur);
     }, 0);
 
   const totalProductQty = filteredWorks.reduce((acc, cur) => acc + (cur.productQty || 1), 0);
@@ -322,12 +321,10 @@ export default function Stats() {
       if (w.status === 'Chậm') item.delayed += 1;
       if (w.leaderApproval === 'Duyệt') {
         item.approved += 1;
-        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
-        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+        item.totalApprovedScore += getWorkApprovedConvertedScore(w);
       }
       item.totalProductQty += (w.productQty || 1);
-      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
-      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
+      item.totalSelfScore += getWorkSelfConvertedScore(w);
       if (w.userId) item.userIds.add(w.userId);
     });
 
@@ -344,7 +341,7 @@ export default function Stats() {
         ...item,
         totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
         totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
-        totalScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalScore: Math.round(item.totalApprovedScore * 100) / 100,
         userCount: item.userIds.size,
         doneRate: item.count > 0 ? Math.round((item.done / item.count) * 100) : 0,
         approvedRate: item.count > 0 ? Math.round((item.approved / item.count) * 100) : 0
@@ -376,11 +373,9 @@ export default function Stats() {
       if (w.status === 'Hoàn thành') item.done += 1;
       if (w.leaderApproval === 'Duyệt') {
         item.approved += 1;
-        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
-        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+        item.totalApprovedScore += getWorkApprovedConvertedScore(w);
       }
-      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
-      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
+      item.totalSelfScore += getWorkSelfConvertedScore(w);
       if (w.userId) item.userIds.add(w.userId);
     });
 
@@ -389,7 +384,7 @@ export default function Stats() {
         ...item,
         totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
         totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
-        totalScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalScore: Math.round(item.totalApprovedScore * 100) / 100,
         userCount: item.userIds.size,
         doneRate: item.count > 0 ? Math.round((item.done / item.count) * 100) : 0
       }))
@@ -418,11 +413,9 @@ export default function Stats() {
       item.totalQty += (w.productQty || 1);
       item.workCount += 1;
       if (w.status === 'Hoàn thành') item.doneCount += 1;
-      const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
-      item.totalSelfScore += (parseFloat(selfScore || '0') || 0);
+      item.totalSelfScore += getWorkSelfConvertedScore(w);
       if (w.leaderApproval === 'Duyệt') {
-        const appScore = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
-        item.totalApprovedScore += (parseFloat(appScore || '0') || 0);
+        item.totalApprovedScore += getWorkApprovedConvertedScore(w);
       }
     });
 
@@ -431,7 +424,7 @@ export default function Stats() {
         ...item,
         totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
         totalApprovedScore: Math.round(item.totalApprovedScore * 100) / 100,
-        totalScore: Math.round(item.totalSelfScore * 100) / 100,
+        totalScore: Math.round(item.totalApprovedScore * 100) / 100,
         doneRate: item.workCount > 0 ? Math.round((item.doneCount / item.workCount) * 100) : 0
       }))
       .sort((a, b) => b.totalQty - a.totalQty);
@@ -454,14 +447,11 @@ export default function Stats() {
       const approvedCount = uWorks.filter(w => w.leaderApproval === 'Duyệt').length;
       const delayedCount = uWorks.filter(w => w.status === 'Chậm').length;
       const totalSelfScore = uWorks.reduce((acc, cur) => {
-        const s = cur.selfConvertedScore !== undefined && cur.selfConvertedScore !== null ? cur.selfConvertedScore : cur.convertedScore;
-        return acc + (parseFloat(s || '0') || 0);
+        return acc + getWorkSelfConvertedScore(cur);
       }, 0);
       const totalApprovedScore = uWorks
-        .filter(w => w.leaderApproval === 'Duyệt')
         .reduce((acc, cur) => {
-          const s = cur.approvedConvertedScore !== undefined && cur.approvedConvertedScore !== null ? cur.approvedConvertedScore : cur.convertedScore;
-          return acc + (parseFloat(s || '0') || 0);
+          return acc + getWorkApprovedConvertedScore(cur);
         }, 0);
       const otHours = uOts.reduce((acc, cur) => acc + (parseFloat(String(cur.approvedHours || cur.hours || '0')) || 0), 0);
       const productQty = uWorks.reduce((acc, cur) => acc + (cur.productQty || 1), 0);
@@ -478,7 +468,7 @@ export default function Stats() {
         productQty,
         totalSelfScoreB: Math.round(totalSelfScore * 100) / 100,
         totalApprovedScoreB: Math.round(totalApprovedScore * 100) / 100,
-        totalScoreB: Math.round(totalSelfScore * 100) / 100,
+        totalScoreB: Math.round(totalApprovedScore * 100) / 100,
         totalOtHours: Math.round(otHours * 10) / 10,
         completionRate: rate
       };
@@ -507,7 +497,7 @@ export default function Stats() {
         totalApproved,
         totalSelfScoreB,
         totalApprovedScoreB,
-        totalScoreB: totalSelfScoreB,
+        totalScoreB: totalApprovedScoreB,
         totalProductQty
       });
     } catch (err) {
@@ -1384,8 +1374,8 @@ export default function Stats() {
                   </tr>
                 ) : (
                   filteredWorks.map((w, idx) => {
-                    const selfScoreVal = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null ? w.selfConvertedScore : w.convertedScore;
-                    const approvedScoreVal = w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null ? w.approvedConvertedScore : w.convertedScore;
+                    const selfScoreVal = getWorkSelfConvertedScore(w);
+                    const approvedScoreVal = getWorkApprovedConvertedScore(w);
                     
                     return (
                       <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
@@ -1516,7 +1506,7 @@ export default function Stats() {
               <div className="p-3 bg-slate-50 rounded-xl">
                 <span className="text-slate-500 font-bold block mb-1">Điểm quy đổi công việc tự chấm:</span>
                 <span className="font-bold text-slate-800 text-base">
-                  {formatScore(viewingWork.selfConvertedScore !== undefined && viewingWork.selfConvertedScore !== null ? viewingWork.selfConvertedScore : viewingWork.convertedScore)} đ
+                  {formatScore(getWorkSelfConvertedScore(viewingWork))} đ
                 </span>
               </div>
               <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 col-span-2">
@@ -1524,7 +1514,7 @@ export default function Stats() {
                 <div className="flex items-center gap-3">
                   {viewingWork.leaderApproval === 'Duyệt' ? (
                     <span className="font-black text-[#1F4E78] text-lg">
-                      {formatScore(viewingWork.approvedConvertedScore !== undefined && viewingWork.approvedConvertedScore !== null ? viewingWork.approvedConvertedScore : viewingWork.convertedScore)} đ
+                      {formatScore(getWorkApprovedConvertedScore(viewingWork))} đ
                     </span>
                   ) : viewingWork.leaderApproval === 'Không duyệt' ? (
                     <span className="text-red-600 font-bold text-base">Không duyệt</span>

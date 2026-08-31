@@ -18,7 +18,9 @@ import {
   formatMonth,
   isSoftDeleted,
   getActiveLoggedInUser,
-  formatScore
+  formatScore,
+  getWorkSelfConvertedScore,
+  getWorkApprovedConvertedScore
 } from '../utils';
 import { Work, User as UserType } from '../types';
 
@@ -206,7 +208,7 @@ export default function MyWorks() {
   const approvalRate = totalRegistered > 0 ? Math.round((totalApproved / totalRegistered) * 100) : 0;
   
   const totalHours = filteredWorks.reduce((sum, w) => sum + (parseFloat(w.hours || '0') || 0), 0);
-  const totalConvertedScore = approvedWorks.reduce((sum, w) => sum + (parseFloat(w.convertedScore || '0') || 0), 0);
+  const totalConvertedScore = approvedWorks.reduce((sum, w) => sum + getWorkApprovedConvertedScore(w), 0);
 
   // Modal Open Handlers
   const handleOpenView = (w: Work) => {
@@ -852,7 +854,7 @@ export default function MyWorks() {
                         {w.proposedNature || 'Trung bình'} (K={formatScore(w.coef)})
                       </div>
                       <div className="text-xs font-black text-[#1F4E78]">
-                        QĐ: {formatScore(w.convertedScore)} <span className="text-[10px] font-normal text-slate-400">(Đc: {formatScore(w.baseScore)})</span>
+                        QĐ: {formatScore(getWorkSelfConvertedScore(w))} <span className="text-[10px] font-normal text-slate-400">(Đc: {formatScore(w.baseScore)})</span>
                       </div>
                     </td>
 

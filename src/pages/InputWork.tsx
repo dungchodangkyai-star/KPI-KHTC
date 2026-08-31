@@ -13,7 +13,9 @@ import {
   STANDARD_MONTHS, 
   WORK_NATURE_COEFS, 
   formatDateInput,
-  getActiveLoggedInUser
+  getActiveLoggedInUser,
+  getWorkStatusFactor,
+  computeWorkConvertedScore
 } from '../utils';
 import { User as UserType } from '../types';
 
@@ -436,25 +438,81 @@ export default function InputWork() {
         const data = XLSX.utils.sheet_to_json(ws);
         
         let successCount = 0;
-        for (const row of data as any[]) {
+        const importWarnings: string[] = [];
+
+        for (let idx = 0; idx < (data as any[]).length; idx++) {
+          const row = (data as any[])[idx];
+          const rawTaskName = row['Tên nhiệm vụ'] || row['Tên công việc'] || row['Nhiệm vụ'] || row['taskName'];
+          if (!rawTaskName) continue;
+
+          const rawSelfScore = row['Điểm tự chấm'] || row['Điểm tự đánh giá'] || row['selfConvertedScore'];
+          const rawStatus = row['Trạng thái'] || row['Tiến độ'] || row['status'];
+          const status = rawStatus !== undefined && rawStatus !== null ? String(rawStatus).trim() : '';
+
+          const rawBaseScore = row['Điểm chuẩn (Đc)'] || row['Điểm chuẩn'] || row['baseScore'] || row['Điểm'];
+          const parsedBase = (rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' && !isNaN(parseFloat(String(rawBaseScore))))
+            ? parseFloat(String(rawBaseScore))
+            : 0;
+
+          const rawProposedNature = row['Tính chất'] || row['Tính chất đề xuất'] || row['proposedNature'] || row['Độ phức tạp'];
+          const proposedNature = rawProposedNature !== undefined && rawProposedNature !== null ? String(rawProposedNature).trim() : '';
+
+          const rawCoef = row['Hệ số K'] || row['Hệ số'] || row['coef'];
+          const parsedCoef = (rawCoef !== undefined && rawCoef !== null && String(rawCoef).trim() !== '' && !isNaN(parseFloat(String(rawCoef))) && parseFloat(String(rawCoef)) > 0)
+            ? parseFloat(String(rawCoef))
+            : 0;
+
+          const natureObj = proposedNature ? WORK_NATURE_COEFS[proposedNature] : null;
+          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (natureObj ? natureObj.coef : 0);
+
+          const hasExplicitSelfScore = rawSelfScore !== undefined && rawSelfScore !== null && String(rawSelfScore).trim() !== '' && !isNaN(parseFloat(String(rawSelfScore)));
+          const hasValidStatus = Boolean(status && status.length > 0);
+          const hasValidBaseScore = parsedBase > 0;
+          const hasValidCoef = resolvedCoef > 0;
+
+          let selfScore: string;
+          if (hasExplicitSelfScore) {
+            selfScore = String(parseFloat(String(rawSelfScore)));
+          } else if (hasValidStatus && hasValidBaseScore && hasValidCoef) {
+            const factor = getWorkStatusFactor(status);
+            const computedConvertedScore = Math.round(parsedBase * resolvedCoef * factor * 10) / 10;
+            selfScore = String(computedConvertedScore);
+          } else {
+            selfScore = '0';
+            const missing: string[] = [];
+            if (!hasValidStatus) missing.push('Trạng thái');
+            if (!hasValidBaseScore) missing.push('Điểm chuẩn');
+            if (!hasValidCoef) missing.push('Hệ số K/Tính chất');
+            importWarnings.push(`Dòng ${idx + 1} (${rawTaskName}): Thiếu ${missing.join(', ')} -> Điểm tự chấm = 0`);
+          }
+
+          const dbCoef = String(resolvedCoef > 0 ? resolvedCoef : (parsedCoef > 0 ? parsedCoef : '0.8'));
+          const dbBaseScore = rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' ? String(rawBaseScore) : (parsedBase > 0 ? String(parsedBase) : '0');
+          const dbStatus = status || 'Chưa cập nhật';
+          const dbProposedNature = proposedNature || 'Trung bình';
+
           const payload = {
             workId: `W-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             month: row['Tháng'] || '08-2026',
             userId: row['Người thực hiện (ID)'] || formData.userId,
-            taskGroup: row['Nhóm việc'],
-            taskName: row['Tên nhiệm vụ'],
+            taskGroup: row['Nhóm việc'] || 'Khác',
+            taskName: String(rawTaskName).trim(),
+            taskCode: row['Mã chuẩn'] || row['Mã danh mục'] || '',
             detail: row['Nội dung chi tiết'] || '',
             startDate: row['Ngày bắt đầu'],
-            startTime: row['Giờ BĐ'],
+            startTime: row['Giờ BĐ'] || '07:30',
             endDate: row['Ngày hoàn thành'],
-            endTime: row['Giờ HT'],
-            status: row['Trạng thái'] || 'Đang xử lý',
-            proposedNature: row['Tính chất'] || 'Trung bình',
+            endTime: row['Giờ HT'] || '17:00',
+            status: dbStatus,
+            proposedNature: dbProposedNature,
+            coef: dbCoef,
+            baseScore: dbBaseScore,
+            convertedScore: selfScore,
+            selfConvertedScore: selfScore,
             productType: row['Loại sản phẩm'] || 'Khác',
             productQty: row['Số lượng SP'] || 1,
-            unit: 'Sản phẩm'
+            unit: row['Đơn vị tính'] || 'Sản phẩm'
           };
-          if (!payload.taskName) continue;
           
           await fetch('/api/works', {
             method: 'POST',
@@ -463,7 +521,11 @@ export default function InputWork() {
           });
           successCount++;
         }
-        alert(`Đã import thành công ${successCount} công việc.`);
+        if (importWarnings.length > 0) {
+          alert(`Đã import ${successCount} công việc.\nCảnh báo (${importWarnings.length} dòng thiếu dữ liệu):\n` + importWarnings.slice(0, 5).join('\n') + (importWarnings.length > 5 ? `\n...và ${importWarnings.length - 5} cảnh báo khác.` : ''));
+        } else {
+          alert(`Đã import thành công ${successCount} công việc.`);
+        }
       } catch (err) {
         console.error(err);
         alert('Lỗi import file Excel.');
@@ -517,10 +579,14 @@ export default function InputWork() {
 
     setIsSubmitting(true);
     try {
+      const payload = {
+        ...formData,
+        selfConvertedScore: formData.convertedScore
+      };
       const res = await fetch('/api/works', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success) {

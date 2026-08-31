@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { STANDARD_MONTHS, KPI_A_CRITERIA, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, formatPercent, cleanPosition } from '../utils';
+import { 
+  STANDARD_MONTHS, 
+  KPI_A_CRITERIA, 
+  getActiveLoggedInUser, 
+  normalizeNFC, 
+  safeFetchJson, 
+  formatScore, 
+  formatPercent, 
+  cleanPosition,
+  getWorkSelfConvertedScore,
+  getWorkApprovedConvertedScore
+} from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 import {
   Award,
@@ -120,18 +131,20 @@ export default function PersonalKpi() {
   const scoreC2 = detC?.c2 ?? 0;
   const approvedC = Math.min(10, scoreC1 + scoreC2);
 
-  // Scores D (Self automatic D & Approved D)
+  // Scores D (Self automatic D & Approved D) - capped at max 10 points
+  const maxD = kpiData?.scoreAllocation?.maxD ?? 10;
   const autoDTotal = detD?.totalAutoD !== undefined
     ? detD.totalAutoD
     : (detD?.items || []).reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
-  const selfD = autoDTotal;
+  const selfD = Math.min(maxD, autoDTotal);
 
-  const approvedD = detD?.totalOfficialD !== undefined
+  const rawApprovedD = detD?.totalOfficialD !== undefined
     ? detD.totalOfficialD
     : (detD?.items || []).reduce(
         (s: number, it: any) => s + (parseFloat(it.officialD !== undefined ? it.officialD : (it.autoD || '0')) || 0),
         0
       );
+  const approvedD = Math.min(maxD, rawApprovedD);
 
   // Check if statusA, statusC, statusD are all 'Đã duyệt'
   const isStatusAApproved = detA?.statusA === 'Đã duyệt';
@@ -592,8 +605,8 @@ export default function PersonalKpi() {
                   <tbody className="divide-y divide-slate-100">
                     {allTasks.map((t: any, idx: number) => {
                       const isTaskApproved = t.leaderApproval === 'Duyệt';
-                      const selfScore = t.selfConvertedScore !== undefined && t.selfConvertedScore !== null ? t.selfConvertedScore : t.convertedScore;
-                      const appScore = t.approvedConvertedScore !== undefined && t.approvedConvertedScore !== null ? t.approvedConvertedScore : t.convertedScore;
+                      const selfScore = getWorkSelfConvertedScore(t);
+                      const appScore = getWorkApprovedConvertedScore(t);
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50">

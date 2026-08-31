@@ -686,7 +686,7 @@ export default function ScoreAcd() {
                 C (C1+C2): +{formatScore(totalC)}/10đ
               </span>
               <span className={`px-2.5 py-1 rounded-lg font-bold border ${totalOfficialD > 0 ? 'bg-rose-50 text-rose-800 border-rose-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-                D (Phạt): -{formatScore(totalOfficialD)}đ
+                D (Phạt): -{formatScore(Math.min(10, totalOfficialD))}đ{totalOfficialD > 10 ? ` (tổng ${formatScore(totalOfficialD)}đ, trần 10đ)` : ''}
               </span>
               <span className="px-3 py-1 rounded-lg font-black bg-[#1F4E78] text-white">
                 Tổng KPI: {kpiData?.approvedKpiTotal !== undefined && kpiData?.approvedKpiTotal !== null ? `${formatScore(kpiData.approvedKpiTotal)}đ (${kpiData.approvedRank || 'Đã duyệt'})` : 'Chờ duyệt'}

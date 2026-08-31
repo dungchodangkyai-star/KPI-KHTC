@@ -3,8 +3,8 @@ import { db } from '../src/db/index.ts';
 import { users, categories, works, assignments, overtimes, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword } from './auth.ts';
-import { formatMonth } from '../src/utils.ts';
-import { calculateAndSaveUserKpi } from './kpiRoutes.ts';
+import { formatMonth, WORK_NATURE_COEFS, getWorkStatusFactor } from '../src/utils.ts';
+import { calculateAndSaveUserKpi, recalculateKpiForMonth } from './kpiRoutes.ts';
 
 export const syncRouter = express.Router();
 
@@ -739,12 +739,32 @@ syncRouter.post('/batch', async (req, res) => {
           const actualEndDate = parseExcelDate(getFieldValue(row, ['Ngày hoàn thành thực tế', 'Ngày xong', 'actualEndDate']));
           const hours = String(getFieldValue(row, ['Số giờ', 'Giờ', 'hours']) || '8');
           const days = parseInt(getFieldValue(row, ['Số ngày', 'Ngày làm', 'days']) || '1', 10);
-          const proposedNature = getFieldValue(row, ['Tính chất', 'Tính chất đề xuất', 'proposedNature', 'Độ phức tạp']) || 'Trung bình';
-          const approvedNature = getFieldValue(row, ['Tính chất duyệt', 'approvedNature']) || proposedNature;
-          const coef = String(getFieldValue(row, ['Hệ số K', 'Hệ số', 'coef']) || '0.8');
-          const baseScore = String(getFieldValue(row, ['Điểm chuẩn (Đc)', 'Điểm chuẩn', 'baseScore', 'Điểm']) || '10');
-          const convertedScore = String(getFieldValue(row, ['Điểm quy đổi (Đqđ)', 'Điểm quy đổi', 'convertedScore']) || '8');
-          const status = getFieldValue(row, ['Trạng thái', 'Tiến độ', 'status']) || 'Hoàn thành';
+          
+          const rawSelfScore = getFieldValue(row, ['Điểm tự chấm', 'selfConvertedScore', 'Điểm tự tính', 'Điểm tự đánh giá']);
+          const rawApprovedScore = getFieldValue(row, ['Điểm lãnh đạo duyệt', 'approvedConvertedScore', 'Điểm duyệt', 'Điểm duyệt quy đổi']);
+
+          // Raw inputs without arbitrary fallbacks
+          const rawStatus = getFieldValue(row, ['Trạng thái', 'Tiến độ', 'status']);
+          const status = rawStatus !== undefined && rawStatus !== null ? String(rawStatus).trim() : '';
+
+          const rawBaseScore = getFieldValue(row, ['Điểm chuẩn (Đc)', 'Điểm chuẩn', 'baseScore', 'Điểm']);
+          const parsedBase = (rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' && !isNaN(parseFloat(String(rawBaseScore))))
+            ? parseFloat(String(rawBaseScore))
+            : 0;
+
+          const rawNature = getFieldValue(row, ['Tính chất', 'Tính chất đề xuất', 'proposedNature', 'Độ phức tạp']);
+          const proposedNature = rawNature !== undefined && rawNature !== null ? String(rawNature).trim() : '';
+          const rawApprovedNature = getFieldValue(row, ['Tính chất duyệt', 'approvedNature']);
+          const approvedNature = rawApprovedNature !== undefined && rawApprovedNature !== null ? String(rawApprovedNature).trim() : proposedNature;
+
+          const rawCoef = getFieldValue(row, ['Hệ số K', 'Hệ số', 'coef']);
+          const parsedCoef = (rawCoef !== undefined && rawCoef !== null && String(rawCoef).trim() !== '' && !isNaN(parseFloat(String(rawCoef))) && parseFloat(String(rawCoef)) > 0)
+            ? parseFloat(String(rawCoef))
+            : 0;
+
+          const natureObj = proposedNature ? WORK_NATURE_COEFS[proposedNature] : null;
+          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (natureObj ? natureObj.coef : 0);
+
           const evidence = getFieldValue(row, ['Minh chứng', 'Link minh chứng', 'File', 'evidence']) || '';
           const productType = getFieldValue(row, ['Loại sản phẩm', 'Sản phẩm', 'productType']) || 'Báo cáo';
           const productQty = parseInt(getFieldValue(row, ['Số lượng SP', 'Số lượng', 'productQty']) || '1', 10);
@@ -753,6 +773,62 @@ syncRouter.post('/batch', async (req, res) => {
           const relatedUnit = getFieldValue(row, ['Đơn vị phối hợp', 'Đơn vị liên quan', 'relatedUnit']) || '';
           const leaderApproval = getFieldValue(row, ['Lãnh đạo duyệt', 'Phê duyệt', 'leaderApproval', 'Duyệt']) || 'Chưa duyệt';
           const leaderNote = getFieldValue(row, ['Ý kiến lãnh đạo', 'Ghi chú duyệt', 'leaderNote']) || '';
+
+          // Validation flags
+          const hasExplicitSelfScore = rawSelfScore !== undefined && rawSelfScore !== null && String(rawSelfScore).trim() !== '' && !isNaN(parseFloat(String(rawSelfScore)));
+          const hasValidStatus = Boolean(status && status.length > 0);
+          const hasValidBaseScore = parsedBase > 0;
+          const hasValidCoef = resolvedCoef > 0;
+
+          // 1. Resolve selfConvertedScore
+          let finalSelfConvertedScore: string;
+          if (hasExplicitSelfScore) {
+            // Keep explicit self evaluation directly (including 0)
+            finalSelfConvertedScore = String(parseFloat(String(rawSelfScore)));
+          } else if (hasValidStatus && hasValidBaseScore && hasValidCoef) {
+            // Compute dynamically only when ALL required fields are valid
+            const factor = getWorkStatusFactor(status);
+            const computedSelfScore = Math.round(parsedBase * resolvedCoef * factor * 10) / 10;
+            finalSelfConvertedScore = String(computedSelfScore);
+          } else {
+            // Missing one or more required fields -> set to 0 and log warning/error
+            finalSelfConvertedScore = '0';
+            const missingList: string[] = [];
+            if (!hasValidStatus) missingList.push('Trạng thái tiến độ');
+            if (!hasValidBaseScore) missingList.push('Điểm chuẩn (Đc)');
+            if (!hasValidCoef) missingList.push('Hệ số K/Tính chất');
+            results.works.errors.push(`Dòng ${i + 1} (${workId}): Thiếu dữ liệu bắt buộc (${missingList.join(', ')}). Điểm tự chấm được đặt là 0.`);
+          }
+
+          // 2. Resolve approvedConvertedScore: ONLY when leaderApproval === 'Duyệt'
+          let finalApprovedConvertedScore: string | null = null;
+          if (String(leaderApproval).trim() === 'Duyệt') {
+            const hasExplicitApprovedScore = rawApprovedScore !== undefined && rawApprovedScore !== null && String(rawApprovedScore).trim() !== '' && !isNaN(parseFloat(String(rawApprovedScore)));
+            if (hasExplicitApprovedScore) {
+              finalApprovedConvertedScore = String(parseFloat(String(rawApprovedScore)));
+            } else if (hasValidStatus && hasValidBaseScore) {
+              const appNature = approvedNature || proposedNature;
+              const appNatureObj = appNature ? WORK_NATURE_COEFS[appNature] : natureObj;
+              const appCoef = parsedCoef > 0 ? parsedCoef : (appNatureObj ? appNatureObj.coef : resolvedCoef);
+              if (appCoef > 0) {
+                const factor = getWorkStatusFactor(status);
+                const computedAppScore = Math.round(parsedBase * appCoef * factor * 10) / 10;
+                finalApprovedConvertedScore = String(computedAppScore);
+              } else {
+                finalApprovedConvertedScore = '0';
+              }
+            } else {
+              finalApprovedConvertedScore = '0';
+            }
+          } else {
+            finalApprovedConvertedScore = null;
+          }
+
+          const dbCoef = String(resolvedCoef > 0 ? resolvedCoef : (parsedCoef > 0 ? parsedCoef : '0.8'));
+          const dbBaseScore = rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' ? String(rawBaseScore) : (parsedBase > 0 ? String(parsedBase) : '0');
+          const dbStatus = status || 'Chưa cập nhật';
+          const dbProposedNature = proposedNature || 'Trung bình';
+          const dbApprovedNature = approvedNature || dbProposedNature;
 
           await db.insert(works).values({
             workId: String(workId),
@@ -769,12 +845,14 @@ syncRouter.post('/batch', async (req, res) => {
             actualEndDate: actualEndDate,
             hours: hours,
             days: isNaN(days) ? 1 : days,
-            proposedNature: String(proposedNature),
-            approvedNature: String(approvedNature),
-            coef: coef,
-            baseScore: baseScore,
-            convertedScore: convertedScore,
-            status: String(status),
+            proposedNature: dbProposedNature,
+            approvedNature: dbApprovedNature,
+            coef: dbCoef,
+            baseScore: dbBaseScore,
+            convertedScore: finalSelfConvertedScore,
+            selfConvertedScore: finalSelfConvertedScore,
+            approvedConvertedScore: finalApprovedConvertedScore,
+            status: dbStatus,
             evidence: evidence ? String(evidence) : null,
             productType: String(productType),
             productQty: isNaN(productQty) ? 1 : productQty,
@@ -796,12 +874,14 @@ syncRouter.post('/batch', async (req, res) => {
               startDate: startDate,
               endDate: endDate,
               hours: hours,
-              proposedNature: String(proposedNature),
-              approvedNature: String(approvedNature),
-              coef: coef,
-              baseScore: baseScore,
-              convertedScore: convertedScore,
-              status: String(status),
+              proposedNature: dbProposedNature,
+              approvedNature: dbApprovedNature,
+              coef: dbCoef,
+              baseScore: dbBaseScore,
+              convertedScore: finalSelfConvertedScore,
+              selfConvertedScore: finalSelfConvertedScore,
+              approvedConvertedScore: finalApprovedConvertedScore,
+              status: dbStatus,
               evidence: evidence ? String(evidence) : null,
               productType: String(productType),
               productQty: isNaN(productQty) ? 1 : productQty,
@@ -994,14 +1074,11 @@ syncRouter.post('/batch', async (req, res) => {
 
     // --- F. AUTO RECALCULATE KPI FOR AFFECTED MONTHS ---
     if (affectedMonths.size > 0) {
-      const activeUsers = allDbUsers.filter((u) => u.status === 'Đang làm');
       for (const m of Array.from(affectedMonths)) {
-        for (const u of activeUsers) {
-          try {
-            await calculateAndSaveUserKpi(u, m);
-          } catch (kpiErr) {
-            console.error(`Auto KPI calc error for ${u.name} in month ${m}:`, kpiErr);
-          }
+        try {
+          await recalculateKpiForMonth(m);
+        } catch (kpiErr) {
+          console.error(`Auto KPI calc error in month ${m}:`, kpiErr);
         }
       }
     }

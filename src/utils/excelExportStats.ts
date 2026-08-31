@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { OrgConfig, Work, User, Category } from '../types';
-import { formatScore, formatDate, cleanPosition, normalizeNFC } from '../utils';
+import { formatScore, formatDate, cleanPosition, normalizeNFC, getWorkSelfConvertedScore, getWorkApprovedConvertedScore } from '../utils';
 
 export interface StatsExportOptions {
   orgConfig: OrgConfig;
@@ -650,14 +650,8 @@ export async function exportFullStatsExcel(options: StatsExportOptions) {
   detailHeaderRow.eachCell((cell) => { cell.border = THIN_BORDER; });
 
   filteredWorks.forEach((w, idx) => {
-    const selfScore = w.selfConvertedScore !== undefined && w.selfConvertedScore !== null 
-      ? (parseFloat(w.selfConvertedScore) || 0) 
-      : (parseFloat(w.convertedScore || '0') || 0);
-    const approvedScore = w.leaderApproval === 'Duyệt'
-      ? (w.approvedConvertedScore !== undefined && w.approvedConvertedScore !== null 
-          ? (parseFloat(w.approvedConvertedScore) || 0) 
-          : (parseFloat(w.convertedScore || '0') || 0))
-      : 0;
+    const selfScore = getWorkSelfConvertedScore(w);
+    const approvedScore = getWorkApprovedConvertedScore(w);
 
     const r = wsDetail.addRow([
       idx + 1,

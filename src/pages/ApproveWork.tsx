@@ -251,8 +251,7 @@ export default function ApproveWork() {
       setReviewScore(Number(w.selfConvertedScore));
     } else {
       const baseSc = Number(w.baseScore) || 10;
-      const qty = Number(w.productQty) || 1;
-      const calc = Math.round(baseSc * natureCoefObj.coef * qty * 10) / 10;
+      const calc = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
       setReviewScore(calc);
     }
   };
@@ -266,8 +265,7 @@ export default function ApproveWork() {
 
     // Recalculate score automatically
     const baseSc = Number(reviewingWork.baseScore) || 10;
-    const qty = Number(reviewingWork.productQty) || 1;
-    const calculated = Math.round(baseSc * natureCoefObj.coef * qty * 10) / 10;
+    const calculated = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
     setReviewScore(calculated);
   };
 
@@ -746,7 +744,7 @@ export default function ApproveWork() {
                           {formatScore(w.convertedScore)} <span className="text-[10px] font-bold text-slate-500">đ</span>
                         </div>
                         <div className="text-[9px] text-slate-400 font-medium">
-                          ({formatScore(w.baseScore || 10)}đ x {w.productQty || 1} SP)
+                          (Đc: {formatScore(w.baseScore || 10)}đ | {w.productQty || 1} {w.unit || 'SP'})
                         </div>
                       </td>
 
@@ -979,7 +977,7 @@ export default function ApproveWork() {
 
                 {/* Score formula explanation */}
                 <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
-                  <span>Công thức tự tính: <strong>{formatScore(reviewingWork.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong> x <strong>{reviewingWork.productQty || 1} (Số lượng)</strong></span>
+                  <span>Công thức tự tính: <strong>{formatScore(reviewingWork.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
                   <span className="font-black text-xs text-[#1F4E78]">= {formatScore(reviewScore)} đ</span>
                 </div>
               </div>

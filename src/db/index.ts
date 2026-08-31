@@ -10,23 +10,25 @@ declare global {
 export const createPool = () => {
   if (!global._postgresPool) {
     if (!process.env.SQL_HOST) {
-        console.warn("SQL_HOST is not defined, running without real DB connection for now.");
+      console.warn("SQL_HOST is not defined, using default connection parameters.");
     }
     
     global._postgresPool = new Pool({
       host: process.env.SQL_HOST || '127.0.0.1',
+      port: process.env.SQL_PORT ? parseInt(process.env.SQL_PORT, 10) : 5432,
       user: process.env.SQL_USER || 'postgres',
       password: process.env.SQL_PASSWORD || 'password',
       database: process.env.SQL_DB_NAME || 'postgres',
-      max: 20,
-      idleTimeoutMillis: 15000,
-      connectionTimeoutMillis: 10000,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 30000,
       keepAlive: true,
-      keepAliveInitialDelayMillis: 5000,
+      keepAliveInitialDelayMillis: 10000,
     });
 
     global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+      // Do not crash server on idle client disconnections (e.g. scale to zero / idle socket drops)
+      console.warn('PostgreSQL pool idle client notification:', err?.message || err);
     });
   }
   return global._postgresPool;
@@ -35,3 +37,4 @@ export const createPool = () => {
 export const pool = createPool();
 
 export const db = drizzle(pool, { schema });
+

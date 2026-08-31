@@ -4,7 +4,8 @@ import {
   Calendar, Search, Filter, Eye, ChevronRight, CheckCircle2, 
   AlertCircle, Star, Zap, Layers, FileText, ArrowLeft, ArrowRight,
   TrendingUp, BarChart3, Clock, Sparkles, Building2, UserCheck,
-  CheckSquare, Square, Check, X, SlidersHorizontal, ChevronDown
+  CheckSquare, Square, Check, X, SlidersHorizontal, ChevronDown,
+  AlertTriangle, RotateCcw, Info, ShieldAlert
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { 
@@ -18,10 +19,37 @@ import {
   formatScore,
   formatScoreWithUnit,
   formatPercent,
-  cleanPosition
+  cleanPosition,
+  getWorkSelfConvertedScore,
+  getWorkApprovedConvertedScore
 } from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+
+interface RecalcUserSuccess {
+  userId: number;
+  name: string;
+  totalKpi: number | null;
+  rank: string;
+  selfKpiTotal?: number | null;
+  selfRank?: string;
+  approvedKpiTotal?: number | null;
+  approvedRank?: string;
+}
+
+interface RecalcUserFailure {
+  userId: number;
+  name: string;
+  error: string;
+}
+
+interface RecalcReport {
+  month: string;
+  total: number;
+  succeeded: RecalcUserSuccess[];
+  failed: RecalcUserFailure[];
+  timestamp: string;
+}
 
 export default function DepartmentKpiSummary() {
   const navigate = useNavigate();
@@ -31,6 +59,9 @@ export default function DepartmentKpiSummary() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
+  const [retryingUserIds, setRetryingUserIds] = useState<number[]>([]);
+  const [recalcReport, setRecalcReport] = useState<RecalcReport | null>(null);
+  const [showRecalcModal, setShowRecalcModal] = useState(false);
   const [summaryData, setSummaryData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -142,23 +173,86 @@ export default function DepartmentKpiSummary() {
     }
   };
 
-  const handleRecalculateAll = async () => {
+  const handleRecalculateAll = async (targetUserIds?: number[]) => {
+    const isRetryingSubset = Array.isArray(targetUserIds) && targetUserIds.length > 0;
     try {
-      setRecalculating(true);
+      if (isRetryingSubset) {
+        setRetryingUserIds(targetUserIds);
+      } else {
+        setRecalculating(true);
+      }
       setSuccessMsg(null);
       setErrorMsg(null);
-      const res = await safeFetchJson('/api/kpi/recalculate-all', {
+
+      const res: any = await safeFetchJson('/api/kpi/recalculate-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: selectedMonth })
+        body: JSON.stringify({ 
+          month: selectedMonth,
+          userIds: isRetryingSubset ? targetUserIds : undefined
+        })
       });
-      if (res.success) {
-        setSuccessMsg(`Đã tính toán lại toàn bộ KPI tháng ${selectedMonth} thành công!`);
+
+      if (res.success || res.partialSuccess || res.succeeded || res.failed) {
+        const newSucceeded: RecalcUserSuccess[] = res.succeeded || [];
+        const newFailed: RecalcUserFailure[] = res.failed || [];
+        const currentTime = new Date().toLocaleTimeString('vi-VN');
+
+        let updatedReport: RecalcReport;
+        if (isRetryingSubset && recalcReport) {
+          // Merge retry results with previous report
+          const succeededIdSet = new Set(newSucceeded.map(s => s.userId));
+          const mergedSucceeded = [
+            ...recalcReport.succeeded.filter(s => !succeededIdSet.has(s.userId)),
+            ...newSucceeded
+          ];
+          const newFailedIdMap = new Map(newFailed.map(f => [f.userId, f.error]));
+          
+          const mergedFailed = recalcReport.failed
+            .filter(f => !succeededIdSet.has(f.userId))
+            .map(f => {
+              if (newFailedIdMap.has(f.userId)) {
+                return { ...f, error: newFailedIdMap.get(f.userId)! };
+              }
+              return f;
+            });
+
+          updatedReport = {
+            month: selectedMonth,
+            total: recalcReport.total,
+            succeeded: mergedSucceeded,
+            failed: mergedFailed,
+            timestamp: currentTime
+          };
+        } else {
+          updatedReport = {
+            month: selectedMonth,
+            total: res.summary?.total || (newSucceeded.length + newFailed.length),
+            succeeded: newSucceeded,
+            failed: newFailed,
+            timestamp: currentTime
+          };
+        }
+
+        setRecalcReport(updatedReport);
+
+        if (updatedReport.failed.length === 0) {
+          const successText = isRetryingSubset 
+            ? `Đã chạy lại thành công cho ${newSucceeded.length} nhân sự! Toàn phòng đạt 100% hoàn tất.` 
+            : `Đã tính toán lại toàn bộ KPI tháng ${selectedMonth} cho ${updatedReport.succeeded.length}/${updatedReport.total} nhân sự thành công 100%!`;
+          setSuccessMsg(successText);
+          setErrorMsg(null);
+          setTimeout(() => setSuccessMsg(null), 5000);
+        } else {
+          setErrorMsg(`Tái tính hoàn tất một phần: ${updatedReport.succeeded.length}/${updatedReport.total} nhân sự thành công. Có ${updatedReport.failed.length} nhân sự bị lỗi.`);
+          // Automatically show detail modal on failures so user can see and retry
+          setShowRecalcModal(true);
+        }
+
         await fetchDepartmentSummary(selectedMonth);
         if (selectedUserId) {
           await loadIndividualDetail(selectedMonth, selectedUserId);
         }
-        setTimeout(() => setSuccessMsg(null), 4000);
       } else {
         setErrorMsg(res.error || 'Tính toán lại thất bại.');
       }
@@ -166,6 +260,7 @@ export default function DepartmentKpiSummary() {
       setErrorMsg('Lỗi kết nối khi tính toán lại KPI.');
     } finally {
       setRecalculating(false);
+      setRetryingUserIds([]);
     }
   };
 
@@ -619,18 +714,20 @@ export default function DepartmentKpiSummary() {
   const indScoreC2 = indDetC?.c2 ?? 0;
   const indApprovedC = Math.min(10, indScoreC1 + indScoreC2);
 
-  // Scores D (Self automatic D & Approved D)
+  // Scores D (Self automatic D & Approved D) - capped at max 10 points
+  const indMaxD = individualKpiData?.scoreAllocation?.maxD ?? 10;
   const indAutoDTotal = indDetD?.totalAutoD !== undefined
     ? indDetD.totalAutoD
     : (indDetD?.items || []).reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
-  const indSelfD = indAutoDTotal;
+  const indSelfD = Math.min(indMaxD, indAutoDTotal);
 
-  const indApprovedD = indDetD?.totalOfficialD !== undefined
+  const indRawApprovedD = indDetD?.totalOfficialD !== undefined
     ? indDetD.totalOfficialD
     : (indDetD?.items || []).reduce(
         (s: number, it: any) => s + (parseFloat(it.officialD !== undefined ? it.officialD : (it.autoD || '0')) || 0),
         0
       );
+  const indApprovedD = Math.min(indMaxD, indRawApprovedD);
 
   // Server-authoritative totals & rankings for individual lookup
   const indTotalSelf = individualKpiData?.selfKpiTotal ?? indSum?.selfKpiTotal ?? 0;
@@ -672,14 +769,38 @@ export default function DepartmentKpiSummary() {
         {/* Global Action Buttons */}
         <div className="flex items-center flex-wrap gap-2.5">
           <button
-            onClick={handleRecalculateAll}
-            disabled={recalculating}
+            onClick={() => handleRecalculateAll()}
+            disabled={recalculating || retryingUserIds.length > 0}
             className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-2xs cursor-pointer disabled:opacity-50"
             title="Tính toán và cập nhật lại điểm toàn bộ phòng theo dữ liệu mới nhất"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-700 ${recalculating ? 'animate-spin' : ''}`} />
             {recalculating ? 'Đang tính lại...' : 'Tính lại KPI phòng'}
           </button>
+
+          {recalcReport && (
+            <button
+              onClick={() => setShowRecalcModal(true)}
+              className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-2xs cursor-pointer border ${
+                recalcReport.failed.length > 0 
+                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-300' 
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-300'
+              }`}
+              title="Xem nhật ký tính toán KPI chi tiết và danh sách thành công / thất bại"
+            >
+              {recalcReport.failed.length > 0 ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+                  <span>Báo cáo tái tính ({recalcReport.failed.length} lỗi)</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Báo cáo tái tính ({recalcReport.succeeded.length}/{recalcReport.total})</span>
+                </>
+              )}
+            </button>
+          )}
 
           <button
             onClick={handleExportWord}
@@ -714,16 +835,37 @@ export default function DepartmentKpiSummary() {
 
       {/* Notifications / Alerts - Hidden on print */}
       {successMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 px-4 py-3 rounded-xl text-xs md:text-sm font-bold flex items-center gap-2.5 animate-fadeIn shadow-2xs print:hidden no-print">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-          <span>{successMsg}</span>
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 px-4 py-3 rounded-xl text-xs md:text-sm font-bold flex items-center justify-between gap-2.5 animate-fadeIn shadow-2xs print:hidden no-print">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          {recalcReport && (
+            <button
+              onClick={() => setShowRecalcModal(true)}
+              className="text-xs text-emerald-900 underline hover:text-emerald-950 font-black cursor-pointer ml-auto"
+            >
+              Xem danh sách chi tiết
+            </button>
+          )}
         </div>
       )}
 
       {errorMsg && (
-        <div className="bg-rose-50 border border-rose-300 text-rose-950 px-4 py-3 rounded-xl text-xs md:text-sm font-bold flex items-center gap-2.5 animate-fadeIn shadow-2xs print:hidden no-print">
-          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-          <span>{errorMsg}</span>
+        <div className="bg-rose-50 border border-rose-300 text-rose-950 px-4 py-3 rounded-xl text-xs md:text-sm font-bold flex items-center justify-between gap-2.5 animate-fadeIn shadow-2xs print:hidden no-print">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          {recalcReport && recalcReport.failed.length > 0 && (
+            <button
+              onClick={() => setShowRecalcModal(true)}
+              className="bg-rose-700 hover:bg-rose-800 text-white text-xs px-3 py-1.5 rounded-lg font-black transition cursor-pointer flex items-center gap-1 shadow-2xs ml-auto"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Xem chi tiết lỗi & chạy lại ({recalcReport.failed.length})
+            </button>
+          )}
         </div>
       )}
 
@@ -1729,8 +1871,8 @@ export default function DepartmentKpiSummary() {
                         {indAllTasks.map((t: any, idx: number) => {
                           const isTaskApproved = t.leaderApproval === 'Duyệt';
                           const isTaskRejected = t.leaderApproval === 'Không duyệt';
-                          const selfScore = t.selfConvertedScore !== undefined && t.selfConvertedScore !== null ? t.selfConvertedScore : t.convertedScore;
-                          const appScore = t.approvedConvertedScore !== undefined && t.approvedConvertedScore !== null ? t.approvedConvertedScore : t.convertedScore;
+                          const selfScore = getWorkSelfConvertedScore(t);
+                          const appScore = getWorkApprovedConvertedScore(t);
 
                           return (
                             <tr key={idx} className="hover:bg-slate-50">
@@ -2276,6 +2418,251 @@ export default function DepartmentKpiSummary() {
           </div>
         );
       })()}
+
+      {/* Recalculation Results & Selective Retry Modal */}
+      {showRecalcModal && recalcReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-300 flex flex-col max-h-[90vh] overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className={`p-4 md:p-5 flex items-center justify-between border-b ${
+              recalcReport.failed.length > 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-xl border ${
+                  recalcReport.failed.length > 0 
+                    ? 'bg-rose-100 text-rose-800 border-rose-300' 
+                    : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                }`}>
+                  {recalcReport.failed.length > 0 ? <AlertTriangle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-base md:text-lg font-black text-[#0f2440]">
+                    Báo cáo Tái tính KPI Phòng — Tháng {recalcReport.month}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Thời điểm thực hiện: <span className="font-bold text-slate-700">{recalcReport.timestamp}</span> • Tổng số: <span className="font-bold text-[#1F4E78]">{recalcReport.total} nhân sự</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRecalcModal(false)}
+                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition cursor-pointer"
+                title="Đóng modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 md:p-6 overflow-y-auto space-y-5 flex-1 text-slate-800">
+              {/* Summary 3-Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tổng nhân sự xử lý</div>
+                  <div className="text-2xl font-black text-[#0f2440] mt-1">{recalcReport.total}</div>
+                </div>
+
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <div className="text-xs font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Tính thành công
+                  </div>
+                  <div className="text-2xl font-black text-emerald-700 mt-1">
+                    {recalcReport.succeeded.length} <span className="text-xs font-bold text-emerald-600">/ {recalcReport.total}</span>
+                  </div>
+                </div>
+
+                <div className={`p-3.5 rounded-xl border ${
+                  recalcReport.failed.length > 0 ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${
+                    recalcReport.failed.length > 0 ? 'text-rose-700' : 'text-slate-500'
+                  }`}>
+                    <AlertCircle className={`w-3.5 h-3.5 ${recalcReport.failed.length > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+                    Thất bại / Lỗi
+                  </div>
+                  <div className={`text-2xl font-black mt-1 ${recalcReport.failed.length > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                    {recalcReport.failed.length}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Alert Banner */}
+              {recalcReport.failed.length > 0 ? (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-black text-rose-950">Phát hiện {recalcReport.failed.length} nhân sự chưa được tính toán thành công</h4>
+                      <p className="text-xs text-rose-800 mt-0.5 font-medium">
+                        Bạn có thể bấm nút "Chạy lại riêng cho các nhân sự thất bại" để hệ thống tính lại mà không ảnh hưởng tới người đã tính thành công.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRecalculateAll(recalcReport.failed.map(f => f.userId))}
+                    disabled={recalculating || retryingUserIds.length > 0}
+                    className="bg-rose-700 hover:bg-rose-800 text-white text-xs px-3.5 py-2 rounded-xl font-black transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${retryingUserIds.length > 0 ? 'animate-spin' : ''}`} />
+                    <span>{retryingUserIds.length > 0 ? 'Đang chạy lại...' : `Chạy lại riêng (${recalcReport.failed.length} người)`}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2.5 text-xs md:text-sm font-bold text-emerald-950">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>Toàn bộ {recalcReport.succeeded.length}/{recalcReport.total} nhân sự đã được tính toán và đồng bộ điểm KPI thành công 100%!</span>
+                </div>
+              )}
+
+              {/* Section 1: Failed Users (If Any) */}
+              {recalcReport.failed.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-rose-600" />
+                      Danh sách nhân sự tính toán thất bại ({recalcReport.failed.length})
+                    </h4>
+                  </div>
+
+                  <div className="border border-rose-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-rose-100/70 text-rose-950 font-bold border-b border-rose-200">
+                        <tr>
+                          <th className="p-2.5 text-center w-12">STT</th>
+                          <th className="p-2.5 w-48">Họ và tên</th>
+                          <th className="p-2.5">Nguyên nhân / Chi tiết lỗi</th>
+                          <th className="p-2.5 text-center w-28">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-rose-100 bg-rose-50/30">
+                        {recalcReport.failed.map((f, idx) => {
+                          const isRetryingThis = retryingUserIds.includes(f.userId);
+                          return (
+                            <tr key={f.userId || idx} className="hover:bg-rose-100/40 transition">
+                              <td className="p-2.5 text-center font-bold text-slate-600">{idx + 1}</td>
+                              <td className="p-2.5 font-black text-[#0f2440]">{f.name}</td>
+                              <td className="p-2.5 text-rose-700 font-medium">
+                                <span className="inline-block bg-rose-100 text-rose-900 border border-rose-200 px-2 py-0.5 rounded-md font-mono text-[11px]">
+                                  {f.error || 'Lỗi không xác định khi tính điểm KPI'}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  onClick={() => handleRecalculateAll([f.userId])}
+                                  disabled={recalculating || isRetryingThis}
+                                  className="bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 px-2.5 py-1 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1 mx-auto disabled:opacity-50 shadow-2xs"
+                                  title="Chạy lại tính toán KPI chỉ riêng cho nhân sự này"
+                                >
+                                  <RotateCcw className={`w-3 h-3 text-rose-600 ${isRetryingThis ? 'animate-spin' : ''}`} />
+                                  {isRetryingThis ? 'Đang thử...' : 'Thử lại'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Section 2: Succeeded Users */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    Danh sách nhân sự đã tính thành công ({recalcReport.succeeded.length})
+                  </h4>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs max-h-72 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0">
+                      <tr>
+                        <th className="p-2.5 text-center w-12">STT</th>
+                        <th className="p-2.5 w-48">Họ và tên</th>
+                        <th className="p-2.5 text-center">Điểm duyệt (Tổng KPI)</th>
+                        <th className="p-2.5 text-center">Xếp loại duyệt</th>
+                        <th className="p-2.5 text-center">Điểm tự chấm</th>
+                        <th className="p-2.5 text-center">Tự xếp loại</th>
+                        <th className="p-2.5 text-center w-28">Trạng thái</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {recalcReport.succeeded.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-4 text-center text-slate-500 italic">
+                            Chưa có nhân sự nào được tính thành công trong đợt này.
+                          </td>
+                        </tr>
+                      ) : (
+                        recalcReport.succeeded.map((s, idx) => (
+                          <tr key={s.userId || idx} className="hover:bg-slate-50 transition">
+                            <td className="p-2.5 text-center font-bold text-slate-500">{idx + 1}</td>
+                            <td className="p-2.5 font-bold text-[#0f2440]">{s.name}</td>
+                            <td className="p-2.5 text-center font-black text-[#1F4E78]">
+                              {s.approvedKpiTotal !== null && s.approvedKpiTotal !== undefined ? `${formatScore(s.approvedKpiTotal)}đ` : (s.totalKpi !== null && s.totalKpi !== undefined ? `${formatScore(s.totalKpi)}đ` : 'Chờ duyệt')}
+                            </td>
+                            <td className="p-2.5 text-center font-bold text-slate-700">
+                              {s.approvedRank || s.rank || 'Chờ duyệt'}
+                            </td>
+                            <td className="p-2.5 text-center font-semibold text-slate-600">
+                              {s.selfKpiTotal !== null && s.selfKpiTotal !== undefined ? `${formatScore(s.selfKpiTotal)}đ` : '-'}
+                            </td>
+                            <td className="p-2.5 text-center font-semibold text-slate-600">
+                              {s.selfRank || '-'}
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                Thành công
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 md:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500 font-medium">
+                {recalcReport.failed.length > 0 ? (
+                  <span className="text-rose-700 font-bold">
+                    Còn {recalcReport.failed.length} nhân sự chưa hoàn thành
+                  </span>
+                ) : (
+                  <span className="text-emerald-700 font-bold">
+                    Toàn bộ {recalcReport.total} nhân sự đã hoàn tất
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {recalcReport.failed.length > 0 && (
+                  <button
+                    onClick={() => handleRecalculateAll(recalcReport.failed.map(f => f.userId))}
+                    disabled={recalculating || retryingUserIds.length > 0}
+                    className="bg-rose-700 hover:bg-rose-800 text-white text-xs px-4 py-2 rounded-xl font-black transition cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${retryingUserIds.length > 0 ? 'animate-spin' : ''}`} />
+                    Chạy lại riêng {recalcReport.failed.length} người lỗi
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowRecalcModal(false)}
+                  className="bg-[#1F4E78] hover:bg-[#173a5a] text-white text-xs px-4 py-2 rounded-xl font-black transition cursor-pointer shadow-sm"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
