@@ -202,6 +202,184 @@ export const WORK_NATURE_COEFS: Record<string, { coef: number; c1Point: number }
   'Đặc biệt phức tạp': { coef: 1.5, c1Point: 3 },
 };
 
+/**
+ * Helper to identify whether a work record is a valid legacy record.
+ * Clear, explicit criteria (never based solely on an empty score field):
+ * 1. work.isLegacy === true
+ * 2. OR work.source is one of 'LEGACY_IMPORT', 'LEGACY', 'MIGRATION', 'BACKUP'
+ * 3. OR work.dataStatus is one of 'LEGACY', 'MIGRATED'
+ * 4. OR work.workId starts with 'LEGACY-', 'MIGRATED-'
+ * 5. OR work.sysNote contains 'LEGACY' or 'MIGRATION'
+ * Note: Live/monthly Excel synchronization (source: 'EXCEL_SYNC') is NOT legacy data.
+ */
+export const isLegacyWork = (work: any): boolean => {
+  if (!work) return false;
+  if (work.isLegacy === true) return true;
+
+  const source = String(work.source || '').toUpperCase().trim();
+  if (
+    source === 'LEGACY_IMPORT' ||
+    source === 'LEGACY' ||
+    source === 'MIGRATION' ||
+    source === 'BACKUP'
+  ) {
+    return true;
+  }
+
+  const dataStatus = String(work.dataStatus || '').toUpperCase().trim();
+  if (dataStatus === 'LEGACY' || dataStatus === 'MIGRATED') {
+    return true;
+  }
+
+  const workId = String(work.workId || '').toUpperCase().trim();
+  if (workId.startsWith('LEGACY-') || workId.startsWith('MIGRATED-')) {
+    return true;
+  }
+
+  const sysNote = String(work.sysNote || '').toUpperCase().trim();
+  if (sysNote.includes('LEGACY') || sysNote.includes('MIGRATION')) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Computes status factor for work score conversion
+ */
+export const getWorkStatusFactor = (status: string | null | undefined): number => {
+  const st = String(status || '').trim();
+  if (st === 'Hoàn thành' || st === 'Đã hoàn thành') return 1.0;
+  if (st === 'Chậm' || st === 'Quá hạn') return 0.5;
+  if (st === 'Đang xử lý' || st === 'Đang thực hiện') return 0.7;
+  if (st === 'Tạm dừng') return 0.3;
+  if (st === 'Không hoàn thành' || st === 'Hủy') return 0.0;
+  return 0.7;
+};
+
+/**
+ * Recomputes converted score from baseScore, nature coef, and status factor
+ */
+export const computeWorkConvertedScore = (
+  baseScore: string | number | null | undefined,
+  coef: string | number | null | undefined,
+  status: string | null | undefined
+): number => {
+  const base = parseFloat(String(baseScore ?? '10')) || 10;
+  const c = parseFloat(String(coef ?? '0.8')) || 0.8;
+  const factor = getWorkStatusFactor(status);
+  return Math.round(base * c * factor * 10) / 10;
+};
+
+/**
+ * Checks if a work is officially approved by leader
+ */
+export const isWorkApproved = (work: any): boolean => {
+  if (!work) return false;
+  const app = String(work.leaderApproval || '').trim();
+  return app === 'Duyệt';
+};
+
+/**
+ * Resolves self-evaluated converted score for a work item.
+ * 
+ * Requirements:
+ * 1. Keep selfConvertedScore = 0 strictly as 0 (NEVER fallback).
+ * 2. Only fallback to convertedScore for valid legacy records with explicit identification criteria.
+ * 3. For new work items missing selfConvertedScore: compute dynamically using the standard formula
+ *    (baseScore * coef * statusFactor) according to current progress/status;
+ *    if insufficient data to calculate (missing/non-positive baseScore or missing/non-positive coef), return 0.
+ */
+export const getWorkSelfConvertedScore = (work: any): number => {
+  if (!work) return 0;
+
+  // 1. Explicit selfConvertedScore present (including 0 or '0') -> return directly without fallback
+  if (work.selfConvertedScore !== undefined && work.selfConvertedScore !== null && String(work.selfConvertedScore).trim() !== '') {
+    const val = parseFloat(String(work.selfConvertedScore));
+    if (!isNaN(val)) return val;
+  }
+
+  // 2. Only fallback to convertedScore for valid legacy records with explicit identification criteria
+  if (isLegacyWork(work)) {
+    if (work.convertedScore !== undefined && work.convertedScore !== null && String(work.convertedScore).trim() !== '') {
+      const val = parseFloat(String(work.convertedScore));
+      if (!isNaN(val)) return val;
+    }
+  }
+
+  // 3. New work items without selfConvertedScore: compute dynamically according to formula and current progress/status
+  const rawBase = work.baseScore !== undefined && work.baseScore !== null && String(work.baseScore).trim() !== '' 
+    ? parseFloat(String(work.baseScore)) 
+    : NaN;
+
+  if (isNaN(rawBase) || rawBase <= 0) {
+    return 0; // Insufficient baseScore data -> return 0
+  }
+
+  // Resolve nature and coef
+  let coef: number | null = null;
+  if (work.coef !== undefined && work.coef !== null && String(work.coef).trim() !== '') {
+    const parsedCoef = parseFloat(String(work.coef));
+    if (!isNaN(parsedCoef) && parsedCoef > 0) {
+      coef = parsedCoef;
+    }
+  }
+
+  if (coef === null) {
+    const nature = work.proposedNature || work.approvedNature;
+    if (nature && WORK_NATURE_COEFS[nature]) {
+      coef = WORK_NATURE_COEFS[nature].coef;
+    }
+  }
+
+  if (coef === null || coef <= 0) {
+    return 0; // Insufficient nature / coef data -> return 0
+  }
+
+  const factor = getWorkStatusFactor(work.status);
+  return Math.round(rawBase * coef * factor * 10) / 10;
+};
+
+/**
+ * Resolves approved converted score for a work item.
+ * STRICT CRITERIA:
+ * 1. If work is NOT approved by leader (leaderApproval !== 'Duyệt') -> ALWAYS 0 (never use fallback).
+ * 2. If work is approved (leaderApproval === 'Duyệt'):
+ *    - If approvedConvertedScore exists and is valid -> return it.
+ *    - If approvedConvertedScore is missing:
+ *      - For valid legacy records: allowed fallback to convertedScore or selfConvertedScore.
+ *      - Otherwise: calculate dynamically from approvedNature/proposedNature, coef, baseScore, status.
+ */
+export const getWorkApprovedConvertedScore = (work: any): number => {
+  if (!work) return 0;
+  if (!isWorkApproved(work)) {
+    return 0;
+  }
+  if (work.approvedConvertedScore !== undefined && work.approvedConvertedScore !== null && String(work.approvedConvertedScore).trim() !== '') {
+    const val = parseFloat(String(work.approvedConvertedScore));
+    if (!isNaN(val)) return val;
+  }
+  // For valid legacy approved records without approvedConvertedScore
+  if (isLegacyWork(work)) {
+    if (work.selfConvertedScore !== undefined && work.selfConvertedScore !== null && String(work.selfConvertedScore).trim() !== '') {
+      const val = parseFloat(String(work.selfConvertedScore));
+      if (!isNaN(val)) return val;
+    }
+    if (work.convertedScore !== undefined && work.convertedScore !== null && String(work.convertedScore).trim() !== '') {
+      const val = parseFloat(String(work.convertedScore));
+      if (!isNaN(val)) return val;
+    }
+  }
+  // Dynamic fallback calculation for approved records
+  const rawBase = work.baseScore !== undefined && work.baseScore !== null && String(work.baseScore).trim() !== '' 
+    ? parseFloat(String(work.baseScore)) 
+    : 10;
+  const nature = work.approvedNature || work.proposedNature || 'Trung bình';
+  const natureCoef = WORK_NATURE_COEFS[nature]?.coef ?? 0.8;
+  const coef = (work.coef && !isNaN(parseFloat(String(work.coef)))) ? parseFloat(String(work.coef)) : natureCoef;
+  return computeWorkConvertedScore(rawBase, coef, work.status);
+};
+
 export const DEFAULT_TASK_GROUPS = [
   'Kế hoạch vốn',
   'Thanh toán, giải ngân',

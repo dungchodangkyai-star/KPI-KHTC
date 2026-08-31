@@ -6,7 +6,7 @@ import { db, pool } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter, requireSessionAuthenticated } from "./server/auth.ts";
-import { kpiRouter, calculateAndSaveUserKpi } from "./server/kpiRoutes.ts";
+import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
@@ -21,6 +21,7 @@ import {
   formatZaloMessage, 
   DEFAULT_ZALO_TEMPLATE 
 } from "./server/zaloService.ts";
+import { WORK_NATURE_COEFS } from "./src/utils.ts";
 
 
 const webpush: any = (webPushModule as any).default || webPushModule;
@@ -29,18 +30,37 @@ type PushPayload = { title: string; body: string; url: string; assignmentId?: st
 
 const PUSH_SW_SOURCE = "self.addEventListener('push', function(event) {\n  var data = {};\n  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }\n  event.waitUntil(self.registration.showNotification(data.title || 'Thông báo giao việc', {\n    body: data.body || 'Bạn có nhiệm vụ mới.',\n    icon: '/push-icon.svg',\n    badge: '/push-icon.svg',\n    tag: data.tag || ('assignment-' + (data.assignmentId || Date.now())),\n    renotify: true,\n    data: { url: data.url || '/my-works', assignmentId: data.assignmentId || null }\n  }));\n});\nself.addEventListener('notificationclick', function(event) {\n  event.notification.close();\n  var target = (event.notification.data && event.notification.data.url) || '/my-works';\n  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {\n    for (var i = 0; i < list.length; i++) {\n      if ('focus' in list[i]) { list[i].navigate(target); return list[i].focus(); }\n    }\n    if (clients.openWindow) return clients.openWindow(target);\n  }));\n});";
 
+let cachedVapidSettings: any = null;
+
 async function getVapidSettings() {
-  const existing = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
-  if (existing.rows[0]) return existing.rows[0];
+  if (cachedVapidSettings) return cachedVapidSettings;
+  try {
+    const existing = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+    if (existing.rows[0]) {
+      cachedVapidSettings = existing.rows[0];
+      return cachedVapidSettings;
+    }
+    const generated = webpush.generateVAPIDKeys();
+    await pool.query(
+      `INSERT INTO push_settings (id, vapid_public_key, vapid_private_key, subject)
+       VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+      [generated.publicKey, generated.privateKey, 'mailto:admin@kpi.internal']
+    );
+    const current = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+    if (current.rows[0]) {
+      cachedVapidSettings = current.rows[0];
+      return cachedVapidSettings;
+    }
+  } catch (err) {
+    console.warn("Notice checking VAPID settings:", err);
+  }
   const generated = webpush.generateVAPIDKeys();
-  await pool.query(
-    `INSERT INTO push_settings (id, vapid_public_key, vapid_private_key, subject)
-     VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING`,
-    [generated.publicKey, generated.privateKey, 'mailto:admin@kpi.internal']
-  );
-  const current = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
-  if (!current.rows[0]) throw new Error('Không thể khởi tạo khóa Web Push');
-  return current.rows[0];
+  cachedVapidSettings = {
+    vapid_public_key: generated.publicKey,
+    vapid_private_key: generated.privateKey,
+    subject: 'mailto:admin@kpi.internal'
+  };
+  return cachedVapidSettings;
 }
 
 async function sendPushToUser(userId: number, payload: PushPayload) {
@@ -177,18 +197,18 @@ async function startServer() {
   });
 
 
-  // Migrate schema and seed data on startup
+  // Migrate schema and seed data on startup (deferred non-blocking task)
   setTimeout(async () => {
     try {
       const migResult = await ensureDatabaseSchema();
-      console.log("Schema sync result:", migResult);
+      console.log("Schema sync result:", migResult?.message || "OK");
       const seedResult = await runSeeder();
-      console.log("Init seed result:", seedResult);
+      console.log("Init seed result:", seedResult?.message || "OK");
       startBackupScheduler();
     } catch (e) {
-      console.error("Startup migration/seed error:", e);
+      console.warn("Startup background sync notice:", e);
     }
-  }, 200);
+  }, 3000);
 
   // --- API Routes ---
 
@@ -294,29 +314,39 @@ async function startServer() {
       }
       const userId = user ? user.id : (p.userId ? Number(p.userId) : 1);
 
-      const newWork = await db.insert(works).values({
-        workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        month: p.month || "08-2026",
-        userId: userId,
-        taskGroup: p.taskGroup || p.group,
-        taskName: p.taskName || p.task,
-        taskCode: p.taskCode || p.code,
-        detail: p.detail,
-        startDate: p.startDate ? new Date(p.startDate) : null,
-        startTime: p.startTime || "07:30",
-        endDate: p.endDate ? new Date(p.endDate) : null,
-        endTime: p.endTime || "17:00",
-        actualEndDate: p.actualEndDate ? new Date(p.actualEndDate) : null,
-        hours: String(p.hours || "8"),
-        days: parseInt(p.days || "1"),
-        proposedNature: p.proposedNature || p.nature || "Trung bình",
-        approvedNature: p.approvedNature || "",
-        coef: String(p.coef || "0.8"),
-        baseScore: String(p.baseScore || p.score || "10"),
-        convertedScore: String(p.convertedScore || p.selfConvertedScore || "8"),
-        selfConvertedScore: String(p.selfConvertedScore || p.convertedScore || "8"),
-        approvedConvertedScore: p.approvedConvertedScore ? String(p.approvedConvertedScore) : (p.leaderApproval === 'Duyệt' ? String(p.convertedScore || p.selfConvertedScore || "8") : null),
-        status: p.status || "Đang xử lý",
+        const proposedNature = p.proposedNature || p.nature || "Trung bình";
+        const defaultNatureObj = WORK_NATURE_COEFS[proposedNature] || WORK_NATURE_COEFS["Trung bình"];
+        const resolvedCoef = p.coef !== undefined && p.coef !== null && String(p.coef).trim() !== '' 
+          ? String(p.coef) 
+          : String(defaultNatureObj?.coef ?? "0.8");
+
+        const dbBaseScore = p.baseScore !== undefined && p.baseScore !== null && String(p.baseScore).trim() !== ''
+          ? String(p.baseScore)
+          : (p.score !== undefined && p.score !== null && String(p.score).trim() !== '' ? String(p.score) : "0");
+
+        const newWork = await db.insert(works).values({
+          workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          month: p.month || "08-2026",
+          userId: userId,
+          taskGroup: p.taskGroup || p.group,
+          taskName: p.taskName || p.task,
+          taskCode: p.taskCode || p.code,
+          detail: p.detail,
+          startDate: p.startDate ? new Date(p.startDate) : null,
+          startTime: p.startTime || "07:30",
+          endDate: p.endDate ? new Date(p.endDate) : null,
+          endTime: p.endTime || "17:00",
+          actualEndDate: p.actualEndDate ? new Date(p.actualEndDate) : null,
+          hours: String(p.hours || "8"),
+          days: parseInt(p.days || "1"),
+          proposedNature: proposedNature,
+          approvedNature: p.approvedNature || "",
+          coef: resolvedCoef,
+          baseScore: dbBaseScore,
+          convertedScore: p.convertedScore !== undefined && p.convertedScore !== null && String(p.convertedScore).trim() !== '' ? String(p.convertedScore) : null,
+          selfConvertedScore: p.selfConvertedScore !== undefined && p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '' ? String(p.selfConvertedScore) : null,
+          approvedConvertedScore: p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '' ? String(p.approvedConvertedScore) : (p.leaderApproval === 'Duyệt' && p.convertedScore ? String(p.convertedScore) : null),
+          status: p.status || "Chưa cập nhật",
         evidence: p.evidence || "",
         productType: p.productType || "Báo cáo",
         productQty: parseInt(p.productQty || "1"),
@@ -331,6 +361,14 @@ async function startServer() {
         source: p.source || "WEBAPP",
       }).returning();
 
+      if (newWork[0]) {
+        try {
+          await recalculateAffectedMonths([newWork[0].month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after work creation:", kpiErr);
+        }
+      }
+
       res.json({ success: true, data: newWork[0], message: "Đã lưu công việc thành công!" });
     } catch (error) {
       console.error("Error creating work:", error);
@@ -343,6 +381,10 @@ async function startServer() {
       const id = parseInt(req.params.id);
       const p = req.body;
       const updateData: any = { updatedAt: new Date() };
+
+      const oldWork = await db.query.works.findFirst({
+        where: eq(works.id, id)
+      });
 
       if (p.userId !== undefined) updateData.userId = parseInt(p.userId);
       if (p.taskGroup !== undefined) updateData.taskGroup = p.taskGroup;
@@ -368,24 +410,14 @@ async function startServer() {
       if (p.coef !== undefined) updateData.coef = String(p.coef);
       if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
 
-      if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null) {
-        // Chỉ xử lý nhánh điểm duyệt khi approvedConvertedScore khác undefined và khác null
-        updateData.approvedConvertedScore = String(p.approvedConvertedScore);
-        updateData.convertedScore = String(p.approvedConvertedScore);
-      } else if (p.convertedScore !== undefined) {
-        // Nếu approvedConvertedScore là null hoặc undefined và có convertedScore: cập nhật selfConvertedScore và convertedScore
-        updateData.convertedScore = String(p.convertedScore);
-        updateData.selfConvertedScore = String(p.convertedScore);
-        if (p.approvedConvertedScore === null) {
-          updateData.approvedConvertedScore = null;
-        }
-      } else {
-        if (p.selfConvertedScore !== undefined) {
-          updateData.selfConvertedScore = p.selfConvertedScore !== null ? String(p.selfConvertedScore) : null;
-        }
-        if (p.approvedConvertedScore === null) {
-          updateData.approvedConvertedScore = null;
-        }
+      if (p.approvedConvertedScore !== undefined) {
+        updateData.approvedConvertedScore = (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') ? String(p.approvedConvertedScore) : null;
+      }
+      if (p.selfConvertedScore !== undefined) {
+        updateData.selfConvertedScore = (p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '') ? String(p.selfConvertedScore) : null;
+      }
+      if (p.convertedScore !== undefined) {
+        updateData.convertedScore = (p.convertedScore !== null && String(p.convertedScore).trim() !== '') ? String(p.convertedScore) : null;
       }
 
       if (p.leaderApproval !== undefined) updateData.leaderApproval = p.leaderApproval;
@@ -402,8 +434,8 @@ async function startServer() {
       const updated = await db.update(works).set(updateData).where(eq(works.id, id)).returning();
       const updatedWork = updated[0];
 
-      // Tự động tính lại KPI đúng nhân viên và tháng của công việc khi dữ liệu duyệt hoặc điểm quy đổi thay đổi
-      if (updatedWork && updatedWork.userId) {
+      // Tự động tính lại KPI toàn bộ nhân sự đúng phòng và tháng bị ảnh hưởng khi duyệt, sửa, chuyển việc
+      if (updatedWork) {
         const isRelevantChange = 
           p.leaderApproval !== undefined ||
           p.approvedConvertedScore !== undefined ||
@@ -421,16 +453,11 @@ async function startServer() {
           p.userId !== undefined;
 
         if (isRelevantChange) {
-          const targetUser = await db.query.users.findFirst({
-            where: eq(users.id, updatedWork.userId)
-          });
-          if (targetUser) {
-            try {
-              const targetMonth = updatedWork.month || "08-2026";
-              await calculateAndSaveUserKpi(targetUser, targetMonth);
-            } catch (kpiErr) {
-              console.error("Error auto recalculating KPI for user after work update:", kpiErr);
-            }
+          try {
+            const affectedMonths = [oldWork?.month, updatedWork.month];
+            await recalculateAffectedMonths(affectedMonths);
+          } catch (kpiErr) {
+            console.error("Error auto recalculating KPI after work update:", kpiErr);
           }
         }
       }
@@ -445,11 +472,23 @@ async function startServer() {
   app.delete("/api/works/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const oldWork = await db.query.works.findFirst({
+        where: eq(works.id, id)
+      });
       const updated = await db.update(works).set({
         dataStatus: "Đã xóa mềm",
         sysNote: `Xóa mềm lúc ${new Date().toISOString()}`,
         updatedAt: new Date(),
       }).where(eq(works.id, id)).returning();
+
+      if (oldWork) {
+        try {
+          await recalculateAffectedMonths([oldWork.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after work deletion:", kpiErr);
+        }
+      }
+
       res.json({ success: true, data: updated[0], message: "Đã xóa mềm công việc thành công!" });
     } catch (error) {
       console.error("Error deleting work:", error);
@@ -669,7 +708,7 @@ async function startServer() {
         const role = rec.role || "Chủ trì";
         const coef = rec.coef !== undefined ? String(rec.coef) : String(p.suggestedCoef || "0.8");
         const baseScore = String(p.baseScore || p.score || "10");
-        const expectedConvertedScore = String(Math.round(Number(baseScore) * Number(coef) * Number(p.productQty || 1) * 10) / 10);
+        const expectedConvertedScore = String(Math.round(Number(baseScore) * Number(coef) * 10) / 10);
 
         const newAssignment = await db.transaction(async (tx) => {
           const inserted = await tx.insert(assignments).values({
@@ -787,7 +826,37 @@ async function startServer() {
       if (p.month !== undefined) updateData.month = p.month;
 
       const updated = await db.update(assignments).set(updateData).where(eq(assignments.id, id)).returning();
-      res.json({ success: true, data: updated[0], message: "Đã cập nhật giao việc!" });
+      const updatedAssignment = updated[0];
+
+      if (updatedAssignment && updatedAssignment.workId) {
+        // Đồng bộ dữ liệu sang bảng works tương ứng
+        const workUpdates: any = { updatedAt: new Date() };
+        if (p.receiverId !== undefined) workUpdates.userId = parseInt(p.receiverId);
+        if (p.taskName !== undefined) workUpdates.taskName = p.taskName;
+        if (p.taskGroup !== undefined) workUpdates.taskGroup = p.taskGroup;
+        if (p.taskCode !== undefined) workUpdates.taskCode = p.taskCode;
+        if (p.baseScore !== undefined) workUpdates.baseScore = String(p.baseScore);
+        if (p.suggestedNature !== undefined) {
+          workUpdates.proposedNature = p.suggestedNature;
+          workUpdates.approvedNature = p.suggestedNature;
+        }
+        if (p.suggestedCoef !== undefined) workUpdates.coef = String(p.suggestedCoef);
+        if (p.expectedConvertedScore !== undefined) {
+          workUpdates.convertedScore = String(p.expectedConvertedScore);
+          workUpdates.selfConvertedScore = String(p.expectedConvertedScore);
+        }
+        if (p.month !== undefined) workUpdates.month = p.month;
+
+        await db.update(works).set(workUpdates).where(eq(works.id, updatedAssignment.workId));
+
+        try {
+          await recalculateAffectedMonths([p.month || updatedAssignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment update:", kpiErr);
+        }
+      }
+
+      res.json({ success: true, data: updatedAssignment, message: "Đã cập nhật giao việc!" });
     } catch (error) {
       console.error("Error updating assignment:", error);
       res.status(500).json({ error: String(error) });
@@ -828,7 +897,9 @@ async function startServer() {
           approvedNature: assignment.suggestedNature || "Trung bình",
           coef: assignment.suggestedCoef || "0.8",
           baseScore: assignment.baseScore || "10",
-          convertedScore: assignment.expectedConvertedScore || "8",
+          convertedScore: null,
+          selfConvertedScore: null,
+          approvedConvertedScore: null,
           status: "Đang xử lý",
           productType: assignment.productType || "Báo cáo",
           productQty: assignment.productQty || 1,
@@ -849,6 +920,14 @@ async function startServer() {
         workId: createdWorkId,
         updatedAt: new Date(),
       }).where(eq(assignments.id, id)).returning();
+
+      if (assignment.month) {
+        try {
+          await recalculateAffectedMonths([assignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment acceptance:", kpiErr);
+        }
+      }
 
       if (assignment.assignerId) {
         await db.insert(notifications).values({
@@ -969,6 +1048,12 @@ async function startServer() {
           dataStatus: "Đã thu hồi",
           sysNote: "Nhiệm vụ đã được Lãnh đạo thu hồi",
         }).where(eq(works.id, assignment.workId));
+
+        try {
+          await recalculateAffectedMonths([assignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment deletion:", kpiErr);
+        }
       }
 
       if (assignment.receiverId) {

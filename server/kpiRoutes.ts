@@ -2,9 +2,41 @@ import express from 'express';
 import { db } from '../src/db/index.ts';
 import { users, works, kpiResults, categories } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_KPI_CONFIG, DEFAULT_ORG_CONFIG, calculateTotalKpi, evaluateKpiRank } from '../src/utils.ts';
+import { 
+  DEFAULT_KPI_CONFIG, 
+  DEFAULT_ORG_CONFIG, 
+  calculateTotalKpi, 
+  evaluateKpiRank,
+  getWorkSelfConvertedScore,
+  getWorkApprovedConvertedScore,
+  isWorkApproved
+} from '../src/utils.ts';
 
 export const kpiRouter = express.Router();
+
+export function isUserActive(u: any): boolean {
+  if (!u) return false;
+  const st = String(u.status || '').toLowerCase().trim();
+  if (st === 'đang làm') return true;
+  if (
+    st.includes('nghỉ') ||
+    st.includes('khoá') ||
+    st.includes('khóa') ||
+    st.includes('xóa') ||
+    st.includes('xoa') ||
+    st.includes('từ chối') ||
+    st.includes('tu choi') ||
+    st.includes('chờ duyệt') ||
+    st.includes('cho duyet') ||
+    st === 'inactive' ||
+    st === 'locked' ||
+    st === 'disabled' ||
+    st === 'deleted'
+  ) {
+    return false;
+  }
+  return true;
+}
 
 export async function getEffectiveOrgConfig(): Promise<any> {
   try {
@@ -293,29 +325,40 @@ kpiRouter.get('/detail', async (req, res) => {
     }
 
     const allUsers = await db.query.users.findMany();
+    const activeUsers = allUsers.filter(isUserActive);
+    const activeUserIds = new Set(activeUsers.map(u => u.id));
+
     const allWorksInMonth = await db.query.works.findMany({
       where: (w, { eq }) => eq(w.month, targetMonth)
     });
+    
+    // Department-level valid works ONLY include works of active employees (resigned/locked users excluded from denominator)
     const validWorksInMonth = allWorksInMonth.filter(w => {
-      const ds = String(w.dataStatus || '').toLowerCase();
-      return !ds.includes('xóa') && !ds.includes('xoa');
+      const ds = String(w.dataStatus || '').toLowerCase().trim();
+      const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+      const isUserValid = w.userId ? activeUserIds.has(w.userId) : false;
+      return isDataValid && isUserValid;
     });
 
-    const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
+    const userWorks = allWorksInMonth.filter(w => {
+      const ds = String(w.dataStatus || '').toLowerCase().trim();
+      const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+      return isDataValid && w.userId === targetUser.id;
+    });
     const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
     
-    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
+    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore with strict fallback)
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
-    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
+    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
     const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
     const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
-    // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
-    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
-    const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    // Self B calculations (all valid works, using selfConvertedScore with fallback)
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
+    const userSelfConvertedScore = userWorks.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
@@ -342,11 +385,14 @@ kpiRouter.get('/detail', async (req, res) => {
       bucket.deptCount += 1;
       bucket.deptPoint += pt;
       selfDeptNatureTotal += pt;
-      if (w.userId === targetUser.id) {
-        bucket.personalCount += 1;
-        bucket.personalPoint += pt;
-        selfPersonalNatureTotal += pt;
-      }
+    });
+    userWorks.forEach(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      const bucket = selfDistribution[nat] || (selfDistribution[nat] = { personalCount: 0, deptCount: 0, personalPoint: 0, deptPoint: 0 });
+      bucket.personalCount += 1;
+      bucket.personalPoint += pt;
+      selfPersonalNatureTotal += pt;
     });
     const selfComplexTasks = userWorks.filter(w => {
       const nat = w.proposedNature || w.approvedNature || 'Trung bình';
@@ -367,9 +413,11 @@ kpiRouter.get('/detail', async (req, res) => {
       const nat = w.approvedNature || w.proposedNature || 'Trung bình';
       const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
       deptNatureTotal += pt;
-      if (w.userId === targetUser.id) {
-        personalNatureTotal += pt;
-      }
+    });
+    userApprovedWorks.forEach(w => {
+      const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      personalNatureTotal += pt;
     });
 
     const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
@@ -510,11 +558,13 @@ kpiRouter.get('/detail', async (req, res) => {
       ? Number(detailsA.approvedTotal)
       : (kpiRecord?.aScore && !isNaN(Number(kpiRecord.aScore)) ? Number(kpiRecord.aScore) : null);
 
+    const approvedDScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+
     let approvedKpiTotal: number | null = null;
     let approvedRank = 'Chờ duyệt';
     if (isAllApproved && approvedA !== null) {
-      approvedKpiTotal = calculateTotalKpi(approvedA, approvedBTotal, finalTotalC, totalOfficialD, kpiConfig.formula, alloc);
-      approvedRank = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: approvedBTotal, scoreD: totalOfficialD }).rank;
+      approvedKpiTotal = calculateTotalKpi(approvedA, approvedBTotal, finalTotalC, approvedDScore, kpiConfig.formula, alloc);
+      approvedRank = evaluateKpiRank(approvedKpiTotal, kpiConfig.rankingTiers, { scoreA: approvedA, scoreB: approvedBTotal, scoreD: approvedDScore }).rank;
     }
 
     res.json({
@@ -563,7 +613,7 @@ kpiRouter.get('/detail', async (req, res) => {
           selfC,
           approvedC: finalTotalC,
           selfD,
-          approvedD: totalOfficialD,
+          approvedD: approvedDScore,
           selfKpiTotal,
           selfRank,
           approvedKpiTotal,
@@ -689,29 +739,41 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     });
 
     // Calculate B1, B2 and B from currently approved works in month using the exact same filter and formulas as calculateAndSaveUserKpi
+    const allUsers = await db.query.users.findMany();
+    const activeUsers = allUsers.filter(isUserActive);
+    const activeUserIds = new Set(activeUsers.map(u => u.id));
+
     const allWorksInMonth = await db.query.works.findMany({
       where: (w, { eq }) => eq(w.month, targetMonth)
     });
+    
+    // Department-level valid works ONLY include works of active employees (resigned/locked users excluded from denominator)
     const validWorksInMonth = allWorksInMonth.filter(w => {
-      const ds = String(w.dataStatus || '').toLowerCase();
-      return !ds.includes('xóa') && !ds.includes('xoa');
+      const ds = String(w.dataStatus || '').toLowerCase().trim();
+      const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+      const isUserValid = w.userId ? activeUserIds.has(w.userId) : false;
+      return isDataValid && isUserValid;
     });
 
-    const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
+    const userWorks = allWorksInMonth.filter(w => {
+      const ds = String(w.dataStatus || '').toLowerCase().trim();
+      const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+      return isDataValid && w.userId === targetUser.id;
+    });
     const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
     
-    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
+    // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore with strict fallback)
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
-    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
+    const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
     const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
     const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
-    // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
-    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
-    const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    // Self B calculations (all valid works, using selfConvertedScore with fallback)
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
+    const userSelfConvertedScore = userWorks.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
@@ -731,9 +793,11 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       const nat = w.proposedNature || w.approvedNature || 'Trung bình';
       const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
       selfDeptNatureTotal += pt;
-      if (w.userId === targetUser.id) {
-        selfPersonalNatureTotal += pt;
-      }
+    });
+    userWorks.forEach(w => {
+      const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      selfPersonalNatureTotal += pt;
     });
     const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
 
@@ -750,9 +814,11 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       const nat = w.approvedNature || w.proposedNature || 'Trung bình';
       const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
       deptNatureTotal += pt;
-      if (w.userId === targetUser.id) {
-        personalNatureTotal += pt;
-      }
+    });
+    userApprovedWorks.forEach(w => {
+      const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+      const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+      personalNatureTotal += pt;
     });
 
     const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
@@ -1088,32 +1154,41 @@ kpiRouter.post('/calculate', async (req, res) => {
   }
 });
 
-// 9. RECALCULATE ALL USERS FOR A MONTH
+// 9. RECALCULATE ALL OR SPECIFIED USERS FOR A MONTH
 kpiRouter.post('/recalculate-all', async (req, res) => {
   try {
-    const { month } = req.body;
+    const { month, userIds } = req.body;
     const targetMonth = month || '08-2026';
 
-    const allUsers = await db.query.users.findMany();
-    const activeUsers = allUsers.filter(u => {
-      const st = String(u.status || '').toLowerCase();
-      return !st.includes('nghỉ') && !st.includes('khoá') && !st.includes('xóa');
-    });
+    const result = await recalculateKpiForMonth(targetMonth, userIds);
 
-    const results = [];
-    for (const u of activeUsers) {
-      const resKpi = await calculateAndSaveUserKpi(u, targetMonth);
-      results.push({ name: u.name, ...resKpi });
+    let message = '';
+    if (result.total === 0) {
+      message = `Không tìm thấy nhân sự phù hợp để tính toán KPI tháng ${targetMonth}.`;
+    } else if (result.failed.length === 0) {
+      const targetDesc = Array.isArray(userIds) && userIds.length > 0 ? `cho ${result.succeeded.length} nhân sự được chọn` : `toàn bộ ${result.succeeded.length}/${result.total} nhân sự`;
+      message = `Đã tính toán lại KPI tháng ${targetMonth} ${targetDesc} thành công 100%!`;
+    } else if (result.succeeded.length > 0) {
+      message = `Đã tính toán thành công ${result.succeeded.length}/${result.total} nhân sự. Có ${result.failed.length} nhân sự bị lỗi khi xử lý!`;
+    } else {
+      message = `Tính toán KPI thất bại cho toàn bộ ${result.total} nhân sự!`;
     }
 
     res.json({
-      success: true,
-      message: `Đã tính toán lại toàn bộ KPI tháng ${targetMonth} cho ${results.length} nhân sự thành công!`,
-      count: results.length,
-      data: results
+      success: result.failed.length === 0 && result.total > 0,
+      partialSuccess: result.failed.length > 0 && result.succeeded.length > 0,
+      message,
+      summary: {
+        total: result.total,
+        successCount: result.succeeded.length,
+        failCount: result.failed.length,
+      },
+      succeeded: result.succeeded,
+      failed: result.failed,
+      month: targetMonth
     });
   } catch (error) {
-    console.error("Error recalculating all KPI:", error);
+    console.error("Error recalculating KPI:", error);
     res.status(500).json({ error: String(error) });
   }
 });
@@ -1128,24 +1203,25 @@ kpiRouter.get('/department-summary', async (req, res) => {
       orderBy: (u, { asc }) => [asc(u.id)]
     });
 
-    const validUsers = allUsers.filter(u => {
-      const st = String(u.status || '').toLowerCase();
-      return !st.includes('nghỉ') && !st.includes('khoá') && !st.includes('xóa');
-    });
+    const validUsers = allUsers.filter(isUserActive);
+    const activeUserIds = new Set(validUsers.map(u => u.id));
 
     const allWorksInMonth = await db.query.works.findMany({
       where: (w, { eq }) => eq(w.month, targetMonth),
       with: { user: true }
     });
 
+    // Department-level valid works ONLY include works of active employees (resigned/locked users excluded from denominator)
     const validWorksInMonth = allWorksInMonth.filter(w => {
-      const ds = String(w.dataStatus || '').toLowerCase();
-      return !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi');
+      const ds = String(w.dataStatus || '').toLowerCase().trim();
+      const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+      const isUserValid = w.userId ? activeUserIds.has(w.userId) : false;
+      return isDataValid && isUserValid;
     });
 
     // Approved B calculations (dept level)
     const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+    const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     const deptConvertedScore = deptApprovedConvertedScore;
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
     const activeEmployeeIds = activeApprovedEmployeeIds;
@@ -1153,7 +1229,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
     const avgShare = avgApprovedShare;
 
     // Self B calculations (dept level)
-    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+    const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
     const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
 
@@ -1240,7 +1316,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const userDelayedWorks = userWorks.filter(w => w.status === 'Chậm' || w.status === 'Quá hạn');
 
       // Approved B calculations (user level)
-      const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+      const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
       const userConvertedScore = userApprovedConvertedScore;
       const userHours = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.hours || '0') || 0), 0);
       const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
@@ -1251,7 +1327,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
       const approvedBTotal = Math.round(Math.min(alloc.maxB || 60, approvedB1 + approvedB2) * 100) / 100;
 
       // Self B calculations (user level)
-      const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
+      const userSelfConvertedScore = userWorks.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
       const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
       const selfB1 = userWorks.length > 0 ? Math.round(Math.min(alloc.maxB1 || 45, (userSelfConvertedScore / 100) * (alloc.maxB1 || 45)) * 100) / 100 : 0;
@@ -1449,7 +1525,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
       taskGroupMap[g].total += 1;
       if (w.leaderApproval === 'Duyệt') {
         taskGroupMap[g].approved += 1;
-        taskGroupMap[g].score += parseFloat(w.convertedScore || '0') || 0;
+        taskGroupMap[g].score += getWorkApprovedConvertedScore(w);
       }
       if (w.status === 'Hoàn thành') {
         taskGroupMap[g].completed += 1;
@@ -1552,31 +1628,47 @@ kpiRouter.get('/department-summary', async (req, res) => {
   }
 });
 
-export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: string) {
-  const allWorksInMonth = await db.query.works.findMany({
+export async function calculateAndSaveUserKpi(
+  targetUser: any, 
+  targetMonth: string,
+  preloadedData?: { allUsers?: any[]; allWorksInMonth?: any[] }
+) {
+  const allUsers = preloadedData?.allUsers || await db.query.users.findMany();
+  const activeUsers = allUsers.filter(isUserActive);
+  const activeUserIds = new Set(activeUsers.map(u => u.id));
+
+  const allWorksInMonth = preloadedData?.allWorksInMonth || await db.query.works.findMany({
     where: (w, { eq }) => eq(w.month, targetMonth)
   });
-  const validWorksInMonth = allWorksInMonth.filter(w => {
-    const ds = String(w.dataStatus || '').toLowerCase();
-    return !ds.includes('xóa') && !ds.includes('xoa');
+
+  // Department-level valid works ONLY include works of active employees (resigned/locked users excluded from denominator)
+  const validWorksInMonth = allWorksInMonth.filter((w: any) => {
+    const ds = String(w.dataStatus || '').toLowerCase().trim();
+    const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+    const isUserValid = w.userId ? activeUserIds.has(w.userId) : false;
+    return isDataValid && isUserValid;
   });
 
-  const userWorks = validWorksInMonth.filter(w => w.userId === targetUser.id);
-  const userApprovedWorks = userWorks.filter(w => w.leaderApproval === 'Duyệt');
+  const userWorks = allWorksInMonth.filter((w: any) => {
+    const ds = String(w.dataStatus || '').toLowerCase().trim();
+    const isDataValid = !ds.includes('xóa') && !ds.includes('xoa') && !ds.includes('thu hồi') && ds !== 'deleted' && ds !== 'trash';
+    return isDataValid && w.userId === targetUser.id;
+  });
+  const userApprovedWorks = userWorks.filter((w: any) => w.leaderApproval === 'Duyệt');
   
-  // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore fallback convertedScore)
-  const deptApprovedWorks = validWorksInMonth.filter(w => w.leaderApproval === 'Duyệt');
-  const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
-  const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + (parseFloat(w.approvedConvertedScore || w.convertedScore || '0') || 0), 0);
+  // Approved B calculations (leaderApproval === 'Duyệt', using approvedConvertedScore with strict fallback)
+  const deptApprovedWorks = validWorksInMonth.filter((w: any) => w.leaderApproval === 'Duyệt');
+  const deptApprovedConvertedScore = deptApprovedWorks.reduce((s: number, w: any) => s + getWorkApprovedConvertedScore(w), 0);
+  const userApprovedConvertedScore = userApprovedWorks.reduce((s: number, w: any) => s + getWorkApprovedConvertedScore(w), 0);
   
-  const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+  const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map((w: any) => w.userId)));
   const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
   const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
-  // Self B calculations (all valid works, using selfConvertedScore fallback convertedScore)
-  const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
-  const userSelfConvertedScore = userWorks.reduce((s, w) => s + (parseFloat(w.selfConvertedScore || w.convertedScore || '0') || 0), 0);
-  const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
+  // Self B calculations (all valid works, using selfConvertedScore with fallback)
+  const deptSelfConvertedScore = validWorksInMonth.reduce((s: number, w: any) => s + getWorkSelfConvertedScore(w), 0);
+  const userSelfConvertedScore = userWorks.reduce((s: number, w: any) => s + getWorkSelfConvertedScore(w), 0);
+  const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map((w: any) => w.userId)));
   const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
   const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
@@ -1588,16 +1680,18 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     'Đơn giản': 0
   };
 
-  // Self C1 calculations (all valid works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
+  // Self C1 calculations (all valid dept works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
   let selfPersonalNatureTotal = 0;
   let selfDeptNatureTotal = 0;
-  validWorksInMonth.forEach(w => {
+  validWorksInMonth.forEach((w: any) => {
     const nat = w.proposedNature || w.approvedNature || 'Trung bình';
     const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
     selfDeptNatureTotal += pt;
-    if (w.userId === targetUser.id) {
-      selfPersonalNatureTotal += pt;
-    }
+  });
+  userWorks.forEach((w: any) => {
+    const nat = w.proposedNature || w.approvedNature || 'Trung bình';
+    const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+    selfPersonalNatureTotal += pt;
   });
   const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
 
@@ -1610,13 +1704,15 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
   let personalNatureTotal = 0;
   let deptNatureTotal = 0;
 
-  deptApprovedWorks.forEach(w => {
+  deptApprovedWorks.forEach((w: any) => {
     const nat = w.approvedNature || w.proposedNature || 'Trung bình';
     const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
     deptNatureTotal += pt;
-    if (w.userId === targetUser.id) {
-      personalNatureTotal += pt;
-    }
+  });
+  userApprovedWorks.forEach((w: any) => {
+    const nat = w.approvedNature || w.proposedNature || 'Trung bình';
+    const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
+    personalNatureTotal += pt;
   });
 
   const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
@@ -1824,3 +1920,99 @@ export async function calculateAndSaveUserKpi(targetUser: any, targetMonth: stri
     dScore
   };
 }
+
+export interface RecalculateUserSuccess {
+  userId: number;
+  name: string;
+  kpiId: string;
+  totalKpi: number | null;
+  rank: string;
+  selfKpiTotal: number | null;
+  selfRank: string;
+  approvedKpiTotal: number | null;
+  approvedRank: string;
+}
+
+export interface RecalculateUserFailure {
+  userId: number;
+  name: string;
+  error: string;
+}
+
+export interface RecalculateResult {
+  month: string;
+  total: number;
+  succeeded: RecalculateUserSuccess[];
+  failed: RecalculateUserFailure[];
+  isAllSuccess: boolean;
+  hasFailures: boolean;
+}
+
+export async function recalculateKpiForMonth(targetMonth: string, specificUserIds?: number[]): Promise<RecalculateResult> {
+  if (!targetMonth) {
+    return {
+      month: targetMonth || '',
+      total: 0,
+      succeeded: [],
+      failed: [],
+      isAllSuccess: false,
+      hasFailures: false
+    };
+  }
+
+  const allUsers: any[] = await db.query.users.findMany();
+  let targetUsers = allUsers.filter(isUserActive);
+
+  if (Array.isArray(specificUserIds) && specificUserIds.length > 0) {
+    const idSet = new Set(specificUserIds.map(Number));
+    targetUsers = targetUsers.filter(u => idSet.has(Number(u.id)));
+  }
+
+  const allWorksInMonth = await db.query.works.findMany({
+    where: (w, { eq }) => eq(w.month, targetMonth)
+  });
+
+  const succeeded: RecalculateUserSuccess[] = [];
+  const failed: RecalculateUserFailure[] = [];
+
+  for (const u of targetUsers) {
+    try {
+      const res = await calculateAndSaveUserKpi(u, targetMonth, { allUsers, allWorksInMonth });
+      succeeded.push({
+        userId: Number(u.id),
+        name: String(u.name || ''),
+        kpiId: res.kpiId,
+        totalKpi: res.totalKpi,
+        rank: res.rank,
+        selfKpiTotal: res.selfKpiTotal,
+        selfRank: res.selfRank,
+        approvedKpiTotal: res.approvedKpiTotal,
+        approvedRank: res.approvedRank
+      });
+    } catch (err: any) {
+      console.error(`Error recalculating KPI for user ${u.id} (${u.name}) in month ${targetMonth}:`, err);
+      failed.push({
+        userId: Number(u.id),
+        name: String(u.name || ''),
+        error: err?.message || String(err)
+      });
+    }
+  }
+
+  return {
+    month: targetMonth,
+    total: targetUsers.length,
+    succeeded,
+    failed,
+    isAllSuccess: failed.length === 0 && targetUsers.length > 0,
+    hasFailures: failed.length > 0
+  };
+}
+
+export async function recalculateAffectedMonths(months: (string | undefined | null)[]) {
+  const distinctMonths = Array.from(new Set(months.filter((m): m is string => Boolean(m))));
+  for (const m of distinctMonths) {
+    await recalculateKpiForMonth(m);
+  }
+}
+

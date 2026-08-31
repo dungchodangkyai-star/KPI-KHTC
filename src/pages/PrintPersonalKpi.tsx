@@ -113,18 +113,20 @@ export default function PrintPersonalKpi() {
   const scoreC2 = detC?.c2 ?? 0;
   const approvedC = Math.min(10, scoreC1 + scoreC2);
 
-  // Scores D (Self automatic D & Approved D)
+  // Scores D (Self automatic D & Approved D) - capped at max 10 points
+  const maxD = kpiData?.scoreAllocation?.maxD ?? 10;
   const autoDTotal = detD?.totalAutoD !== undefined
     ? detD.totalAutoD
     : (detD?.items || []).reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
-  const selfD = autoDTotal;
+  const selfD = Math.min(maxD, autoDTotal);
 
-  const approvedD = detD?.totalOfficialD !== undefined
+  const rawApprovedD = detD?.totalOfficialD !== undefined
     ? detD.totalOfficialD
     : (detD?.items || []).reduce(
         (s: number, it: any) => s + (parseFloat(it.officialD !== undefined ? it.officialD : (it.autoD || '0')) || 0),
         0
       );
+  const approvedD = Math.min(maxD, rawApprovedD);
 
   // Server-authoritative totals & rankings
   const totalSelf = kpiData?.selfKpiTotal ?? sum?.selfKpiTotal ?? 0;
@@ -501,7 +503,10 @@ export default function PrintPersonalKpi() {
               {normalizeNFC(`3. Điểm C (10đ): Điểm tính chất tự động C1: ${formatScore(selfC)}đ; Điểm việc khó/đột xuất C2: ${formatScore(scoreC2)}đ.`)}
             </div>
             <div>
-              {normalizeNFC('4. Quy định xếp loại: Từ 95 điểm trở lên: Hoàn thành xuất sắc nhiệm vụ; Từ 80 đến dưới 95 điểm: Hoàn thành tốt nhiệm vụ; Từ 65 đến dưới 80 điểm: Hoàn thành nhiệm vụ; Dưới 65 điểm: Không hoàn thành nhiệm vụ.')}
+              {normalizeNFC('4. Điểm D: Điểm trừ vi phạm kỷ luật, chậm tiến độ hoặc chất lượng không đạt (tối đa trừ 10 điểm theo quy chế).')}
+            </div>
+            <div>
+              {normalizeNFC('5. Quy định xếp loại: Từ 95 điểm trở lên: Hoàn thành xuất sắc nhiệm vụ; Từ 80 đến dưới 95 điểm: Hoàn thành tốt nhiệm vụ; Từ 65 đến dưới 80 điểm: Hoàn thành nhiệm vụ; Dưới 65 điểm: Không hoàn thành nhiệm vụ.')}
             </div>
           </div>
 
