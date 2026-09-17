@@ -5,7 +5,7 @@ import {
   AlertTriangle, ShieldCheck, Check, RefreshCw, Star
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { STANDARD_MONTHS, formatScore, cleanPosition, safeFetchJson, isSoftDeleted } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, formatScore, cleanPosition, safeFetchJson, isSoftDeleted } from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function Dashboard() {
@@ -14,14 +14,14 @@ export default function Dashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [overtimes, setOvertimes] = useState<any[]>([]);
   const [deptKpiUsers, setDeptKpiUsers] = useState<any[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [kpiRankMode, setKpiRankMode] = useState<'APPROVED' | 'SELF'>('APPROVED');
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = async (targetMonth = selectedMonth) => {
     setIsLoading(true);
     try {
-      const monthForKpi = targetMonth === 'Tất cả' ? '08-2026' : targetMonth;
+      const monthForKpi = targetMonth === 'Tất cả' ? getCurrentMonth() : targetMonth;
       const [dW, dU, dO, dK] = await Promise.all([
         safeFetchJson<any[]>('/api/works'),
         safeFetchJson<any[]>('/api/users'),
@@ -173,8 +173,12 @@ export default function Dashboard() {
             className="bg-[#d9a1a1] border border-slate-300 rounded-lg px-2.5 py-1 text-sm font-black text-[#1f5278] outline-none cursor-pointer shadow-2xs"
           >
             <option value="Tất cả">Tất cả các tháng</option>
-            {STANDARD_MONTHS.map(m => (
-              <option key={m} value={m}>Tháng {m}</option>
+            {MONTH_GROUPS.map(group => (
+              <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                {group.months.map(m => (
+                  <option key={m} value={m}>Tháng {m}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

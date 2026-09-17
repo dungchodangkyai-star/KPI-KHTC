@@ -6,7 +6,7 @@ import {
   Sparkles, Undo2, Ban
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { STANDARD_MONTHS, getActiveLoggedInUser, formatDate, formatMonth, safeFetch, safeParseResponse } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, getActiveLoggedInUser, formatDate, formatMonth, safeFetch, safeParseResponse } from '../utils';
 
 export default function OtApprove() {
   const [overtimes, setOvertimes] = useState<any[]>([]);
@@ -15,7 +15,7 @@ export default function OtApprove() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [selectedUserId, setSelectedUserId] = useState<string | number>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('Chờ duyệt');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -230,7 +230,7 @@ export default function OtApprove() {
           setInspectingOt(null);
         }
       } else {
-        alert("Lỗi: " + data.error);
+        alert("Lỗi: " + (data.message || data.error || "Không thể thực hiện thao tác."));
       }
     } catch (e) {
       console.error(e);
@@ -389,8 +389,12 @@ export default function OtApprove() {
                 className="bg-transparent text-xs font-bold text-slate-800 outline-none w-full cursor-pointer"
               >
                 <option value="Tất cả">Tất cả các tháng</option>
-                {STANDARD_MONTHS.map(m => (
-                  <option key={m} value={m}>Tháng {m}</option>
+                {MONTH_GROUPS.map(group => (
+                  <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                    {group.months.map(m => (
+                      <option key={m} value={m}>Tháng {m}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

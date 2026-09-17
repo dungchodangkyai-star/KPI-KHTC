@@ -3,12 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PMO1 Task & KPI Management</title>
+    <title>Hệ thống Quản lý công việc & Đánh giá KPI</title>
+    <script>
+      (function() {
+        try {
+          var raw = localStorage.getItem('kpi_system_org_config');
+          if (raw) {
+            var cfg = JSON.parse(raw);
+            if (cfg && (cfg.shortName || cfg.departmentName)) {
+              var tag = cfg.shortName ? (' - ' + cfg.shortName) : (' - ' + cfg.departmentName);
+              document.title = 'Hệ thống Quản lý công việc & Đánh giá KPI' + tag;
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
     <meta name="theme-color" content="#1F4E78" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="description" content="Project Management Office 1 task tracking, overtime registration, leader approvals, and KPI calculation system." />
-    <meta property="og:title" content="PMO1 Task & KPI Management" />
-    <meta property="og:description" content="Project Management Office 1 task tracking, overtime registration, leader approvals, and KPI calculation system." />
+    <meta name="description" content="Hệ thống Quản lý công việc và Đánh giá KPI - Phòng Kế hoạch Tài chính, Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk" />
+    <meta property="og:title" content="Hệ thống Quản lý công việc & Đánh giá KPI - Phòng KHTC" />
+    <meta property="og:description" content="Hệ thống Quản lý công việc và Đánh giá KPI - Phòng Kế hoạch Tài chính" />
     <script>
       (function() {
         try {

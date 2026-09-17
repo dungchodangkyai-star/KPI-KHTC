@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { setActiveLoggedInUser, getActiveLoggedInUser, DEFAULT_INITIAL_PASSWORD, ADMIN_EMAIL } from '../utils';
+import { setActiveLoggedInUser, setActiveSessionToken, getActiveLoggedInUser, DEFAULT_INITIAL_PASSWORD, ADMIN_EMAIL } from '../utils';
 import { 
   ShieldCheck, Lock, User as UserIcon, KeyRound, AlertCircle, 
   CheckCircle2, ArrowRight, Eye, EyeOff, Building2, 
@@ -101,6 +101,10 @@ export default function Login() {
       }
 
       // Check if user must change password (first time login with default password)
+      if (data.token || data.sessionToken) {
+        setActiveSessionToken(data.token || data.sessionToken);
+      }
+
       if (data.mustChangePassword) {
         setPendingUser(data.user);
         setShowChangeModal(true);

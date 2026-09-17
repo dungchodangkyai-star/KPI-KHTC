@@ -3,7 +3,7 @@ import { db } from '../src/db/index.ts';
 import { users, categories, works, assignments, overtimes, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword } from './auth.ts';
-import { formatMonth, WORK_NATURE_COEFS, getWorkStatusFactor, getNatureCoef } from '../src/utils.ts';
+import { formatMonth, getCurrentMonth, WORK_NATURE_COEFS, getWorkStatusFactor, getNatureCoef } from '../src/utils.ts';
 import { calculateAndSaveUserKpi, recalculateKpiForMonth } from './kpiRoutes.ts';
 
 export const syncRouter = express.Router();
@@ -461,7 +461,7 @@ syncRouter.get('/backup-data', async (req, res) => {
 syncRouter.post('/batch', async (req, res) => {
   try {
     const { type, sheets, mode, defaultMonth, monthSyncMode = 'ALL', selectedMonths = [], overrideMonth } = req.body;
-    const fallbackMonth = formatMonth(defaultMonth) || '08-2026';
+    const fallbackMonth = formatMonth(defaultMonth) || getCurrentMonth();
     const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
 
     const affectedMonths = new Set<string>();

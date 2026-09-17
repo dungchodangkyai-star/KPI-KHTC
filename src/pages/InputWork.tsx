@@ -11,8 +11,13 @@ import { downloadStyledTemplate } from '../excelUtils';
 import { useNavigate } from 'react-router-dom';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   WORK_NATURE_COEFS, 
   formatDateInput,
+  formatMonth,
+  parseExcelDateToISO,
+  normalizeNFC,
   getActiveLoggedInUser,
   getWorkStatusFactor,
   computeWorkConvertedScore,
@@ -31,6 +36,8 @@ export default function InputWork() {
   const [users, setUsers] = useState<UserType[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | 'custom'>('custom');
 
@@ -52,8 +59,8 @@ export default function InputWork() {
 
   // Form State with ALL 39 fields from PMO1 / Apps Script specification
   const [formData, setFormData] = useState({
-    month: '08-2026',
-    userId: 1,
+    month: getCurrentMonth(),
+    userId: 0,
     userName: '',
     taskGroup: '',
     taskName: '',
@@ -405,151 +412,292 @@ export default function InputWork() {
   };
 
   const handleDownloadTemplate = () => {
+    const curMonth = getCurrentMonth();
     const data = [{
-      'Tháng': '08-2026',
-      'Người thực hiện (ID)': 1,
+      'Tháng': curMonth,
+      'Người thực hiện (ID hoặc Họ tên)': currentUser ? `${currentUser.id} - ${currentUser.name}` : '',
       'Nhóm việc': 'Kế hoạch vốn',
       'Tên nhiệm vụ': 'Theo dõi kế hoạch vốn theo dự án',
-      'Nội dung chi tiết': 'Rà soát bảng tổng hợp',
-      'Ngày bắt đầu': '2026-08-01',
-      'Giờ BĐ': '08:00',
-      'Ngày hoàn thành': '2026-08-15',
+      'Nội dung chi tiết': 'DÒNG MẪU HƯỚNG DẪN (Vui lòng xóa dòng này hoặc thay thế bằng công việc thực tế)',
+      'Ngày bắt đầu': formatDateInput(new Date()),
+      'Giờ BĐ': '07:30',
+      'Ngày hoàn thành': formatDateInput(new Date()),
       'Giờ HT': '17:00',
-      'Trạng thái': 'Đang xử lý',
+      'Trạng thái': 'Hoàn thành (HS 1.0)',
       'Tính chất': 'Trung bình',
-      'Loại sản phẩm': 'Bảng tổng hợp',
-      'Số lượng SP': 1
+      'Điểm chuẩn': 10,
+      'Hệ số K': 0.8,
+      'Loại sản phẩm': 'Báo cáo',
+      'Số lượng SP': 1,
+      'Đơn vị tính': 'Báo cáo'
     }];
     const columns = [
-      { header: 'Tháng', key: 'Tháng', width: 15 },
-      { header: 'Người thực hiện (ID)', key: 'Người thực hiện (ID)', width: 20 },
+      { header: 'Tháng', key: 'Tháng', width: 14 },
+      { header: 'Người thực hiện (ID hoặc Họ tên)', key: 'Người thực hiện (ID hoặc Họ tên)', width: 30 },
       { header: 'Nhóm việc', key: 'Nhóm việc', width: 25 },
-      { header: 'Tên nhiệm vụ', key: 'Tên nhiệm vụ', width: 35 },
-      { header: 'Nội dung chi tiết', key: 'Nội dung chi tiết', width: 35 },
+      { header: 'Tên nhiệm vụ', key: 'Tên nhiệm vụ', width: 40 },
+      { header: 'Nội dung chi tiết', key: 'Nội dung chi tiết', width: 45 },
       { header: 'Ngày bắt đầu', key: 'Ngày bắt đầu', width: 15 },
-      { header: 'Giờ BĐ', key: 'Giờ BĐ', width: 15 },
+      { header: 'Giờ BĐ', key: 'Giờ BĐ', width: 12 },
       { header: 'Ngày hoàn thành', key: 'Ngày hoàn thành', width: 15 },
-      { header: 'Giờ HT', key: 'Giờ HT', width: 15 },
-      { header: 'Trạng thái', key: 'Trạng thái', width: 15 },
+      { header: 'Giờ HT', key: 'Giờ HT', width: 12 },
+      { header: 'Trạng thái', key: 'Trạng thái', width: 20 },
       { header: 'Tính chất', key: 'Tính chất', width: 15 },
+      { header: 'Điểm chuẩn', key: 'Điểm chuẩn', width: 14 },
+      { header: 'Hệ số K', key: 'Hệ số K', width: 12 },
       { header: 'Loại sản phẩm', key: 'Loại sản phẩm', width: 20 },
-      { header: 'Số lượng SP', key: 'Số lượng SP', width: 15 }
+      { header: 'Số lượng SP', key: 'Số lượng SP', width: 14 },
+      { header: 'Đơn vị tính', key: 'Đơn vị tính', width: 14 }
     ];
-    downloadStyledTemplate(data, columns, 'Mau_Nhap_Viec.xlsx', 'Mau_Nhap_Viec');
+    downloadStyledTemplate(data, columns, `Mau_Nhap_Viec_${curMonth}.xlsx`, 'Mau_Nhap_Viec');
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const inputElement = e.target;
+
+    setIsImporting(true);
+    setImportProgress({ current: 0, total: 0 });
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws);
         
+        if (!Array.isArray(data) || data.length === 0) {
+          alert('File Excel không có dữ liệu để nhập.');
+          setIsImporting(false);
+          setImportProgress(null);
+          inputElement.value = '';
+          return;
+        }
+
+        const totalRows = data.length;
+        setImportProgress({ current: 0, total: totalRows });
+
+        // Flatten catalog task dictionary for auto-filling missing metadata
+        const allCatalogTasks: any[] = [];
+        Object.keys(taskDict).forEach(grp => {
+          (taskDict[grp] || []).forEach(t => {
+            allCatalogTasks.push({ ...t, group: grp });
+          });
+        });
+
+        // Pre-fetch existing works for deduplication
+        const defaultMonth = getCurrentMonth();
+        const firstRowMonth = data[0] && (data[0] as any)['Tháng'] 
+          ? (formatMonth((data[0] as any)['Tháng']) || (data[0] as any)['Tháng']) 
+          : defaultMonth;
+        const existingWorksMap = new Set<string>();
+        try {
+          const checkRes = await safeFetch(`/api/works?month=${encodeURIComponent(firstRowMonth)}`);
+          const checkData = await safeParseResponse(checkRes);
+          if (checkData.success && Array.isArray(checkData.data)) {
+            checkData.data.forEach((w: any) => {
+              const key = `${w.userId}_${w.month}_${normalizeNFC(w.taskName || '').trim().toLowerCase()}_${normalizeNFC(w.detail || '').trim().toLowerCase()}`;
+              existingWorksMap.add(key);
+            });
+          }
+        } catch (e) {
+          console.warn('Không thể tải danh sách kiểm tra trùng lặp:', e);
+        }
+
         let successCount = 0;
+        let skippedCount = 0;
+        let duplicateCount = 0;
         const importWarnings: string[] = [];
 
-        for (let idx = 0; idx < (data as any[]).length; idx++) {
-          const row = (data as any[])[idx];
+        for (let idx = 0; idx < data.length; idx++) {
+          setImportProgress({ current: idx + 1, total: totalRows });
+          const row = data[idx] as any;
           const rawTaskName = row['Tên nhiệm vụ'] || row['Tên công việc'] || row['Nhiệm vụ'] || row['taskName'];
-          if (!rawTaskName) continue;
-
-          const rawSelfScore = row['Điểm tự chấm'] || row['Điểm tự đánh giá'] || row['selfConvertedScore'];
-          const rawStatus = row['Trạng thái'] || row['Tiến độ'] || row['status'];
-          const status = rawStatus !== undefined && rawStatus !== null ? String(rawStatus).trim() : '';
-
-          const rawBaseScore = row['Điểm chuẩn (Đc)'] || row['Điểm chuẩn'] || row['baseScore'] || row['Điểm'];
-          const parsedBase = (rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' && !isNaN(parseFloat(String(rawBaseScore))))
-            ? parseFloat(String(rawBaseScore))
-            : 0;
-
-          const rawProposedNature = row['Tính chất'] || row['Tính chất đề xuất'] || row['proposedNature'] || row['Độ phức tạp'];
-          const proposedNature = rawProposedNature !== undefined && rawProposedNature !== null ? String(rawProposedNature).trim() : '';
-
-          const rawCoef = row['Hệ số K'] || row['Hệ số'] || row['coef'];
-          const parsedCoef = (rawCoef !== undefined && rawCoef !== null && String(rawCoef).trim() !== '' && !isNaN(parseFloat(String(rawCoef))) && parseFloat(String(rawCoef)) > 0)
-            ? parseFloat(String(rawCoef))
-            : 0;
-
-          const resolvedCoef = parsedCoef > 0 ? parsedCoef : (proposedNature ? getNatureCoef(proposedNature) : 0);
-
-          const hasExplicitSelfScore = rawSelfScore !== undefined && rawSelfScore !== null && String(rawSelfScore).trim() !== '' && !isNaN(parseFloat(String(rawSelfScore)));
-          const hasValidStatus = Boolean(status && status.length > 0);
-          const hasValidBaseScore = parsedBase > 0;
-          const hasValidCoef = resolvedCoef > 0;
-
-          let selfScore: string;
-          if (hasExplicitSelfScore) {
-            selfScore = String(parseFloat(String(rawSelfScore)));
-          } else if (hasValidStatus && hasValidBaseScore && hasValidCoef) {
-            const factor = getWorkStatusFactor(status);
-            const computedConvertedScore = Math.round(parsedBase * resolvedCoef * factor * 10) / 10;
-            selfScore = String(computedConvertedScore);
-          } else {
-            selfScore = '0';
-            const missing: string[] = [];
-            if (!hasValidStatus) missing.push('Trạng thái');
-            if (!hasValidBaseScore) missing.push('Điểm chuẩn');
-            if (!hasValidCoef) missing.push('Hệ số K/Tính chất');
-            importWarnings.push(`Dòng ${idx + 1} (${rawTaskName}): Thiếu ${missing.join(', ')} -> Điểm tự chấm = 0`);
+          if (!rawTaskName || String(rawTaskName).trim() === '') {
+            skippedCount++;
+            continue;
           }
 
-          const dbCoef = String(resolvedCoef > 0 ? resolvedCoef : (parsedCoef > 0 ? parsedCoef : '0.8'));
-          const dbBaseScore = rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' ? String(rawBaseScore) : (parsedBase > 0 ? String(parsedBase) : '0');
-          const dbStatus = status || 'Chưa cập nhật';
-          const dbProposedNature = proposedNature || 'Trung bình';
+          const rawDetail = String(row['Nội dung chi tiết'] || row['Chi tiết'] || '').trim();
+          const normTask = String(rawTaskName).trim().toLowerCase();
+          const normDetail = rawDetail.toLowerCase();
+
+          // Skip template example row if user did not delete it
+          if (
+            normTask.includes('dòng ví dụ mẫu') ||
+            normDetail.includes('dòng ví dụ mẫu') ||
+            normDetail.includes('dòng mẫu hướng dẫn') ||
+            normDetail.includes('hãy xóa trước khi nhập') ||
+            normDetail.includes('vui lòng xóa dòng này') ||
+            (normTask.includes('theo dõi kế hoạch vốn theo dự án') && normDetail.includes('bảng tổng hợp'))
+          ) {
+            console.log('Bỏ qua dòng mẫu mặc định trong file Excel tại dòng', idx + 1);
+            skippedCount++;
+            continue;
+          }
+
+          // Resolve Target User
+          const rawUser = row['Người thực hiện (ID hoặc Họ tên)'] || row['Người thực hiện (ID)'] || row['Người thực hiện'] || row['Họ và tên'] || row['Nhân viên'] || row['Email'] || row['userId'];
+          let targetUserId = currentUser?.id || formData.userId || 1;
+
+          if (rawUser !== undefined && rawUser !== null && String(rawUser).trim() !== '') {
+            const strUser = String(rawUser).trim();
+            const numMatch = strUser.match(/^\s*(\d+)/);
+            const numId = numMatch ? parseInt(numMatch[1]) : NaN;
+
+            if (!isNaN(numId) && users.some(u => u.id === numId)) {
+              targetUserId = numId;
+            } else {
+              // Match by email
+              const byEmail = users.find(u => u.email && u.email.toLowerCase() === strUser.toLowerCase());
+              if (byEmail) {
+                targetUserId = byEmail.id;
+              } else {
+                // Match by name
+                const normInput = normalizeNFC(strUser).toLowerCase();
+                const byName = users.find(u => {
+                  const uNorm = normalizeNFC(u.name).toLowerCase();
+                  return uNorm === normInput || normInput.includes(uNorm) || uNorm.includes(normInput);
+                });
+                if (byName) {
+                  targetUserId = byName.id;
+                }
+              }
+            }
+          }
+
+          // Search catalog for auto-completing metadata if missing
+          const searchNorm = normalizeNFC(String(rawTaskName)).toLowerCase();
+          const matchedCatalogItem = allCatalogTasks.find(ct => {
+            const ctNorm = normalizeNFC(ct.name || '').toLowerCase();
+            return ctNorm === searchNorm || (ct.code && searchNorm.includes(`[${ct.code.toLowerCase()}]`));
+          });
+
+          // Dates: parse Excel date safely (avoids 1970 and missing dates)
+          const rawStartDate = row['Ngày bắt đầu'] || row['Bắt đầu'] || row['startDate'];
+          const rawEndDate = row['Ngày hoàn thành'] || row['Ngày kết thúc'] || row['Hạn chót'] || row['endDate'];
+
+          const todayIso = formatDateInput(new Date());
+          const isoStart = parseExcelDateToISO(rawStartDate) || todayIso;
+          const isoEnd = parseExcelDateToISO(rawEndDate) || isoStart;
+
+          // Status
+          const rawStatus = row['Trạng thái'] || row['Tiến độ'] || row['status'];
+          const status = rawStatus !== undefined && rawStatus !== null && String(rawStatus).trim() !== ''
+            ? String(rawStatus).trim()
+            : 'Hoàn thành (HS 1.0)';
+
+          // Base Score
+          const rawBaseScore = row['Điểm chuẩn (Đc)'] || row['Điểm chuẩn'] || row['baseScore'] || row['Điểm'];
+          let parsedBase = (rawBaseScore !== undefined && rawBaseScore !== null && String(rawBaseScore).trim() !== '' && !isNaN(parseFloat(String(rawBaseScore))))
+            ? parseFloat(String(rawBaseScore))
+            : (matchedCatalogItem ? Number(matchedCatalogItem.score || 0) : 10);
+          if (parsedBase <= 0) parsedBase = 10;
+
+          // Proposed Nature
+          const rawProposedNature = row['Tính chất'] || row['Tính chất đề xuất'] || row['proposedNature'] || row['Độ phức tạp'];
+          const proposedNature = (rawProposedNature !== undefined && rawProposedNature !== null && String(rawProposedNature).trim() !== '')
+            ? String(rawProposedNature).trim()
+            : (matchedCatalogItem?.nature || 'Trung bình');
+
+          // Coef
+          const rawCoef = row['Hệ số K'] || row['Hệ số'] || row['coef'];
+          let parsedCoef = (rawCoef !== undefined && rawCoef !== null && String(rawCoef).trim() !== '' && !isNaN(parseFloat(String(rawCoef))) && parseFloat(String(rawCoef)) > 0)
+            ? parseFloat(String(rawCoef))
+            : (matchedCatalogItem?.coef ? Number(matchedCatalogItem.coef) : getNatureCoef(proposedNature));
+          if (parsedCoef <= 0) parsedCoef = 0.8;
+
+          // Self score
+          const rawSelfScore = row['Điểm tự chấm'] || row['Điểm tự đánh giá'] || row['selfConvertedScore'];
+          let selfScore: string;
+          if (rawSelfScore !== undefined && rawSelfScore !== null && String(rawSelfScore).trim() !== '' && !isNaN(parseFloat(String(rawSelfScore)))) {
+            selfScore = String(parseFloat(String(rawSelfScore)));
+          } else {
+            const factor = getWorkStatusFactor(status);
+            const computedScore = Math.round(parsedBase * parsedCoef * factor * 10) / 10;
+            selfScore = String(computedScore);
+          }
+
+          const targetMonth = row['Tháng'] ? (formatMonth(row['Tháng']) || row['Tháng']) : firstRowMonth;
+          const taskGroup = row['Nhóm việc'] || matchedCatalogItem?.group || 'Khác';
+          const taskCode = row['Mã chuẩn'] || row['Mã danh mục'] || matchedCatalogItem?.code || '';
+          const productType = row['Loại sản phẩm'] || matchedCatalogItem?.productType || 'Báo cáo';
+          const productQty = row['Số lượng SP'] || row['Số lượng'] || 1;
+          const unit = row['Đơn vị tính'] || 'Sản phẩm';
+
+          // Duplicate prevention check
+          const dedupeKey = `${targetUserId}_${targetMonth}_${normalizeNFC(String(rawTaskName)).trim().toLowerCase()}_${normalizeNFC(rawDetail).trim().toLowerCase()}`;
+          if (existingWorksMap.has(dedupeKey)) {
+            duplicateCount++;
+            continue;
+          }
 
           const payload = {
-            workId: `W-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            month: row['Tháng'] || '08-2026',
-            userId: row['Người thực hiện (ID)'] || formData.userId,
-            taskGroup: row['Nhóm việc'] || 'Khác',
+            workId: `W-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            month: targetMonth,
+            userId: targetUserId,
+            taskGroup: taskGroup,
             taskName: String(rawTaskName).trim(),
-            taskCode: row['Mã chuẩn'] || row['Mã danh mục'] || '',
-            detail: row['Nội dung chi tiết'] || '',
-            startDate: row['Ngày bắt đầu'],
+            taskCode: taskCode,
+            detail: rawDetail,
+            startDate: isoStart,
             startTime: row['Giờ BĐ'] || '07:30',
-            endDate: row['Ngày hoàn thành'],
+            endDate: isoEnd,
             endTime: row['Giờ HT'] || '17:00',
-            status: dbStatus,
-            proposedNature: dbProposedNature,
-            coef: dbCoef,
-            baseScore: dbBaseScore,
+            status: status,
+            proposedNature: proposedNature,
+            coef: String(parsedCoef),
+            baseScore: String(parsedBase),
             convertedScore: selfScore,
             selfConvertedScore: selfScore,
-            productType: row['Loại sản phẩm'] || 'Khác',
-            productQty: row['Số lượng SP'] || 1,
-            unit: row['Đơn vị tính'] || 'Sản phẩm'
+            productType: productType,
+            productQty: productQty,
+            unit: unit
           };
-          
-          await fetch('/api/works', {
+
+          const postRes = await fetch('/api/works', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
-          successCount++;
+
+          if (postRes.ok) {
+            existingWorksMap.add(dedupeKey);
+            successCount++;
+          } else {
+            importWarnings.push(`Dòng ${idx + 1} (${rawTaskName}): Không thể lưu vào hệ thống`);
+          }
+        }
+
+        let summaryMsg = `Nhập thành công ${successCount} công việc.`;
+        if (duplicateCount > 0) {
+          summaryMsg += `\nBỏ qua ${duplicateCount} công việc trùng lặp đã tồn tại.`;
+        }
+        if (skippedCount > 0) {
+          summaryMsg += `\nBỏ qua ${skippedCount} dòng trống hoặc dòng mẫu hướng dẫn.`;
         }
         if (importWarnings.length > 0) {
-          alert(`Đã import ${successCount} công việc.\nCảnh báo (${importWarnings.length} dòng thiếu dữ liệu):\n` + importWarnings.slice(0, 5).join('\n') + (importWarnings.length > 5 ? `\n...và ${importWarnings.length - 5} cảnh báo khác.` : ''));
-        } else {
-          alert(`Đã import thành công ${successCount} công việc.`);
+          summaryMsg += `\n\nCảnh báo:\n` + importWarnings.slice(0, 5).join('\n');
         }
+        alert(summaryMsg);
       } catch (err) {
         console.error(err);
-        alert('Lỗi import file Excel.');
+        alert('Lỗi import file Excel. Vui lòng kiểm tra định dạng file.');
+      } finally {
+        setIsImporting(false);
+        setImportProgress(null);
+        inputElement.value = '';
       }
     };
     reader.readAsBinaryString(file);
-    e.target.value = '';
   };
 
   const resetForm = () => {
     const today = new Date().toISOString().split('T')[0];
     setFormData({
-      month: '08-2026',
+      month: getCurrentMonth(),
       userId: currentUser?.id || users[0]?.id || 1,
       userName: currentUser?.name || users[0]?.name || '',
       taskGroup: 'Kế hoạch vốn',
@@ -647,10 +795,10 @@ export default function InputWork() {
             <FileDown className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Tải mẫu</span>
           </button>
-          <label className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-blue-900 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-xl cursor-pointer transition-colors shadow-2xs" title="Nhập từ Excel">
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Import Excel</span>
-            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
+          <label className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-blue-900 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-xl transition-colors shadow-2xs ${isImporting ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`} title="Nhập từ Excel">
+            <Upload className={`w-3.5 h-3.5 ${isImporting ? 'animate-bounce' : ''}`} />
+            <span className="hidden sm:inline">{isImporting ? (importProgress ? `Đang nạp (${importProgress.current}/${importProgress.total})...` : 'Đang nạp...') : 'Import Excel'}</span>
+            <input type="file" accept=".xlsx, .xls" disabled={isImporting} className="hidden" onChange={handleImport} />
           </label>
           <button 
             type="button"
@@ -702,8 +850,12 @@ export default function InputWork() {
                 onChange={(e) => setFormData({ ...formData, month: e.target.value })}
                 className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
               >
-                {STANDARD_MONTHS.map(m => (
-                  <option key={m} value={m}>Tháng {m}</option>
+                {MONTH_GROUPS.map(group => (
+                  <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                    {group.months.map(m => (
+                      <option key={m} value={m}>Tháng {m}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

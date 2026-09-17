@@ -8,7 +8,14 @@ import {
 } from 'lucide-react';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getActiveYears,
+  getCurrentMonth,
   DEFAULT_TASK_GROUPS, 
+  DEFAULT_PRODUCT_TYPES,
+  normalizeKey,
+  canonicalizeTaskGroup,
+  canonicalizeProductType,
   formatDate, 
   formatMonth, 
   isSoftDeleted,
@@ -37,8 +44,8 @@ export default function Stats() {
   const [isExporting, setIsExporting] = useState(false);
 
   // Filter States
-  // Multi-select months (Default: current active month '08-2026')
-  const [selectedMonths, setSelectedMonths] = useState<string[]>(['08-2026']);
+  // Multi-select months (Default: current active month)
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([getCurrentMonth()]);
   const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
 
   // Filter by User: 'ALL' or specific userId string
@@ -102,25 +109,36 @@ export default function Stats() {
     fetchAll();
   }, []);
 
+  const currentYear = new Date().getFullYear();
+  const [statsYear, setStatsYear] = useState<number>(currentYear);
+
   // Quick Month Presets
-  const handleSelectAllMonths = () => {
-    setSelectedMonths([...STANDARD_MONTHS]);
+  const handleSelectAllMonths = (y?: number) => {
+    const targetY = y !== undefined ? y : statsYear;
+    const yearMonths = Array.from({ length: 12 }, (_, i) => `${String(i + 1).padStart(2, '0')}-${targetY}`);
+    setSelectedMonths(prev => Array.from(new Set([...prev, ...yearMonths])));
   };
 
   const handleClearMonths = () => {
     setSelectedMonths([]);
   };
 
-  const handleSelectQuarter = (quarter: number) => {
-    if (quarter === 1) setSelectedMonths(['01-2026', '02-2026', '03-2026']);
-    else if (quarter === 2) setSelectedMonths(['04-2026', '05-2026', '06-2026']);
-    else if (quarter === 3) setSelectedMonths(['07-2026', '08-2026', '09-2026']);
-    else if (quarter === 4) setSelectedMonths(['10-2026', '11-2026', '12-2026']);
+  const handleSelectQuarter = (quarter: number, y?: number) => {
+    const targetY = y !== undefined ? y : statsYear;
+    let qMonths: string[] = [];
+    if (quarter === 1) qMonths = [`01-${targetY}`, `02-${targetY}`, `03-${targetY}`];
+    else if (quarter === 2) qMonths = [`04-${targetY}`, `05-${targetY}`, `06-${targetY}`];
+    else if (quarter === 3) qMonths = [`07-${targetY}`, `08-${targetY}`, `09-${targetY}`];
+    else if (quarter === 4) qMonths = [`10-${targetY}`, `11-${targetY}`, `12-${targetY}`];
+    setSelectedMonths(prev => Array.from(new Set([...prev, ...qMonths])));
   };
 
-  const handleSelectHalfYear = (half: number) => {
-    if (half === 1) setSelectedMonths(['01-2026', '02-2026', '03-2026', '04-2026', '05-2026', '06-2026']);
-    else setSelectedMonths(['07-2026', '08-2026', '09-2026', '10-2026', '11-2026', '12-2026']);
+  const handleSelectHalfYear = (half: number, y?: number) => {
+    const targetY = y !== undefined ? y : statsYear;
+    let hMonths: string[] = [];
+    if (half === 1) hMonths = [`01-${targetY}`, `02-${targetY}`, `03-${targetY}`, `04-${targetY}`, `05-${targetY}`, `06-${targetY}`];
+    else hMonths = [`07-${targetY}`, `08-${targetY}`, `09-${targetY}`, `10-${targetY}`, `11-${targetY}`, `12-${targetY}`];
+    setSelectedMonths(prev => Array.from(new Set([...prev, ...hMonths])));
   };
 
   const toggleMonth = (m: string) => {
@@ -130,7 +148,7 @@ export default function Stats() {
   };
 
   const handleResetFilters = () => {
-    setSelectedMonths(['08-2026']);
+    setSelectedMonths([getCurrentMonth()]);
     setSelectedUserId('ALL');
     setSelectedGroup('ALL');
     setSelectedTask('ALL');
@@ -139,31 +157,85 @@ export default function Stats() {
     setSearchKeyword('');
   };
 
-  // Distinct Filter Options derived from Database
+  // Distinct Filter Options derived from Database (Normalized and Canonicalized)
   const availableGroups = useMemo(() => {
     const fromCat = categories.filter(c => c.type === 'TASK_GROUP').map(c => c.name);
     const fromWorks = works.map(w => w.taskGroup).filter(Boolean) as string[];
-    const combined = Array.from(new Set([...DEFAULT_TASK_GROUPS, ...fromCat, ...fromWorks]));
-    return combined.sort();
-  }, [categories, works]);
+    const fromAssigns = assignments.map(a => a.taskGroup).filter(Boolean) as string[];
+    
+    const canonicalMap = new Map<string, string>(); // normalizedKey -> canonicalName
+    
+    // Seed default 13 task groups first so their exact casing is prioritized
+    DEFAULT_TASK_GROUPS.forEach(g => {
+      canonicalMap.set(normalizeKey(g), g);
+    });
+    
+    fromCat.forEach(g => {
+      const key = normalizeKey(g);
+      if (!canonicalMap.has(key)) {
+        canonicalMap.set(key, canonicalizeTaskGroup(g, fromCat));
+      }
+    });
+
+    [...fromWorks, ...fromAssigns].forEach(g => {
+      const key = normalizeKey(g);
+      if (!canonicalMap.has(key)) {
+        canonicalMap.set(key, canonicalizeTaskGroup(g, fromCat));
+      }
+    });
+
+    return Array.from(canonicalMap.values()).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [categories, works, assignments]);
 
   const availableTasks = useMemo(() => {
     const fromCat = categories.filter(c => c.type === 'TASK').map(c => c.name);
     const fromWorks = works.map(w => w.taskName).filter(Boolean) as string[];
-    const combined = Array.from(new Set([...fromCat, ...fromWorks]));
-    return combined.sort();
+    
+    const canonicalMap = new Map<string, string>();
+    [...fromCat, ...fromWorks].forEach(t => {
+      if (!t || !t.trim()) return;
+      const key = normalizeKey(t);
+      if (!canonicalMap.has(key)) {
+        const trimmed = normalizeNFC(t).trim();
+        canonicalMap.set(key, trimmed.charAt(0).toUpperCase() + trimmed.slice(1));
+      }
+    });
+
+    return Array.from(canonicalMap.values()).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [categories, works]);
 
   const availableProductTypes = useMemo(() => {
     const fromCat = categories.filter(c => c.type === 'PRODUCT_TYPE').map(c => c.name);
     const fromWorks = works.map(w => w.productType).filter(Boolean) as string[];
-    const defaultProducts = ['Báo cáo', 'Tờ trình', 'Hồ sơ thanh toán', 'Hồ sơ quyết toán', 'Bảng tổng hợp', 'Biên bản', 'Văn bản', 'Kế hoạch', 'Hồ sơ'];
-    const combined = Array.from(new Set([...defaultProducts, ...fromCat, ...fromWorks]));
-    return combined.sort();
+    
+    const canonicalMap = new Map<string, string>();
+
+    DEFAULT_PRODUCT_TYPES.forEach(p => {
+      canonicalMap.set(normalizeKey(p), p);
+    });
+
+    fromCat.forEach(p => {
+      const key = normalizeKey(p);
+      if (!canonicalMap.has(key)) {
+        canonicalMap.set(key, canonicalizeProductType(p, fromCat));
+      }
+    });
+
+    fromWorks.forEach(p => {
+      const key = normalizeKey(p);
+      if (!canonicalMap.has(key)) {
+        canonicalMap.set(key, canonicalizeProductType(p, fromCat));
+      }
+    });
+
+    return Array.from(canonicalMap.values()).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [categories, works]);
 
   // Master Filtered Works
   const filteredWorks = useMemo(() => {
+    const customCatGroups = categories.filter(c => c.type === 'TASK_GROUP').map(c => c.name);
+    const customCatProducts = categories.filter(c => c.type === 'PRODUCT_TYPE').map(c => c.name);
+
     return works.filter(w => {
       if (isSoftDeleted(w)) return false;
 
@@ -178,19 +250,27 @@ export default function Stats() {
         return false;
       }
 
-      // Filter by Task Group
-      if (selectedGroup !== 'ALL' && w.taskGroup !== selectedGroup) {
-        return false;
+      // Filter by Task Group (Normalized matching)
+      if (selectedGroup !== 'ALL') {
+        const canonicalWorkGroup = canonicalizeTaskGroup(w.taskGroup, customCatGroups);
+        if (normalizeKey(canonicalWorkGroup) !== normalizeKey(selectedGroup)) {
+          return false;
+        }
       }
 
-      // Filter by Task Category
-      if (selectedTask !== 'ALL' && w.taskName !== selectedTask) {
-        return false;
+      // Filter by Task Category (Normalized matching)
+      if (selectedTask !== 'ALL') {
+        if (normalizeKey(w.taskName) !== normalizeKey(selectedTask)) {
+          return false;
+        }
       }
 
-      // Filter by Product Type
-      if (selectedProductType !== 'ALL' && w.productType !== selectedProductType) {
-        return false;
+      // Filter by Product Type (Normalized matching)
+      if (selectedProductType !== 'ALL') {
+        const canonicalProduct = canonicalizeProductType(w.productType, customCatProducts);
+        if (normalizeKey(canonicalProduct) !== normalizeKey(selectedProductType)) {
+          return false;
+        }
       }
 
       // Filter by Status / Approval
@@ -209,34 +289,69 @@ export default function Stats() {
 
       // Filter by Keyword
       if (searchKeyword.trim()) {
-        const q = searchKeyword.toLowerCase();
-        const haystack = `${w.workId || ''} ${w.taskCode || ''} ${w.taskName || ''} ${w.taskGroup || ''} ${w.detail || ''} ${w.project || ''} ${w.user?.name || ''} ${w.productType || ''}`.toLowerCase();
+        const q = normalizeKey(searchKeyword);
+        const haystack = normalizeKey(`${w.workId || ''} ${w.taskCode || ''} ${w.taskName || ''} ${w.taskGroup || ''} ${w.detail || ''} ${w.project || ''} ${w.user?.name || ''} ${w.productType || ''}`);
         if (!haystack.includes(q)) return false;
       }
 
       return true;
     });
-  }, [works, selectedMonths, selectedUserId, selectedGroup, selectedTask, selectedProductType, selectedStatus, searchKeyword]);
+  }, [works, selectedMonths, selectedUserId, selectedGroup, selectedTask, selectedProductType, selectedStatus, searchKeyword, categories]);
 
-  // Master Filtered Assignments
+  // Check if work-specific filters are actively applied
+  const isWorkSpecificFilterActive = selectedStatus !== 'ALL' || selectedProductType !== 'ALL' || searchKeyword.trim() !== '';
+
+  // Master Filtered Assignments (Strictly scoped to active filter criteria)
   const filteredAssignments = useMemo(() => {
+    const customCatGroups = categories.filter(c => c.type === 'TASK_GROUP').map(c => c.name);
+
     return assignments.filter(a => {
+      // 1. Filter by Month
       if (selectedMonths.length > 0) {
         const fMonth = formatMonth(a.month);
         if (!selectedMonths.includes(fMonth)) return false;
       }
+      // 2. Filter by User
       if (selectedUserId !== 'ALL' && String(a.receiverId) !== selectedUserId) {
         return false;
       }
-      if (selectedGroup !== 'ALL' && a.taskGroup !== selectedGroup) {
-        return false;
+      // 3. Filter by Task Group
+      if (selectedGroup !== 'ALL') {
+        const canonicalAssignGroup = canonicalizeTaskGroup(a.taskGroup, customCatGroups);
+        if (normalizeKey(canonicalAssignGroup) !== normalizeKey(selectedGroup)) {
+          return false;
+        }
       }
-      if (selectedTask !== 'ALL' && a.taskName !== selectedTask) {
-        return false;
+      // 4. Filter by Task Category
+      if (selectedTask !== 'ALL') {
+        if (normalizeKey(a.taskName) !== normalizeKey(selectedTask)) {
+          return false;
+        }
       }
+
+      // 5. If specific work filters (Status, Product Type, Keyword) are active,
+      // only include assignments that correspond to at least one work currently in `filteredWorks`
+      if (isWorkSpecificFilterActive) {
+        const hasMatchingWork = filteredWorks.some(w => {
+          if (w.id && a.workId && w.id === a.workId) return true;
+          if (a.assignmentId && (
+            (w.sysNote && w.sysNote.includes(a.assignmentId)) ||
+            (w.editNote && w.editNote.includes(a.assignmentId)) ||
+            w.workId === a.assignmentId
+          )) return true;
+          if (w.source === 'Giao việc' && w.userId === a.receiverId) {
+            const sameGroup = normalizeKey(w.taskGroup || '') === normalizeKey(a.taskGroup || '');
+            const sameTask = normalizeKey(w.taskName || '') === normalizeKey(a.taskName || '');
+            if (sameGroup && sameTask) return true;
+          }
+          return false;
+        });
+        if (!hasMatchingWork) return false;
+      }
+
       return true;
     });
-  }, [assignments, selectedMonths, selectedUserId, selectedGroup, selectedTask]);
+  }, [assignments, filteredWorks, isWorkSpecificFilterActive, selectedMonths, selectedUserId, selectedGroup, selectedTask, categories]);
 
   // Master Filtered Overtimes
   const filteredOvertimes = useMemo(() => {
@@ -261,6 +376,7 @@ export default function Stats() {
   const totalDelayed = filteredWorks.filter(w => w.status === 'Chậm').length;
   const totalApproved = filteredWorks.filter(w => w.leaderApproval === 'Duyệt').length;
   const totalPendingApproval = filteredWorks.filter(w => w.leaderApproval !== 'Duyệt' && w.leaderApproval !== 'Không duyệt').length;
+  const totalDistinctUsers = new Set(filteredWorks.map(w => w.userId).filter(Boolean)).size;
   
   // Total Score B calculations: Self B vs Approved B
   const totalSelfScoreB = filteredWorks.reduce((acc, cur) => {
@@ -281,11 +397,12 @@ export default function Stats() {
   const completionRate = totalWorks > 0 ? Math.round((totalCompleted / totalWorks) * 100) : 0;
   const approvalRate = totalWorks > 0 ? Math.round((totalApproved / totalWorks) * 100) : 0;
 
-  // 1. Group Statistics Calculation
+  // 1. Group Statistics Calculation (Canonicalized & Normalized Aggregation)
   const groupStats = useMemo(() => {
     const map = new Map<string, any>();
+    const customCatGroups = categories.filter(c => c.type === 'TASK_GROUP').map(c => c.name);
     
-    // Seed with all known groups
+    // Seed with all known available groups to preserve consistent ordering & structure
     availableGroups.forEach(g => {
       map.set(g, {
         group: g,
@@ -302,7 +419,7 @@ export default function Stats() {
     });
 
     filteredWorks.forEach(w => {
-      const g = w.taskGroup || 'Khác';
+      const g = canonicalizeTaskGroup(w.taskGroup, customCatGroups);
       if (!map.has(g)) {
         map.set(g, {
           group: g,
@@ -331,14 +448,27 @@ export default function Stats() {
     });
 
     filteredAssignments.forEach(a => {
-      const g = a.taskGroup || 'Khác';
+      const g = canonicalizeTaskGroup(a.taskGroup, customCatGroups);
       if (map.has(g)) {
         map.get(g).assignCount += 1;
+      } else {
+        map.set(g, {
+          group: g,
+          count: 0,
+          assignCount: 1,
+          done: 0,
+          approved: 0,
+          delayed: 0,
+          totalProductQty: 0,
+          totalSelfScore: 0,
+          totalApprovedScore: 0,
+          userIds: new Set<number>()
+        });
       }
     });
 
     return Array.from(map.values())
-      .filter(item => item.count > 0 || item.assignCount > 0)
+      .filter(item => isWorkSpecificFilterActive ? item.count > 0 : (item.count > 0 || item.assignCount > 0))
       .map(item => ({
         ...item,
         totalSelfScore: Math.round(item.totalSelfScore * 100) / 100,
@@ -349,19 +479,24 @@ export default function Stats() {
         approvedRate: item.count > 0 ? Math.round((item.approved / item.count) * 100) : 0
       }))
       .sort((a, b) => b.count - a.count);
-  }, [availableGroups, filteredWorks, filteredAssignments]);
+  }, [availableGroups, filteredWorks, filteredAssignments, isWorkSpecificFilterActive, categories]);
 
-  // 2. Task Category Statistics Calculation
+  // 2. Task Category Statistics Calculation (Canonicalized & Normalized Aggregation)
   const taskStats = useMemo(() => {
     const map = new Map<string, any>();
+    const customCatGroups = categories.filter(c => c.type === 'TASK_GROUP').map(c => c.name);
 
     filteredWorks.forEach(w => {
-      const key = `${w.taskName || 'Chưa đặt tên'}_${w.taskGroup || ''}`;
-      if (!map.has(key)) {
-        map.set(key, {
+      const cGroup = canonicalizeTaskGroup(w.taskGroup, customCatGroups);
+      const rawName = normalizeNFC(w.taskName || 'Nhiệm vụ chưa phân loại').trim();
+      const cName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+      const normKey = `${normalizeKey(cName)}__${normalizeKey(cGroup)}`;
+
+      if (!map.has(normKey)) {
+        map.set(normKey, {
           code: w.taskCode || '',
-          name: w.taskName || 'Nhiệm vụ chưa phân loại',
-          group: w.taskGroup || 'Khác',
+          name: cName,
+          group: cGroup,
           count: 0,
           done: 0,
           approved: 0,
@@ -370,7 +505,7 @@ export default function Stats() {
           userIds: new Set<number>()
         });
       }
-      const item = map.get(key);
+      const item = map.get(normKey);
       item.count += 1;
       if (w.status === 'Hoàn thành') item.done += 1;
       if (w.leaderApproval === 'Duyệt') {
@@ -391,15 +526,17 @@ export default function Stats() {
         doneRate: item.count > 0 ? Math.round((item.done / item.count) * 100) : 0
       }))
       .sort((a, b) => b.count - a.count);
-  }, [filteredWorks]);
+  }, [filteredWorks, categories]);
 
-  // 3. Product Type Statistics Calculation
+  // 3. Product Type Statistics Calculation (Canonicalized & Normalized Aggregation)
   const productStats = useMemo(() => {
     const map = new Map<string, any>();
+    const customCatProducts = categories.filter(c => c.type === 'PRODUCT_TYPE').map(c => c.name);
 
     filteredWorks.forEach(w => {
-      const pType = w.productType || 'Sản phẩm khác';
-      const unit = w.unit || 'Sản phẩm';
+      const pType = canonicalizeProductType(w.productType, customCatProducts);
+      const unit = normalizeNFC(w.unit || 'Sản phẩm').trim();
+      
       if (!map.has(pType)) {
         map.set(pType, {
           productType: pType,
@@ -430,7 +567,7 @@ export default function Stats() {
         doneRate: item.workCount > 0 ? Math.round((item.doneCount / item.workCount) * 100) : 0
       }))
       .sort((a, b) => b.totalQty - a.totalQty);
-  }, [filteredWorks]);
+  }, [filteredWorks, categories]);
 
   // 4. Employee Statistics Calculation
   const employeeStats = useMemo(() => {
@@ -474,8 +611,10 @@ export default function Stats() {
         totalOtHours: Math.round(otHours * 10) / 10,
         completionRate: rate
       };
-    }).sort((a, b) => b.totalCount - a.totalCount);
-  }, [users, selectedUserId, filteredWorks, filteredAssignments, filteredOvertimes]);
+    })
+    .filter(st => !isWorkSpecificFilterActive || st.totalCount > 0 || st.assignedCount > 0)
+    .sort((a, b) => b.totalCount - a.totalCount);
+  }, [users, selectedUserId, filteredWorks, filteredAssignments, filteredOvertimes, isWorkSpecificFilterActive]);
 
   // Handle Export Excel
   const handleExportFullExcel = async () => {
@@ -599,21 +738,39 @@ export default function Stats() {
                   </button>
                 </div>
 
-                {/* Quick Presets */}
+                {/* Year Switcher Tabs */}
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-100">
+                  {getActiveYears().map(y => (
+                    <button
+                      key={y}
+                      type="button"
+                      onClick={() => setStatsYear(y)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+                        statsYear === y 
+                          ? 'bg-[#1F4E78] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Năm {y}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Quick Presets for current statsYear */}
                 <div className="grid grid-cols-3 gap-1 text-[10px] font-bold">
-                  <button onClick={handleSelectAllMonths} className="p-1 bg-blue-50 hover:bg-blue-100 text-[#1F4E78] rounded-lg">Cả năm</button>
-                  <button onClick={() => handleSelectHalfYear(1)} className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">6T Đầu</button>
-                  <button onClick={() => handleSelectHalfYear(2)} className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">6T Cuối</button>
-                  <button onClick={() => handleSelectQuarter(1)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 1</button>
-                  <button onClick={() => handleSelectQuarter(2)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 2</button>
-                  <button onClick={() => handleSelectQuarter(3)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 3</button>
-                  <button onClick={() => handleSelectQuarter(4)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 4</button>
+                  <button onClick={() => handleSelectAllMonths(statsYear)} className="p-1 bg-blue-50 hover:bg-blue-100 text-[#1F4E78] rounded-lg">Cả năm {statsYear}</button>
+                  <button onClick={() => handleSelectHalfYear(1, statsYear)} className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">6T Đầu</button>
+                  <button onClick={() => handleSelectHalfYear(2, statsYear)} className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">6T Cuối</button>
+                  <button onClick={() => handleSelectQuarter(1, statsYear)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 1</button>
+                  <button onClick={() => handleSelectQuarter(2, statsYear)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 2</button>
+                  <button onClick={() => handleSelectQuarter(3, statsYear)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 3</button>
+                  <button onClick={() => handleSelectQuarter(4, statsYear)} className="p-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg">Quý 4</button>
                   <button onClick={handleClearMonths} className="p-1 col-span-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg">Bỏ chọn hết</button>
                 </div>
 
                 {/* Months Grid Checkboxes */}
                 <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pt-1">
-                  {STANDARD_MONTHS.map(m => {
+                  {Array.from({ length: 12 }, (_, i) => `${String(i + 1).padStart(2, '0')}-${statsYear}`).map(m => {
                     const isSelected = selectedMonths.includes(m);
                     return (
                       <button
@@ -764,7 +921,7 @@ export default function Stats() {
               {totalAssignedWorks} công việc đã ghi nhận từ giao việc • {totalSelfWorks} tự lập
             </span>
             <span className="text-[10px] text-blue-700 font-bold block mt-1">
-              {filteredAssignments.length} lượt giao nhiệm vụ
+              {filteredAssignments.length} lượt giao nhiệm vụ{isWorkSpecificFilterActive ? ' liên quan' : ''}
             </span>
           </div>
         </div>
@@ -1029,7 +1186,7 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center text-purple-800">{totalProductQty}</td>
                     <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
                     <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
-                    <td className="py-3.5 px-3 text-center">{users.length} người</td>
+                    <td className="py-3.5 px-3 text-center">{totalDistinctUsers} người</td>
                   </tr>
                 </tfoot>
               )}
@@ -1125,7 +1282,7 @@ export default function Stats() {
                     <td className="py-3.5 px-3 text-center text-emerald-800">{completionRate}%</td>
                     <td className="py-3.5 px-3 text-right text-slate-700 font-bold">{formatScore(totalSelfScoreB)}</td>
                     <td className="py-3.5 px-3 text-right text-sm text-[#1F4E78]">{formatScore(totalApprovedScoreB)}</td>
-                    <td className="py-3.5 px-3 text-center">{users.length}</td>
+                    <td className="py-3.5 px-3 text-center">{totalDistinctUsers}</td>
                   </tr>
                 </tfoot>
               )}

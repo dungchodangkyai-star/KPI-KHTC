@@ -10,6 +10,8 @@ import {
 import { Link } from 'react-router-dom';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   WORK_NATURE_COEFS, 
   DEFAULT_TASK_GROUPS, 
   DEFAULT_PRODUCT_TYPES,
@@ -36,7 +38,7 @@ export default function MyWorks() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [selectedGroup, setSelectedGroup] = useState('all');
   const [filterApproval, setFilterApproval] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -656,8 +658,12 @@ export default function MyWorks() {
                 className="bg-transparent w-full text-xs font-black text-[#1F4E78] outline-none cursor-pointer"
               >
                 <option value="Tất cả">Tất cả các tháng</option>
-                {STANDARD_MONTHS.map(m => (
-                  <option key={m} value={m}>Tháng {m}</option>
+                {MONTH_GROUPS.map(group => (
+                  <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                    {group.months.map(m => (
+                      <option key={m} value={m}>Tháng {m}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

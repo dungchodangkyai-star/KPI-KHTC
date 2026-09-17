@@ -83,23 +83,37 @@ backupRouter.post('/test-webhook', async (req: Request, res: Response) => {
     clearTimeout(timeout);
     const latencyMs = Date.now() - startMs;
 
+    const rawText = await fetchRes.text().catch(() => '');
+    let responseJson: any = null;
+    try {
+      responseJson = JSON.parse(rawText);
+    } catch {}
+
     if (fetchRes.ok) {
-      let responseJson: any = null;
-      try {
-        responseJson = await fetchRes.json();
-      } catch {}
+      if (responseJson && responseJson.success === false) {
+        return res.json({
+          success: false,
+          message: `Google Apps Script thực thi bị lỗi: ${responseJson.error || 'Kiểm tra lại quyền truy cập Drive'}`
+        });
+      }
+
+      if (!responseJson && rawText.includes('<html')) {
+        return res.json({
+          success: false,
+          message: `Google Apps Script trả về trang web HTML thay vì JSON. Nguyên nhân chính: Đoạn mã doPost(e) đang bị lồng bên trong function myFunction() { ... } hoặc Web App chưa được cấp quyền 'Bất kỳ ai' (Anyone).`
+        });
+      }
 
       return res.json({
         success: true,
-        message: `Kết nối thành công tới Google Drive Webhook (HTTP ${fetchRes.status})! ${responseJson?.message ? responseJson.message : ''}`,
+        message: `Kết nối thành công tới Google Drive Webhook (HTTP ${fetchRes.status})! ${responseJson?.message ? responseJson.message : 'Đã nhận và lưu file thử nghiệm.'}`,
         latencyMs,
         response: responseJson
       });
     } else {
-      const errText = await fetchRes.text().catch(() => '');
       return res.json({
         success: false,
-        message: `Máy chủ Google trả về mã lỗi HTTP ${fetchRes.status}: ${errText.slice(0, 150)}`
+        message: `Máy chủ Google trả về mã lỗi HTTP ${fetchRes.status}: ${rawText.slice(0, 150)}`
       });
     }
   } catch (err: any) {

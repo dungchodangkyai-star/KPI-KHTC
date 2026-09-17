@@ -8,7 +8,7 @@ import {
   FileEdit, FileX, ArrowUpRight, CheckCheck, Sparkles, Layers,
   ListTodo, CheckSquare, BellRing, TrendingUp, Zap
 } from 'lucide-react';
-import { STANDARD_MONTHS, formatScore, safeFetch, safeParseResponse } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, formatScore, safeFetch, safeParseResponse } from '../utils';
 
 interface MetricCardProps {
   id: string;
@@ -311,8 +311,8 @@ export default function Monitor() {
   // Active selected card type
   const [monitorType, setMonitorType] = useState<string>("TOTAL");
   
-  // Standard 12 months selector default to current month (e.g. 08-2026)
-  const [selectedMonth, setSelectedMonth] = useState("08-2026");
+  // Standard 12 months selector default to current month
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [selectedEmployee, setSelectedEmployee] = useState("Tất cả");
 
   // Selected item for modal
@@ -691,8 +691,12 @@ export default function Monitor() {
               className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-sm font-black text-[#1F4E78] outline-none cursor-pointer shadow-2xs"
             >
               <option value="Tất cả">Tất cả các tháng</option>
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

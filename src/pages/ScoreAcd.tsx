@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { KPI_A_CRITERIA, STANDARD_MONTHS, safeFetchJson, formatScore, cleanPosition } from '../utils';
+import { KPI_A_CRITERIA, STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { 
   Award, Save, RefreshCw, CheckCircle, AlertTriangle, User, Calendar, 
   FileText, ShieldCheck, CheckSquare, Info, Plus, Trash2, ArrowRight, 
@@ -26,7 +26,7 @@ const QUICK_C2_REASONS = [
 ];
 
 export default function ScoreAcd() {
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [loading, setLoading] = useState(false);
@@ -601,10 +601,14 @@ export default function ScoreAcd() {
                 onChange={e => handleMonthChange(e.target.value)}
                 className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-[#1F4E78]"
               >
-                {STANDARD_MONTHS.map(m => (
-                  <option key={m} value={m}>
-                    Tháng {m}
-                  </option>
+                {MONTH_GROUPS.map(group => (
+                  <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                    {group.months.map(m => (
+                      <option key={m} value={m}>
+                        Tháng {m}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

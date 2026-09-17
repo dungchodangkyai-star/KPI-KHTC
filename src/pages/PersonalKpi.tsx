@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   KPI_A_CRITERIA, 
   getActiveLoggedInUser, 
   normalizeNFC, 
@@ -31,7 +33,7 @@ import { useNavigate } from 'react-router-dom';
 export default function PersonalKpi() {
   const navigate = useNavigate();
   const { orgConfig } = useOrgConfig();
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -177,12 +179,15 @@ export default function PersonalKpi() {
     return nat === 'Đặc biệt phức tạp' || nat === 'Rất phức tạp' || nat === 'Phức tạp';
   });
 
+  const nMap = kpiData?.naturePointMap || {};
+  const getPt = (key: string, def: number) => nMap[key] !== undefined ? nMap[key] : def;
+
   const natureRows = [
-    { key: 'Đặc biệt phức tạp', label: 'Đặc biệt phức tạp', pointEach: 3, badgeBg: 'bg-purple-100 text-purple-800 border-purple-200' },
-    { key: 'Rất phức tạp', label: 'Rất phức tạp', pointEach: 2, badgeBg: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
-    { key: 'Phức tạp', label: 'Phức tạp', pointEach: 1, badgeBg: 'bg-blue-100 text-blue-800 border-blue-200' },
-    { key: 'Trung bình', label: 'Trung bình', pointEach: 0, badgeBg: 'bg-slate-100 text-slate-700 border-slate-200' },
-    { key: 'Đơn giản', label: 'Đơn giản', pointEach: 0, badgeBg: 'bg-slate-100 text-slate-700 border-slate-200' },
+    { key: 'Đặc biệt phức tạp', label: 'Đặc biệt phức tạp', pointEach: getPt('Đặc biệt phức tạp', 3), badgeBg: 'bg-purple-100 text-purple-800 border-purple-200' },
+    { key: 'Rất phức tạp', label: 'Rất phức tạp', pointEach: getPt('Rất phức tạp', 2), badgeBg: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+    { key: 'Phức tạp', label: 'Phức tạp', pointEach: getPt('Phức tạp', 1), badgeBg: 'bg-blue-100 text-blue-800 border-blue-200' },
+    { key: 'Trung bình', label: 'Trung bình', pointEach: getPt('Trung bình', 0), badgeBg: 'bg-slate-100 text-slate-700 border-slate-200' },
+    { key: 'Đơn giản', label: 'Đơn giản', pointEach: getPt('Đơn giản', 0), badgeBg: 'bg-slate-100 text-slate-700 border-slate-200' },
   ];
 
   return (
@@ -224,10 +229,14 @@ export default function PersonalKpi() {
               onChange={e => handleMonthChange(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black text-[#1F4E78] focus:outline-none focus:ring-2 focus:ring-[#1F4E78] shadow-2xs"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>
-                  Tháng {m}
-                </option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>
+                      Tháng {m}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -635,15 +644,37 @@ export default function PersonalKpi() {
                             )}
                           </td>
                           <td className="p-3 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded-full font-bold border ${
-                                isTaskApproved
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {isTaskApproved ? 'Đã duyệt' : (t.leaderApproval || 'Chờ duyệt')}
-                            </span>
+                            {isTaskApproved ? (
+                              <span className="px-2 py-0.5 rounded-full font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                Đã duyệt
+                              </span>
+                            ) : t.leaderApproval === 'Cần bổ sung' ? (
+                              <div>
+                                <span className="px-2 py-0.5 rounded-full font-bold border bg-orange-50 text-orange-700 border-orange-200">
+                                  Cần bổ sung
+                                </span>
+                                {t.leaderNote && (
+                                  <div className="text-[10px] text-orange-800 italic mt-0.5 line-clamp-1" title={t.leaderNote}>
+                                    "{t.leaderNote}"
+                                  </div>
+                                )}
+                              </div>
+                            ) : t.leaderApproval === 'Không duyệt' ? (
+                              <div>
+                                <span className="px-2 py-0.5 rounded-full font-bold border bg-red-50 text-red-700 border-red-200">
+                                  Không duyệt
+                                </span>
+                                {t.leaderNote && (
+                                  <div className="text-[10px] text-red-800 italic mt-0.5 line-clamp-1" title={t.leaderNote}>
+                                    "{t.leaderNote}"
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                                Chờ duyệt
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -870,13 +901,14 @@ export default function PersonalKpi() {
                         {complexTasks.map((t: any, idx: number) => {
                           const nat = t.proposedNature || t.approvedNature || t.nature;
                           let natBg = 'bg-blue-100 text-blue-800 border-blue-200';
-                          let natPts = '+1đ';
+                          const dynamicPt = kpiData?.naturePointMap?.[nat] !== undefined 
+                            ? kpiData.naturePointMap[nat] 
+                            : (nat === 'Đặc biệt phức tạp' ? 3 : nat === 'Rất phức tạp' ? 2 : nat === 'Phức tạp' ? 1 : 0);
+                          let natPts = `+${dynamicPt}đ`;
                           if (nat === 'Đặc biệt phức tạp') {
                             natBg = 'bg-purple-100 text-purple-800 border-purple-200';
-                            natPts = '+3đ';
                           } else if (nat === 'Rất phức tạp') {
                             natBg = 'bg-indigo-100 text-indigo-800 border-indigo-200';
-                            natPts = '+2đ';
                           }
                           return (
                             <tr key={idx} className="hover:bg-slate-50">
@@ -895,9 +927,23 @@ export default function PersonalKpi() {
                               <td className="p-3 text-center font-bold text-slate-700">{formatScore(t.coef)}</td>
                               <td className="p-3 text-center font-bold text-[#1F4E78]">{formatScore(t.selfConvertedScore ?? t.convertedScore)}</td>
                               <td className="p-3 text-center">
-                                <span className={`px-2 py-0.5 rounded-full border font-bold ${t.leaderApproval === 'Duyệt' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                  {t.leaderApproval === 'Duyệt' ? 'Đã duyệt' : 'Chưa duyệt'}
-                                </span>
+                                {t.leaderApproval === 'Duyệt' ? (
+                                  <span className="px-2 py-0.5 rounded-full border font-bold bg-emerald-50 text-emerald-700 border-emerald-200">
+                                    Đã duyệt
+                                  </span>
+                                ) : t.leaderApproval === 'Cần bổ sung' ? (
+                                  <span className="px-2 py-0.5 rounded-full border font-bold bg-orange-50 text-orange-700 border-orange-200">
+                                    Cần bổ sung
+                                  </span>
+                                ) : t.leaderApproval === 'Không duyệt' ? (
+                                  <span className="px-2 py-0.5 rounded-full border font-bold bg-red-50 text-red-700 border-red-200">
+                                    Không duyệt
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full border font-bold bg-amber-50 text-amber-700 border-amber-200">
+                                    Chưa duyệt
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           );

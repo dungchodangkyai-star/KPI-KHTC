@@ -30,7 +30,7 @@ import {
   Sparkles,
   Sliders
 } from 'lucide-react';
-import { formatMonth, STANDARD_MONTHS } from '../utils';
+import { formatMonth, STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth } from '../utils';
 import { exportMultiSheetExcel, exportStyledExcel, downloadStyledTemplate, MultiSheetConfig, ExportColumn } from '../excelUtils';
 
 interface SheetData {
@@ -53,7 +53,7 @@ export default function AdminSync() {
   // Multi-Month Synchronization Controls
   const [monthSyncMode, setMonthSyncMode] = useState<'ALL' | 'SELECTED' | 'OVERRIDE'>('ALL');
   const [selectedMonthsList, setSelectedMonthsList] = useState<string[]>([]);
-  const [overrideMonth, setOverrideMonth] = useState('08-2026');
+  const [overrideMonth, setOverrideMonth] = useState(getCurrentMonth());
   const [detectedMonthsMap, setDetectedMonthsMap] = useState<{ [month: string]: number }>({});
   const [customAddMonth, setCustomAddMonth] = useState('');
 
@@ -68,7 +68,7 @@ export default function AdminSync() {
 
   // Reset State
   const [resetAction, setResetAction] = useState<'reset_month' | 'reset_all_works' | 'reseed_official'>('reset_month');
-  const [resetMonth, setResetMonth] = useState('08-2026');
+  const [resetMonth, setResetMonth] = useState(getCurrentMonth());
   const [confirmCode, setConfirmCode] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [resetResult, setResetResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -230,7 +230,7 @@ export default function AdminSync() {
           setSelectedMonthsList(detectedKeys);
           addLog(`🔍 Phát hiện ${detectedKeys.length} kỳ tháng trong file: ${detectedKeys.map(k => `${k} (${monthCounts[k]} dòng)`).join(', ')}`);
         } else {
-          setSelectedMonthsList(['08-2026']);
+          setSelectedMonthsList([getCurrentMonth()]);
         }
 
         setWorkbookSheets(parsedSheets);
@@ -355,7 +355,7 @@ export default function AdminSync() {
           sheets: payloadSheets,
           monthSyncMode: monthSyncMode,
           selectedMonths: monthSyncMode === 'SELECTED' ? selectedMonthsList : undefined,
-          defaultMonth: monthSyncMode === 'OVERRIDE' ? overrideMonth : '08-2026',
+          defaultMonth: monthSyncMode === 'OVERRIDE' ? overrideMonth : getCurrentMonth(),
         }),
       });
 
@@ -1534,13 +1534,19 @@ export default function AdminSync() {
                 {monthSyncMode === 'OVERRIDE' && (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-amber-900">Kỳ tháng muốn ghi đè:</label>
-                    <input
-                      type="text"
+                    <select
                       value={overrideMonth}
                       onChange={(e) => setOverrideMonth(e.target.value)}
-                      placeholder="08-2026"
-                      className="px-3 py-1.5 text-xs font-bold bg-white border border-amber-300 rounded-lg outline-none focus:ring-2 focus:ring-amber-500"
-                    />
+                      className="px-3 py-1.5 text-xs font-bold bg-white border border-amber-300 rounded-lg outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                    >
+                      {MONTH_GROUPS.map(group => (
+                        <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                          {group.months.map(m => (
+                            <option key={m} value={m}>Tháng {m}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>
@@ -2100,7 +2106,7 @@ export default function AdminSync() {
                         type="text"
                         value={resetMonth}
                         onChange={(e) => setResetMonth(e.target.value)}
-                        placeholder="08-2026"
+                        placeholder={getCurrentMonth()}
                         className="mt-1 w-full px-2.5 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-bold"
                       />
                     </div>

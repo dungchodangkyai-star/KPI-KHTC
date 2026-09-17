@@ -309,7 +309,7 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
     };
 
     // 2. Offsite sync if configured
-    const config = getBackupConfig();
+    const config = await getEffectiveBackupConfigAsync();
     let offsiteResultText = '';
     if (config.offsite?.enabled && config.offsite.destinationUrl) {
       try {
@@ -328,7 +328,7 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
     await autoPruneBackups(config.maxCopies || 30);
 
     // 4. Update status in config
-    saveBackupConfig({
+    await saveBackupConfigAsync({
       lastBackupAt: timestamp.toISOString(),
       lastBackupStatus: 'success',
       lastBackupMessage: `Sao lưu thành công ${allWorks.length} công việc, ${allUsers.length} nhân sự (${(stats.size / 1024).toFixed(1)} KB)${offsiteResultText}`
@@ -337,7 +337,7 @@ export async function performBackup(triggerType: 'auto_scheduled' | 'manual' = '
     return { success: true, metadata };
   } catch (error: any) {
     console.error('Error performing backup:', error);
-    saveBackupConfig({
+    await saveBackupConfigAsync({
       lastBackupAt: new Date().toISOString(),
       lastBackupStatus: 'failed',
       lastBackupMessage: `Lỗi sao lưu: ${error?.message || String(error)}`
@@ -377,7 +377,7 @@ async function pushToOffsite(
     };
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    const timeout = setTimeout(() => controller.abort(), 35000); // 35s timeout
 
     const res = await fetch(offsiteConfig.destinationUrl, {
       method: 'POST',
@@ -396,16 +396,34 @@ async function pushToOffsite(
     };
     const pName = providerNames[offsiteConfig.provider] || 'Ngoại vi';
 
+    const rawText = await res.text().catch(() => '');
+    let bodyRes: any = null;
+    try {
+      bodyRes = JSON.parse(rawText);
+    } catch {}
+
     if (res.ok) {
-      let extra = '';
-      try {
-        const bodyRes = await res.json();
-        if (bodyRes?.message) extra = ` (${bodyRes.message})`;
-      } catch {}
+      if (bodyRes && bodyRes.success === false) {
+        return {
+          success: false,
+          message: `${pName} xử lý thất bại: ${bodyRes.error || bodyRes.message || 'Lỗi không xác định trong script'}`
+        };
+      }
+
+      if (!bodyRes && rawText.includes('<html')) {
+        return {
+          success: false,
+          message: `${pName} trả về HTML thay vì JSON. Nguyên nhân: Hàm doPost(e) chưa đặt ở ngoài cùng (bị lồng trong myFunction) hoặc Web App chưa bật quyền 'Anyone'.`
+        };
+      }
+
+      const extra = bodyRes?.message ? ` (${bodyRes.message})` : '';
       return { success: true, message: `Đã đẩy lên ${pName} thành công (HTTP ${res.status})${extra}` };
     } else {
-      const txt = await res.text().catch(() => '');
-      return { success: false, message: `${pName} trả về HTTP ${res.status}: ${txt.slice(0, 120)}` };
+      return {
+        success: false,
+        message: `${pName} trả về HTTP ${res.status}: ${rawText.slice(0, 150)}`
+      };
     }
   } catch (e: any) {
     return { success: false, message: `Không thể kết nối đến máy chủ ngoại vi: ${e?.message || String(e)}` };
@@ -417,7 +435,7 @@ async function pushToOffsite(
  */
 export async function pushExistingBackupToOffsite(filename: string): Promise<{ success: boolean; message: string }> {
   try {
-    const config = getBackupConfig();
+    const config = await getEffectiveBackupConfigAsync();
     if (!config.offsite?.enabled || !config.offsite?.destinationUrl) {
       return { success: false, message: 'Chưa cấu hình hoặc chưa bật chế độ Lưu trữ Ngoại vi (Offsite Cloud).' };
     }
@@ -727,7 +745,7 @@ export function startBackupScheduler() {
   // Check every 60 seconds
   schedulerInterval = setInterval(async () => {
     try {
-      const config = getBackupConfig();
+      const config = await getEffectiveBackupConfigAsync();
       if (!config.enabled) return;
 
       const now = new Date();

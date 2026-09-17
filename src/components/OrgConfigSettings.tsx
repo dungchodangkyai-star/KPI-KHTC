@@ -17,7 +17,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { OrgConfig } from '../types';
-import { DEFAULT_ORG_CONFIG, ORG_CONFIG_PRESETS, OrgPreset } from '../utils';
+import { DEFAULT_ORG_CONFIG, ORG_CONFIG_PRESETS, OrgPreset, getCurrentMonth } from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function OrgConfigSettings() {
@@ -456,7 +456,7 @@ export default function OrgConfigSettings() {
                       BẢNG TỔNG HỢP & TRA CỨU ĐÁNH GIÁ KẾT QUẢ KPI
                     </div>
                     <div className="text-[10px] text-slate-500 italic mt-0.5">
-                      Tháng 08-2026 — Đơn vị: {formData.departmentName || 'Phòng KHTC'}
+                      Tháng {getCurrentMonth()} — Đơn vị: {formData.departmentName || 'Phòng KHTC'}
                     </div>
                   </div>
 
