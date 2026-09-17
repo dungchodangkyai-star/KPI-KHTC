@@ -4,13 +4,13 @@ import {
   Trash2, RefreshCw, CheckCircle2, AlertCircle, Check, X, FileText, User
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser, safeFetch, safeParseResponse } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, getActiveLoggedInUser, safeFetch, safeParseResponse } from '../utils';
 
 export default function OtMy() {
   const [overtimes, setOvertimes] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [filterStatus, setFilterStatus] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -135,7 +135,7 @@ export default function OtMy() {
       if (data.success) {
         setOvertimes(overtimes.filter(o => o.id !== id));
       } else {
-        alert("Lỗi: " + data.error);
+        alert("Lỗi: " + (data.message || data.error || "Không thể xóa phiếu làm thêm"));
       }
     } catch (e) {
       console.error(e);
@@ -204,8 +204,12 @@ export default function OtMy() {
               className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
             >
               <option value="Tất cả">Tất cả tháng</option>
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

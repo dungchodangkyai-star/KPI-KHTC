@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Printer, Calendar, ArrowLeft, Download, FileText, User, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, formatDate, cleanPosition, safeFetch, safeParseResponse } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, getActiveLoggedInUser, normalizeNFC, formatDate, cleanPosition, safeFetch, safeParseResponse } from '../utils';
 import { useOrgConfig } from '../contexts/OrgContext';
 
 export default function OtPrint() {
@@ -12,7 +12,7 @@ export default function OtPrint() {
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [overtimes, setOvertimes] = useState<any[]>([]);
   
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -239,8 +239,12 @@ export default function OtPrint() {
               onChange={e => setSelectedMonth(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-[#1F4E78]"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

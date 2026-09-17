@@ -379,7 +379,7 @@ export default function AdminDatabase() {
     setTestingWebhook(true);
     setWebhookTestResult(null);
     try {
-      const res = await fetch('/api/backups/test-webhook', {
+      const resrest = await fetch('/api/backups/test-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -389,10 +389,32 @@ export default function AdminDatabase() {
           authHeaderValue: backupConfig.offsite.authHeaderValue
         })
       });
-      const json = await res.json().catch(() => ({}));
+      const json = await resrest.json().catch(() => ({}));
       setWebhookTestResult(json);
       if (json.success) {
-        setNotice({ type: 'success', text: json.message });
+        setNotice({ type: 'success', text: `${json.message} - Đang tự động lưu cấu hình...` });
+        // Auto-save the config if connection is verified!
+        try {
+          const saveRes = await fetch('/api/backups/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(backupConfig)
+          });
+          const saveJson不易 = await saveRes.json().catch(() => ({}));
+          if (saveJson不易.success) {
+            setNotice({ type: 'success', text: `Kết nối thành công và đã tự động lưu cấu hình Webhook vào hệ thống!` });
+            if (saveJson不易.data) {
+              setBackupConfig(prev => ({
+                ...prev,
+                ...saveJson不易.data,
+                offsite: {
+                  ...prev.offsite,
+                  ...(saveJson不易.data.offsite || {})
+                }
+              }));
+            }
+          }
+        } catch {}
       } else {
         setNotice({ type: 'error', text: json.message || 'Kết nối Webhook thất bại!' });
       }
@@ -544,17 +566,41 @@ export default function AdminDatabase() {
   };
 
   const GAS_WEBAPP_SAMPLE = `// GOOGLE APPS SCRIPT: Tự động nhận file Backup từ hệ thống PMO1 và lưu vào Google Drive
+// LƯU Ý QUAN TRỌNG: Hãy XÓA TOÀN BỘ code có sẵn (kể cả function myFunction() {...}) trước khi dán đoạn code này!
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "ok",
+    message: "Google Apps Script Webhook PMO1 Backup đang hoạt động sẵn sàng!"
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: "Không nhận được nội dung postData từ yêu cầu."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var data = JSON.parse(e.postData.contents);
     var filename = data.filename || ("backup_" + new Date().getTime() + ".json");
     var base64Content = data.contentBase64;
+
+    if (!base64Content) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: "Thiếu dữ liệu contentBase64."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     
-    // Tạo file trong thư mục Google Drive của bạn
+    // Tìm hoặc tạo thư mục trên Google Drive của bạn
     var folderName = "PMO1_KPI_Backups";
     var folders = DriveApp.getFoldersByName(folderName);
     var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
     
+    // Giải mã Base64 và tạo file JSON
     var decodedBlob = Utilities.newBlob(Utilities.base64Decode(base64Content), "application/json", filename);
     var createdFile = folder.createFile(decodedBlob);
     
@@ -562,6 +608,8 @@ function doPost(e) {
       success: true,
       fileId: createdFile.getId(),
       fileUrl: createdFile.getUrl(),
+      fileName: createdFile.getName(),
+      fileSize: createdFile.getSize(),
       message: "Đã lưu thành công vào thư mục " + folderName + " trên Google Drive!"
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
@@ -1212,18 +1260,29 @@ services:
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
                         <span>Địa chỉ Webhook / URL Web App:</span>
-                        <span className="text-[10px] text-slate-400 font-normal">Hỗ trợ Google Script exec URL</span>
+                        <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded-md">Hỗ trợ Google Apps Script /exec URL</span>
                       </label>
-                      <input
-                        type="url"
-                        value={backupConfig.offsite.destinationUrl || ''}
-                        onChange={(e) => setBackupConfig(prev => ({
-                          ...prev,
-                          offsite: { ...prev.offsite, destinationUrl: e.target.value }
-                        }))}
-                        placeholder="https://script.google.com/macros/s/AKfycby.../exec"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-mono text-xs text-slate-900 bg-white focus:outline-none focus:border-purple-600"
-                      />
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <input
+                          type="url"
+                          value={backupConfig.offsite.destinationUrl || ''}
+                          onChange={(e) => setBackupConfig(prev => ({
+                            ...prev,
+                            offsite: { ...prev.offsite, destinationUrl: e.target.value }
+                          }))}
+                          placeholder="https://script.google.com/macros/s/AKfycby.../exec"
+                          className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 font-mono text-xs text-slate-900 bg-white focus:outline-none focus:border-purple-600 shadow-2xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveBackupConfig()}
+                          disabled={savingBackupConfig}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          {savingBackupConfig ? 'Đang lưu...' : 'Lưu Link này'}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Optional Auth Header */}
@@ -1257,34 +1316,42 @@ services:
                     </div>
 
                     {/* Test Webhook Button */}
-                    <div className="pt-2 flex items-center justify-between">
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={handleTestWebhook}
                         disabled={testingWebhook}
-                        className="px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                       >
-                        <Zap className={`w-3.5 h-3.5 text-purple-600 ${testingWebhook ? 'animate-bounce' : ''}`} />
-                        {testingWebhook ? 'Đang kiểm tra kết nối...' : 'Kiểm tra kết nối Webhook'}
+                        <Zap className={`w-3.5 h-3.5 text-yellow-300 ${testingWebhook ? 'animate-bounce' : ''}`} />
+                        {testingWebhook ? 'Đang gửi test & kiểm tra phản hồi...' : 'Kiểm tra Kết nối & Tự động lưu Webhook'}
                       </button>
                     </div>
 
                     {/* Webhook Test Result */}
                     {webhookTestResult && (
-                      <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                      <div className={`p-4 rounded-xl border text-xs flex items-start gap-3 shadow-2xs ${
                         webhookTestResult.success 
-                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
-                          : 'bg-rose-50 text-rose-900 border-rose-200'
+                          ? 'bg-emerald-50 text-emerald-900 border-emerald-300' 
+                          : 'bg-rose-50 text-rose-900 border-rose-300'
                       }`}>
                         {webhookTestResult.success ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                         ) : (
-                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                         )}
-                        <div>
-                          <strong className="block">{webhookTestResult.message}</strong>
+                        <div className="space-y-1.5 flex-1">
+                          <strong className="block text-sm">{webhookTestResult.message}</strong>
                           {webhookTestResult.latencyMs && (
-                            <span className="text-[11px] opacity-80">Thời gian phản hồi: {webhookTestResult.latencyMs} ms</span>
+                            <div className="text-[11px] text-slate-600">Thời gian phản hồi Google: <strong>{webhookTestResult.latencyMs} ms</strong></div>
+                          )}
+                          {!webhookTestResult.success && (
+                            <div className="mt-2 p-2.5 bg-white/80 rounded-lg border border-rose-200 text-rose-800 text-[11px] space-y-1">
+                              <p className="font-bold">👉 Hướng dẫn khắc phục nhanh:</p>
+                              <p>1. Mở <strong>script.google.com</strong>, kiểm tra xem bạn có để code bên trong <code>function myFunction() &#123;...&#125;</code> không. Nếu có, hãy <strong>xóa toàn bộ</strong> và dán lại mã mẫu bên dưới.</p>
+                              <p>2. Chọn <strong>Triển khai (Deploy)</strong> &gt; <strong>Triển khai mới (New deployment)</strong> &gt; Loại: <strong>Ứng dụng web (Web app)</strong>.</p>
+                              <p>3. Mục <strong>Ai có quyền truy cập (Who has access)</strong>: Bắt buộc chọn <strong>Bất kỳ ai (Anyone)</strong>.</p>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1297,28 +1364,60 @@ services:
 
           {/* Bottom Google Apps Script Code Template Drawer */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Code2 className="w-4 h-4 text-[#1F4E78]" />
-                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  Mã Nguồn Google Apps Script Mẫu (Triển khai Google Drive trong 1 phút)
-                </h4>
+                <Code2 className="w-5 h-5 text-[#1F4E78]" />
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                    Mã Nguồn Google Apps Script Mẫu (Tự động lưu Google Drive)
+                  </h4>
+                  <span className="text-[11px] text-slate-500">Dán vào script.google.com để tự động tạo thư mục PMO1_KPI_Backups trên Drive của bạn</span>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => copyToClipboard(GAS_WEBAPP_SAMPLE, setCopiedGasScript)}
-                className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
               >
-                {copiedGasScript ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedGasScript ? 'Đã sao chép!' : 'Sao chép Script'}
+                {copiedGasScript ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                {copiedGasScript ? 'Đã sao chép vào bộ nhớ tạm!' : 'Sao chép toàn bộ Mã Script'}
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Mở <strong>script.google.com</strong> -&gt; Tạo Dự án mới -&gt; Dán đoạn mã dưới đây -&gt; Bấm <strong>Deploy (Triển khai)</strong> -&gt; <strong>Web app</strong> (Truy cập: <em>Anyone</em>) -&gt; Copy URL dán vào ô Webhook ở trên.
-            </p>
+            {/* 3 Step Quick Guide Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1">
+                <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[10px]">1</span>
+                  Xóa sạch mã cũ
+                </span>
+                <p className="text-amber-800 text-[11px]">
+                  Tại trang <code>script.google.com</code>, <strong>xóa sạch 100%</strong> code mặc định (kể cả <code>myFunction</code>), sau đó dán đoạn mã bên dưới.
+                </p>
+              </div>
 
-            <pre className="p-4 bg-slate-950 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto max-h-48 border border-slate-800">
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
+                <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">2</span>
+                  Quyền truy cập "Anyone"
+                </span>
+                <p className="text-blue-800 text-[11px]">
+                  Bấm <strong>Triển khai (Deploy)</strong> &gt; <strong>Triển khai mới (New deployment)</strong> &gt; Ai có quyền truy cập: Chọn <strong>Bất kỳ ai (Anyone)</strong>.
+                </p>
+              </div>
+
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1">
+                <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px]">3</span>
+                  Copy URL /exec dán vào ô
+                </span>
+                <p className="text-emerald-800 text-[11px]">
+                  Copy địa chỉ URL có đuôi <code>.../exec</code> dán vào ô Webhook ở trên rồi bấm <strong>Kiểm tra &amp; Lưu</strong>.
+                </p>
+              </div>
+            </div>
+
+            <pre className="p-4 bg-slate-950 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto max-h-56 border border-slate-800 shadow-inner select-all">
               {GAS_WEBAPP_SAMPLE}
             </pre>
           </div>

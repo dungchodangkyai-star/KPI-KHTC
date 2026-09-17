@@ -8,6 +8,8 @@ import {
 import * as XLSX from 'xlsx';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   DEFAULT_TASK_GROUPS, 
   WORK_NATURE_COEFS,
   formatDate, 
@@ -37,9 +39,15 @@ export interface WorkScheduleInfo {
 }
 
 export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
-  const start = w.startDate ? new Date(w.startDate) : (w.createdAt ? new Date(w.createdAt) : null);
-  const end = w.actualEndDate ? new Date(w.actualEndDate) : (w.endDate ? new Date(w.endDate) : null);
-  const deadline = w.endDate ? new Date(w.endDate) : null;
+  const isValidDate = (d: any) => {
+    if (!d) return false;
+    const date = new Date(d);
+    return !isNaN(date.getTime()) && date.getFullYear() >= 1990 && date.getFullYear() <= 2100;
+  };
+
+  const start = isValidDate(w.startDate) ? new Date(w.startDate!) : (isValidDate(w.createdAt) ? new Date(w.createdAt!) : null);
+  const end = isValidDate(w.actualEndDate) ? new Date(w.actualEndDate!) : (isValidDate(w.endDate) ? new Date(w.endDate!) : null);
+  const deadline = isValidDate(w.endDate) ? new Date(w.endDate!) : null;
   const now = new Date();
 
   // Format strings
@@ -48,11 +56,10 @@ export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
 
   // Calculate days worked based on actual date range if available
   let daysCount = 0;
-  if (start && (w.actualEndDate || w.endDate)) {
-    const targetEnd = w.actualEndDate ? new Date(w.actualEndDate) : new Date(w.endDate!);
+  if (start && end) {
     const s = new Date(start);
     s.setHours(0, 0, 0, 0);
-    const e = new Date(targetEnd);
+    const e = new Date(end);
     e.setHours(0, 0, 0, 0);
     const diffMs = e.getTime() - s.getTime();
     daysCount = Math.max(1, Math.round(diffMs / 86400000) + 1);
@@ -70,8 +77,8 @@ export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
   const isCompleted = w.status === 'Hoàn thành';
   const isLate = w.status === 'Chậm';
 
-  if (isCompleted && w.actualEndDate && deadline) {
-    const actualTime = new Date(w.actualEndDate).setHours(0, 0, 0, 0);
+  if (isCompleted && isValidDate(w.actualEndDate) && deadline) {
+    const actualTime = new Date(w.actualEndDate!).setHours(0, 0, 0, 0);
     const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
     const diff = Math.round((actualTime - deadlineTime) / 86400000);
     diffDays = Math.abs(diff);
@@ -140,10 +147,12 @@ const QUICK_LEADER_SUGGESTIONS = [
 
 const LeaderNoteSection = memo(({ 
   initialValue, 
-  onChange 
+  onChange,
+  decision = 'Duyệt'
 }: { 
   initialValue: string; 
   onChange: (val: string) => void;
+  decision?: 'Duyệt' | 'Cần bổ sung' | 'Không duyệt';
 }) => {
   const [localNote, setLocalNote] = useState(initialValue);
 
@@ -158,24 +167,31 @@ const LeaderNoteSection = memo(({
   };
 
   const handleSuggestionClick = (sug: string) => {
-    setLocalNote(sug);
-    onChange(sug);
+    const newNote = localNote ? `${localNote}; ${sug}` : sug;
+    setLocalNote(newNote);
+    onChange(newNote);
   };
+
+  const placeholderText = decision === 'Không duyệt'
+    ? "Ghi rõ lý do không duyệt (nếu để trống hệ thống sẽ lưu lý do mặc định)..."
+    : (decision === 'Cần bổ sung' 
+      ? "Ghi rõ ý kiến chỉ đạo, nội dung cần bổ sung (nếu để trống hệ thống sẽ lưu lý do mặc định)..." 
+      : "Ghi rõ ý kiến chỉ đạo, đánh giá chất lượng hồ sơ...");
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-bold text-slate-800">
-          Ý kiến chỉ đạo / Nhận xét của Lãnh đạo phòng
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+          <span>Ý kiến chỉ đạo / Nhận xét của Lãnh đạo</span>
+          <span className="text-[10px] text-slate-400 font-normal">Tùy chọn ghi chú</span>
         </label>
-        <span className="text-[10px] text-slate-400">Tùy chọn</span>
       </div>
       <textarea
         rows={3}
         value={localNote}
         onChange={handleChange}
-        placeholder="Ghi rõ ý kiến chỉ đạo, lý do cần bổ sung hoặc đánh giá chất lượng hồ sơ..."
-        className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+        placeholder={placeholderText}
+        className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78] transition-colors"
       />
 
       {/* Quick suggestions chips */}
@@ -207,14 +223,64 @@ interface WorkReviewModalProps {
 
 const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSuccess, refreshAll }: WorkReviewModalProps) => {
   const natureList = workNatures && workNatures.length > 0 ? workNatures : getWorkNatureList();
+  
+  // 1. Initial nature name
   const initialNature = work.approvedNature || work.proposedNature || (natureList[0]?.name || 'Trung bình');
-  const initialCoefObj = getNatureCoefObj(initialNature);
+  
+  // 2. Initial coefficient: Prioritize the work's actual registered/assigned coef (e.g. 0.4 for coordinated/assigned tasks)
+  const workCoefNum = (work.coef !== undefined && work.coef !== null && !isNaN(Number(work.coef)) && Number(work.coef) > 0)
+    ? Number(work.coef)
+    : null;
+  const catalogForInitial = getNatureCoefObj(initialNature);
+  const initialCoef = workCoefNum !== null ? workCoefNum : catalogForInitial.coef;
 
+  // Build selectable options for nature & coef
+  const natureOptions = useMemo(() => {
+    const opts: Array<{ key: string; name: string; coef: number; label: string; isCustom?: boolean }> = [];
+    
+    // If the work has a custom or assigned coef (like 0.4 for role Phối hợp or custom assigned weight)
+    // that differs from the standard catalog coef of the proposed/initial nature
+    const hasCustomAssignedCoef = workCoefNum !== null && Math.abs(workCoefNum - catalogForInitial.coef) > 0.001;
+    if (hasCustomAssignedCoef) {
+      const sourceTag = work.source === 'Giao việc' ? 'Theo việc được giao' : 'Theo đăng ký';
+      opts.push({
+        key: `${initialNature}__${workCoefNum}`,
+        name: initialNature,
+        coef: workCoefNum,
+        label: `${initialNature} (${sourceTag}: Hệ số ${formatScore(workCoefNum)})`,
+        isCustom: true
+      });
+    }
+
+    // Add standard options from natureList
+    natureList.forEach(nat => {
+      const isSameAsCustom = hasCustomAssignedCoef && nat.name === initialNature;
+      opts.push({
+        key: `${nat.name}__${nat.coef}`,
+        name: nat.name,
+        coef: nat.coef,
+        label: isSameAsCustom 
+          ? `${nat.name} (Hệ số chuẩn: ${formatScore(nat.coef)})`
+          : `${nat.name} (Hệ số ${formatScore(nat.coef)})`,
+        isCustom: false
+      });
+    });
+
+    return opts;
+  }, [natureList, initialNature, workCoefNum, catalogForInitial.coef, work.source]);
+
+  // Determine initial selected option key
+  const initialOptionKey = useMemo(() => {
+    const match = natureOptions.find(o => o.name === initialNature && Math.abs(o.coef - initialCoef) < 0.001);
+    return match ? match.key : (natureOptions[0]?.key || `${initialNature}__${initialCoef}`);
+  }, [natureOptions, initialNature, initialCoef]);
+
+  const [selectedNatureKey, setSelectedNatureKey] = useState<string>(initialOptionKey);
+  const [reviewApprovedNature, setReviewApprovedNature] = useState<string>(initialNature);
+  const [reviewApprovedCoef, setReviewApprovedCoef] = useState<number>(initialCoef);
   const [reviewDecision, setReviewDecision] = useState<'Duyệt' | 'Cần bổ sung' | 'Không duyệt'>(
     work.leaderApproval === 'Cần bổ sung' || work.leaderApproval === 'Không duyệt' ? work.leaderApproval : 'Duyệt'
   );
-  const [reviewApprovedNature, setReviewApprovedNature] = useState<string>(initialNature);
-  const [reviewApprovedCoef, setReviewApprovedCoef] = useState<number>(initialCoefObj.coef);
   const [reviewNote, setReviewNote] = useState<string>(work.leaderNote || '');
   const [reviewScore, setReviewScore] = useState<number | ''>(() => {
     if (work.approvedConvertedScore && !isNaN(Number(work.approvedConvertedScore))) {
@@ -225,7 +291,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
       return Number(work.selfConvertedScore);
     } else {
       const baseSc = Number(work.baseScore) || 10;
-      return Math.round(baseSc * initialCoefObj.coef * 10) / 10;
+      return Math.round(baseSc * initialCoef * 10) / 10;
     }
   });
 
@@ -234,33 +300,91 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
 
   const sched = useMemo(() => calculateWorkSchedule(work), [work]);
 
-  const handleNatureChange = (newNature: string) => {
-    const natureCoefObj = getNatureCoefObj(newNature);
-    setReviewApprovedNature(newNature);
-    setReviewApprovedCoef(natureCoefObj.coef);
-
-    // Recalculate score automatically
-    const baseSc = Number(work.baseScore) || 10;
-    const calculated = Math.round(baseSc * natureCoefObj.coef * 10) / 10;
-    setReviewScore(calculated);
+  const handleSelectNatureOption = (key: string) => {
+    setSelectedNatureKey(key);
+    const opt = natureOptions.find(o => o.key === key);
+    if (opt) {
+      setReviewApprovedNature(opt.name);
+      setReviewApprovedCoef(opt.coef);
+      if (reviewDecision === 'Duyệt') {
+        const baseSc = Number(work.baseScore) || 10;
+        const calculated = Math.round(baseSc * opt.coef * 10) / 10;
+        setReviewScore(calculated);
+      }
+    }
   };
 
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
+  const handleCoefChange = (newCoef: number) => {
+    setReviewApprovedCoef(newCoef);
+    const match = natureOptions.find(o => Math.abs(o.coef - newCoef) < 0.001);
+    if (match) {
+      setSelectedNatureKey(match.key);
+      setReviewApprovedNature(match.name);
+    }
+    if (reviewDecision === 'Duyệt') {
+      const baseSc = Number(work.baseScore) || 10;
+      const calculated = Math.round(baseSc * newCoef * 10) / 10;
+      setReviewScore(calculated);
+    }
+  };
+
+  const handleSelectDecision = (decision: 'Duyệt' | 'Cần bổ sung' | 'Không duyệt') => {
+    // Nếu người dùng bấm vào nút quyết định đã được chọn sẵn, kích hoạt thực hiện duyệt/lưu ngay lập tức!
+    if (reviewDecision === decision) {
+      handleSubmit(decision);
+      return;
+    }
+
+    setReviewDecision(decision);
     setErrorMsg('');
+    if (decision === 'Duyệt') {
+      const baseSc = Number(work.baseScore) || 10;
+      setReviewScore(Math.round(baseSc * reviewApprovedCoef * 10) / 10);
+    } else if (decision === 'Không duyệt') {
+      setReviewScore(0);
+    } else if (decision === 'Cần bổ sung') {
+      setReviewScore(0);
+    }
+  };
+
+  const handleSubmit = async (decisionOverride?: 'Duyệt' | 'Cần bổ sung' | 'Không duyệt') => {
+    const finalDecision = decisionOverride || reviewDecision;
+    setErrorMsg('');
+
+    // If note is left blank by user, automatically provide a clean default note so saving is never blocked
+    let noteToSave = reviewNote.trim();
+    if (!noteToSave) {
+      if (finalDecision === 'Không duyệt') {
+        noteToSave = 'Lãnh đạo không phê duyệt đạt kết quả công việc.';
+      } else if (finalDecision === 'Cần bổ sung') {
+        noteToSave = 'Yêu cầu nhân viên bổ sung, hoàn thiện lại hồ sơ minh chứng.';
+      }
+    }
+
+    setIsSubmitting(true);
     try {
       const payload: any = {
-        leaderApproval: reviewDecision,
+        leaderApproval: finalDecision,
         approvedNature: reviewApprovedNature,
         coef: String(reviewApprovedCoef),
-        leaderNote: reviewNote,
+        leaderNote: noteToSave,
         approverId: currentUser?.id || null,
-        approvalDate: new Date()
+        approvalDate: new Date(),
+        isLeaderAction: true
       };
 
-      if (reviewScore !== '' && !isNaN(Number(reviewScore))) {
-        payload.approvedConvertedScore = String(reviewScore);
-        payload.convertedScore = String(reviewScore);
+      if (finalDecision === 'Duyệt') {
+        const calculatedScore = Math.round((Number(work.baseScore) || 10) * reviewApprovedCoef * 10) / 10;
+        const finalScore = (reviewScore !== '' && !isNaN(Number(reviewScore)) && Number(reviewScore) > 0)
+          ? Number(reviewScore)
+          : calculatedScore;
+        payload.approvedConvertedScore = String(finalScore);
+        payload.convertedScore = String(finalScore);
+      } else if (finalDecision === 'Không duyệt') {
+        payload.approvedConvertedScore = '0';
+        payload.convertedScore = '0';
+      } else if (finalDecision === 'Cần bổ sung') {
+        payload.approvedConvertedScore = null;
       }
 
       const res = await safeFetch(`/api/works/${work.id}`, {
@@ -270,272 +394,464 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
       });
       const d = await safeParseResponse(res);
       if (d.success) {
-        onSuccess(`Đã phê duyệt công việc của ${work.user?.name || 'nhân viên'} thành công!`);
+        const actionLabel = finalDecision === 'Duyệt' ? 'Phê duyệt đạt' : (finalDecision === 'Cần bổ sung' ? 'Yêu cầu bổ sung' : 'Không duyệt');
+        onSuccess(`Đã ${actionLabel} công việc "${work.taskName || 'nhiệm vụ'}" thành công!`);
         onClose();
         refreshAll();
       } else {
         setErrorMsg(d.error || 'Có lỗi khi lưu kết quả phê duyệt');
       }
     } catch (e: any) {
-      setErrorMsg(String(e));
+      setErrorMsg(String(e?.message || e || 'Không thể kết nối đến máy chủ'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const calculatedBaseKpi = Math.round((Number(work.baseScore) || 10) * reviewApprovedCoef * 10) / 10;
+
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-      <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 animate-fadeIn">
+      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+        {/* Modal Header - Fixed Top */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex-shrink-0">
           <div className="flex items-center gap-2 text-[#1F4E78] font-black text-base">
-            <CheckSquare className="w-5 h-5" />
+            <CheckSquare className="w-5 h-5 text-[#1F4E78]" />
             <span>Thẩm định & Phê duyệt kết quả công việc</span>
           </div>
           <button 
             onClick={onClose} 
-            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {errorMsg && (
-          <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {/* Comprehensive Task Details Card */}
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
-            <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
-              <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
-                {work.taskCode || 'CV'}
-              </span>
-              <span>{work.taskName}</span>
+        {/* Modal Body - Scrollable */}
+        <div className="px-5 py-4 overflow-y-auto flex-1 space-y-4">
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2 animate-shake">
+              <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
-            {work.source === 'Giao việc' ? (
-              <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
-                Việc Lãnh đạo giao
-              </span>
-            ) : (
-              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
-                Việc tự đăng ký
-              </span>
+          )}
+
+          {/* Comprehensive Task Details Card */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
+              <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
+                <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
+                  {work.taskCode || 'CV'}
+                </span>
+                <span>{work.taskName}</span>
+              </div>
+              {work.source === 'Giao việc' ? (
+                <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
+                  Việc Lãnh đạo giao
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
+                  Việc tự đăng ký
+                </span>
+              )}
+            </div>
+
+            {/* 4-column inspection grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
+                <span className="font-bold text-slate-900 text-xs">{work.user?.name}</span>
+                <div className="text-[10px] text-slate-500">{cleanPosition(work.user?.position)}</div>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
+                <span className="font-bold text-slate-900 text-xs">Tháng {work.month}</span>
+                <div className="text-[10px] text-slate-500 truncate" title={work.taskGroup || ''}>
+                  {work.taskGroup || 'Khác'}
+                </div>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
+                <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
+                <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
+                <span className="font-bold text-slate-900 text-xs block">{work.status || 'Đang xử lý'}</span>
+                <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
+                  sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                }`}>
+                  {sched.scheduleText}
+                </span>
+              </div>
+            </div>
+
+            {/* Product Info Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
+                <span className="font-bold text-slate-800">{work.productType || 'Báo cáo'}</span> ({work.productQty || 1} {work.unit || 'Sản phẩm'})
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
+                <span className="font-black text-[#1F4E78] text-xs">{formatScore(work.baseScore || 10)} điểm</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
+                <span className="font-bold text-slate-800">{work.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(work.coef || 0.8)})
+              </div>
+            </div>
+
+            {/* Detail content */}
+            {work.detail && (
+              <div>
+                <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
+                <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
+                  {work.detail}
+                </p>
+              </div>
+            )}
+
+            {/* Evidence */}
+            {work.evidence && (
+              <div>
+                <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
+                <a 
+                  href={work.evidence.startsWith('http') ? work.evidence : `https://${work.evidence}`} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
+                >
+                  <ExternalLink className="w-4 h-4 shrink-0" />
+                  <span className="break-all">{work.evidence}</span>
+                </a>
+              </div>
             )}
           </div>
 
-          {/* 4-column inspection grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
-              <span className="font-bold text-slate-900 text-xs">{work.user?.name}</span>
-              <div className="text-[10px] text-slate-500">{cleanPosition(work.user?.position)}</div>
-            </div>
+          {/* Approval Decision Controls */}
+          <div className="space-y-4 pt-1">
+            {/* Nature of Work Approval Control */}
+            <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-[#1F4E78]" />
+                  <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
+                </label>
+                <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
+              </div>
 
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
-              <span className="font-bold text-slate-900 text-xs">Tháng {work.month}</span>
-              <div className="text-[10px] text-slate-500 truncate" title={work.taskGroup || ''}>
-                {work.taskGroup || 'Khác'}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <select
+                    value={selectedNatureKey}
+                    onChange={(e) => handleSelectNatureOption(e.target.value)}
+                    className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                  >
+                    {natureOptions.map(opt => (
+                      <option key={opt.key} value={opt.key}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
+                  <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0.05"
+                    max="3.0"
+                    value={reviewApprovedCoef}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val)) {
+                        handleCoefChange(val);
+                      }
+                    }}
+                    className="w-18 text-center font-black text-[#1F4E78] text-sm bg-blue-50/60 border border-blue-300 rounded-lg py-1 px-1.5 outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                    title="Lãnh đạo có thể điều chỉnh trực tiếp hệ số thẩm định"
+                  />
+                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
+                  <span className="font-bold text-slate-800">{formatScore(work.baseScore || 10)}</span>
+                </div>
+              </div>
+
+              {/* Score formula explanation */}
+              <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
+                <span>Công thức tự tính: <strong>{formatScore(work.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
+                <span className="font-black text-xs text-[#1F4E78]">= {formatScore(calculatedBaseKpi)} đ</span>
               </div>
             </div>
 
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
-              <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
-              <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
-            </div>
-
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
-              <span className="font-bold text-slate-900 text-xs block">{work.status || 'Đang xử lý'}</span>
-              <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
-                sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-              }`}>
-                {sched.scheduleText}
-              </span>
-            </div>
-          </div>
-
-          {/* Product Info Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+            {/* 3 Decision Action Buttons */}
             <div>
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
-              <span className="font-bold text-slate-800">{work.productType || 'Báo cáo'}</span> ({work.productQty || 1} {work.unit || 'Sản phẩm'})
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
-              <span className="font-black text-[#1F4E78] text-xs">{formatScore(work.baseScore || 10)} điểm</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
-              <span className="font-bold text-slate-800">{work.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(work.coef || 0.8)})
-            </div>
-          </div>
-
-          {/* Detail content */}
-          {work.detail && (
-            <div>
-              <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
-              <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
-                {work.detail}
-              </p>
-            </div>
-          )}
-
-          {/* Evidence */}
-          {work.evidence && (
-            <div>
-              <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
-              <a 
-                href={work.evidence.startsWith('http') ? work.evidence : `https://${work.evidence}`} 
-                target="_blank" 
-                rel="noreferrer"
-                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
-              >
-                <ExternalLink className="w-4 h-4 shrink-0" />
-                <span className="break-all">{work.evidence}</span>
-              </a>
-            </div>
-          )}
-        </div>
-
-        {/* Approval Decision Controls */}
-        <div className="space-y-4 pt-1">
-          {/* Nature of Work Approval Control */}
-          <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-[#1F4E78]" />
-                <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
-              </label>
-              <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <select
-                  value={reviewApprovedNature}
-                  onChange={(e) => handleNatureChange(e.target.value)}
-                  className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-slate-800">Quyết định phê duyệt:</label>
+                <span className="text-[11px] text-slate-500 italic">Nhấn đúp hoặc chọn và bấm lưu ở dưới</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSelectDecision('Duyệt')}
+                  className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                    reviewDecision === 'Duyệt'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-emerald-50/50 hover:border-emerald-300'
+                  }`}
+                  title="Nhấn để chọn hoặc nhấn lại để duyệt & lưu ngay"
                 >
-                  {natureList.map(nat => (
-                    <option key={nat.code || nat.name} value={nat.name}>
-                      {nat.name} (Hệ số {formatScore(nat.coef)})
-                    </option>
-                  ))}
-                </select>
+                  <div className="flex items-center gap-1.5">
+                    <Check className="w-4 h-4" />
+                    <span>Duyệt đạt</span>
+                  </div>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Duyệt' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                    ({formatScore(calculatedBaseKpi)} điểm)
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectDecision('Cần bổ sung')}
+                  className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                    reviewDecision === 'Cần bổ sung'
+                      ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-orange-50/50 hover:border-orange-300'
+                  }`}
+                  title="Nhấn để chọn hoặc nhấn lại để gửi yêu cầu bổ sung"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Cần bổ sung</span>
+                  </div>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Cần bổ sung' ? 'text-orange-100' : 'text-slate-500'}`}>
+                    Yêu cầu làm lại
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectDecision('Không duyệt')}
+                  className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                    reviewDecision === 'Không duyệt'
+                      ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-red-50/50 hover:border-red-300'
+                  }`}
+                  title="Nhấn để chọn hoặc nhấn lại để xác nhận không duyệt"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <X className="w-4 h-4" />
+                    <span>Không duyệt</span>
+                  </div>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Không duyệt' ? 'text-red-100' : 'text-slate-500'}`}>
+                    (0 điểm KPI)
+                  </span>
+                </button>
               </div>
 
-              <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs">
-                <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
-                <span className="font-black text-[#1F4E78] text-sm">{formatScore(reviewApprovedCoef)}</span>
-                <span className="text-slate-300">|</span>
-                <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
-                <span className="font-bold text-slate-800">{formatScore(work.baseScore || 10)}</span>
+              {/* Action Banner for selected decision */}
+              <div className="mt-2.5">
+                {reviewDecision === 'Duyệt' && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+                    <div className="text-xs text-emerald-900 font-medium flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>
+                        Sẵn sàng <strong>Duyệt đạt</strong> với <strong>{formatScore(reviewScore || calculatedBaseKpi)} điểm</strong> KPI chính thức.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSubmit('Duyệt')}
+                      disabled={isSubmitting}
+                      className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSubmitting ? 'Đang lưu...' : 'Duyệt đạt ngay'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {reviewDecision === 'Cần bổ sung' && (
+                  <div className="p-3 bg-orange-50 border border-orange-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+                    <div className="text-xs text-orange-950 font-medium flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-orange-700 shrink-0" />
+                      <span>
+                        Yêu cầu nhân viên hoàn thiện lại hồ sơ. <strong>Chưa tính điểm KPI</strong> cho đến khi duyệt lại.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSubmit('Cần bổ sung')}
+                      disabled={isSubmitting}
+                      className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSubmitting ? 'Đang lưu...' : 'Gửi yêu cầu'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {reviewDecision === 'Không duyệt' && (
+                  <div className="p-3 bg-red-50 border border-red-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+                    <div className="text-xs text-red-950 font-medium flex items-center gap-2">
+                      <X className="w-4 h-4 text-red-700 shrink-0" />
+                      <span>
+                        Từ chối phê duyệt công việc. Ghi nhận <strong>0 điểm KPI</strong>.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSubmit('Không duyệt')}
+                      disabled={isSubmitting}
+                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSubmitting ? 'Đang lưu...' : 'Lưu không duyệt'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Score formula explanation */}
-            <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
-              <span>Công thức tự tính: <strong>{formatScore(work.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
-              <span className="font-black text-xs text-[#1F4E78]">= {formatScore(reviewScore)} đ</span>
+            {/* Official Converted Score Input (only active when 'Duyệt') */}
+            {reviewDecision === 'Duyệt' ? (
+              <div className="animate-fadeIn">
+                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
+                  <span>Điểm quy đổi KPI chính thức</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const baseSc = Number(work.baseScore) || 10;
+                      setReviewScore(Math.round(baseSc * reviewApprovedCoef * 10) / 10);
+                    }}
+                    className="text-[10px] text-blue-700 hover:text-blue-900 font-bold bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 cursor-pointer transition-colors"
+                    title="Nhấn để tự động tính lại điểm theo Điểm chuẩn x Hệ số duyệt"
+                  >
+                    Tự động tính theo Hệ số ({formatScore(work.baseScore || 10)} x {formatScore(reviewApprovedCoef)})
+                  </button>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={reviewScore}
+                  onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  placeholder="Nhập điểm quy đổi chính thức"
+                  className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                />
+              </div>
+            ) : (
+              <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+                <span className="font-semibold">Điểm KPI quy đổi:</span>
+                <span className="font-bold text-slate-800">
+                  {reviewDecision === 'Không duyệt' ? '0 điểm (Không duyệt)' : 'Chờ hoàn thiện (Chưa tính điểm)'}
+                </span>
+              </div>
+            )}
+
+            {/* Leader Note & Quick Suggestions */}
+            <div>
+              <LeaderNoteSection 
+                initialValue={reviewNote} 
+                onChange={(val) => setReviewNote(val)} 
+                decision={reviewDecision}
+              />
             </div>
           </div>
-
-          {/* 3 Decision Buttons */}
-          <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1.5">Quyết định phê duyệt</label>
-            <div className="grid grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setReviewDecision('Duyệt')}
-                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  reviewDecision === 'Duyệt'
-                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <Check className="w-4 h-4" />
-                <span>Duyệt đạt</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewDecision('Cần bổ sung')}
-                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  reviewDecision === 'Cần bổ sung'
-                    ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-                <span>Cần bổ sung</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewDecision('Không duyệt')}
-                className={`py-3 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                  reviewDecision === 'Không duyệt'
-                    ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <X className="w-4 h-4" />
-                <span>Không duyệt</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Official Converted Score Input */}
-          <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-              <span>Điểm quy đổi KPI chính thức</span>
-              <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                Tự động cập nhật theo Tính chất duyệt
-              </span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              value={reviewScore}
-              onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
-              placeholder="Nhập điểm quy đổi chính thức"
-              className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
-            />
-          </div>
-
-          {/* Leader Note & Quick Suggestions (Isolated for ultra-fast typing) */}
-          <LeaderNoteSection 
-            initialValue={reviewNote} 
-            onChange={(val) => setReviewNote(val)} 
-          />
         </div>
 
-        {/* Modal Actions */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-          >
-            Hủy
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-6 py-2.5 text-xs font-black text-white bg-[#1F4E78] hover:bg-[#15385b] rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>{isSubmitting ? 'Đang lưu...' : 'Lưu kết quả phê duyệt'}</span>
-          </button>
+        {/* Modal Footer - Sticky Bottom (ALWAYS VISIBLE!) */}
+        <div className="border-t border-slate-200 bg-slate-50 flex-shrink-0">
+          {errorMsg && (
+            <div className="px-5 py-2.5 bg-red-100 border-b border-red-200 text-red-950 text-xs font-bold flex items-center justify-between gap-2 animate-shake">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setErrorMsg('')}
+                className="text-red-700 hover:text-red-950 p-1 rounded hover:bg-red-200 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          
+          <div className="px-5 py-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {reviewDecision === 'Duyệt' && (
+                <span className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-xs flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-700" />
+                  <span>Duyệt đạt: <strong>{formatScore(reviewScore || calculatedBaseKpi)}đ</strong></span>
+                </span>
+              )}
+              {reviewDecision === 'Cần bổ sung' && (
+                <span className="px-3 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-300 font-bold text-xs flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-orange-700" />
+                  <span>Yêu cầu bổ sung</span>
+                </span>
+              )}
+              {reviewDecision === 'Không duyệt' && (
+                <span className="px-3 py-1.5 rounded-xl bg-red-100 text-red-950 border border-red-300 font-bold text-xs flex items-center gap-1.5">
+                  <X className="w-4 h-4 text-red-700" />
+                  <span>Không duyệt (0đ)</span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl cursor-pointer transition"
+              >
+                Đóng
+              </button>
+
+              {reviewDecision === 'Duyệt' && (
+                <button
+                  type="button"
+                  onClick={() => handleSubmit('Duyệt')}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Đang lưu...' : `Xác nhận Duyệt đạt (${formatScore(reviewScore || calculatedBaseKpi)}đ)`}</span>
+                </button>
+              )}
+
+              {reviewDecision === 'Cần bổ sung' && (
+                <button
+                  type="button"
+                  onClick={() => handleSubmit('Cần bổ sung')}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 text-xs font-black text-white bg-orange-600 hover:bg-orange-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Đang lưu...' : 'Gửi yêu cầu cần bổ sung'}</span>
+                </button>
+              )}
+
+              {reviewDecision === 'Không duyệt' && (
+                <button
+                  type="button"
+                  onClick={() => handleSubmit('Không duyệt')}
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <X className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Đang lưu...' : 'Xác nhận Không duyệt'}</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -550,7 +866,7 @@ export default function ApproveWork() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [selectedUserId, setSelectedUserId] = useState<number | 'all'>('all');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectedApproval, setSelectedApproval] = useState<string>('Chưa duyệt');
@@ -681,6 +997,7 @@ export default function ApproveWork() {
           body: JSON.stringify({
             leaderApproval: 'Duyệt',
             approvedNature: foundWork?.approvedNature || foundWork?.proposedNature || 'Trung bình',
+            coef: String(foundWork?.coef || '0.8'),
             approvedConvertedScore: initialApprovedScore,
             convertedScore: initialApprovedScore,
             leaderNote: 'Lãnh đạo phòng đã phê duyệt đạt yêu cầu.'
@@ -877,8 +1194,12 @@ export default function ApproveWork() {
               className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
             >
               <option value="Tất cả">Tất cả tháng</option>
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
 
@@ -1088,13 +1409,17 @@ export default function ApproveWork() {
                       {/* Tính chất & Điểm QĐ */}
                       <td className="py-3 px-3 text-center">
                         <div className="text-[11px] font-bold text-slate-700">
-                          ĐK: {proposedNat} <span className="text-slate-400 font-normal">({formatScore(w.coef || 0.8)})</span>
+                          ĐK: {proposedNat} <span className="text-slate-500 font-semibold">({formatScore(w.coef || 0.8)})</span>
                         </div>
-                        {isNatureModified && (
-                          <div className="text-[10px] font-black text-blue-700 mt-0.5 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
-                            Duyệt: {approvedNat}
+                        {w.leaderApproval === 'Duyệt' ? (
+                          <div className="text-[10px] font-black text-emerald-700 mt-0.5 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Duyệt: {approvedNat || proposedNat} ({formatScore(w.coef || 0.8)})
                           </div>
-                        )}
+                        ) : isNatureModified ? (
+                          <div className="text-[10px] font-black text-blue-700 mt-0.5 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
+                            Duyệt: {approvedNat} ({formatScore(w.coef || 0.8)})
+                          </div>
+                        ) : null}
                         <div className="text-sm font-black text-[#1F4E78] mt-1">
                           {formatScore(w.convertedScore)} <span className="text-[10px] font-bold text-slate-500">đ</span>
                         </div>
@@ -1148,9 +1473,14 @@ export default function ApproveWork() {
                           </div>
                         )}
                         {isRejected && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-red-100 text-red-950 border border-red-300">
-                            <X className="w-3 h-3 text-red-700" /> Không duyệt
-                          </span>
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-red-100 text-red-950 border border-red-300">
+                              <X className="w-3 h-3 text-red-700" /> Không duyệt
+                            </span>
+                            {w.leaderNote && (
+                              <div className="text-[10px] text-red-700 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                            )}
+                          </div>
                         )}
                       </td>
 

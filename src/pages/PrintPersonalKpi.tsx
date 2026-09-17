@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { STANDARD_MONTHS, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, cleanPosition } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, getActiveLoggedInUser, normalizeNFC, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { Printer, Download, ArrowLeft, Calendar, FileText } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useOrgConfig } from '../contexts/OrgContext';
@@ -12,7 +12,7 @@ export default function PrintPersonalKpi() {
   const queryUserId = searchParams.get('userId');
   const queryMonth = searchParams.get('month');
 
-  const [selectedMonth, setSelectedMonth] = useState(queryMonth || '08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(queryMonth || getCurrentMonth());
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [targetUser, setTargetUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -278,10 +278,14 @@ export default function PrintPersonalKpi() {
               onChange={e => handleMonthChange(e.target.value)}
               className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-[#1F4E78]"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>
+                      Tháng {m}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

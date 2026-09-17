@@ -19,7 +19,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { KpiConfig, KpiRankingTier, KpiCriterionA, KpiPenaltyRule } from '../types';
-import { DEFAULT_KPI_CONFIG, calculateTotalKpi, evaluateKpiRank, normalizeNFC, safeFetchJson } from '../utils';
+import { DEFAULT_KPI_CONFIG, getCurrentMonth, MONTH_GROUPS, calculateTotalKpi, evaluateKpiRank, normalizeNFC, safeFetchJson } from '../utils';
 
 interface Props {
   onRecalculateSuccess?: () => void;
@@ -30,7 +30,7 @@ export default function KpiConfigSettings({ onRecalculateSuccess }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
-  const [targetMonth, setTargetMonth] = useState('08-2026');
+  const [targetMonth, setTargetMonth] = useState(getCurrentMonth());
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Simulation Sandbox State
@@ -358,15 +358,21 @@ export default function KpiConfigSettings({ onRecalculateSuccess }: Props) {
           </div>
 
           <div className="flex items-center gap-3 self-end lg:self-center shrink-0">
-            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-amber-300 shadow-sm">
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-amber-300 shadow-sm">
               <span className="text-xs font-bold text-slate-500">Tháng:</span>
-              <input 
-                type="text" 
+              <select 
                 value={targetMonth} 
                 onChange={(e) => setTargetMonth(e.target.value)}
-                placeholder="08-2026"
-                className="w-24 text-sm font-black text-[#1F4E78] focus:outline-none"
-              />
+                className="text-sm font-black text-[#1F4E78] focus:outline-none cursor-pointer bg-transparent"
+              >
+                {MONTH_GROUPS.map(group => (
+                  <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                    {group.months.map(m => (
+                      <option key={m} value={m}>Tháng {m}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
 
             <button

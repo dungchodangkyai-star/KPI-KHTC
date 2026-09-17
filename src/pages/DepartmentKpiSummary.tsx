@@ -10,6 +10,8 @@ import {
 import * as XLSX from 'xlsx';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   KPI_A_CRITERIA, 
   safeFetchJson, 
   normalizeNFC, 
@@ -55,7 +57,7 @@ export default function DepartmentKpiSummary() {
   const navigate = useNavigate();
   const location = useLocation();
   const { orgConfig } = useOrgConfig();
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
@@ -401,7 +403,7 @@ export default function DepartmentKpiSummary() {
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <title>Tong_Hop_KPI_${selectedMonth}_Phong_KHTC</title>
+  <title>Tong_Hop_KPI_${selectedMonth}_${orgConfig.shortName ? orgConfig.shortName.replace(/[^a-zA-Z0-9]/g, '_') : 'Don_Vi'}</title>
   <!--[if gte mso 9]>
   <xml>
     <w:WordDocument>
@@ -572,7 +574,7 @@ export default function DepartmentKpiSummary() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Tong_Hop_KPI_${selectedMonth}_Phong_KHTC.doc`;
+    link.download = `Tong_Hop_KPI_${selectedMonth}_${orgConfig.shortName ? orgConfig.shortName.replace(/[^a-zA-Z0-9]/g, '_') : 'Don_Vi'}.doc`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -883,10 +885,14 @@ export default function DepartmentKpiSummary() {
               onChange={e => handleMonthChange(e.target.value)}
               className="bg-white border-2 border-slate-300 rounded-xl px-3 py-1.5 text-xs md:text-sm font-black text-[#0f2440] focus:outline-none focus:border-[#1F4E78] shadow-2xs"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>
-                  Tháng {m}
-                </option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>
+                      Tháng {m}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -2085,20 +2091,24 @@ export default function DepartmentKpiSummary() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
               {[
-                { name: 'Đặc biệt phức tạp', pts: '+3đ/việc', count: natureDistribution['Đặc biệt phức tạp'] || 0, bg: 'bg-purple-50 text-purple-800 border-purple-200' },
-                { name: 'Rất phức tạp', pts: '+2đ/việc', count: natureDistribution['Rất phức tạp'] || 0, bg: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
-                { name: 'Phức tạp', pts: '+1đ/việc', count: natureDistribution['Phức tạp'] || 0, bg: 'bg-blue-50 text-blue-800 border-blue-200' },
-                { name: 'Trung bình', pts: '0đ/việc', count: natureDistribution['Trung bình'] || 0, bg: 'bg-slate-100 text-slate-700 border-slate-200' },
-                { name: 'Đơn giản', pts: '0đ/việc', count: natureDistribution['Đơn giản'] || 0, bg: 'bg-slate-100 text-slate-700 border-slate-200' },
-              ].map(nat => (
-                <div key={nat.name} className={`p-4 rounded-xl border ${nat.bg} flex flex-col justify-between space-y-2`}>
-                  <div>
-                    <div className="font-bold text-xs">{nat.name}</div>
-                    <div className="text-[11px] opacity-80">{nat.pts}</div>
+                { name: 'Đặc biệt phức tạp', bg: 'bg-purple-50 text-purple-800 border-purple-200' },
+                { name: 'Rất phức tạp', bg: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
+                { name: 'Phức tạp', bg: 'bg-blue-50 text-blue-800 border-blue-200' },
+                { name: 'Trung bình', bg: 'bg-slate-100 text-slate-700 border-slate-200' },
+                { name: 'Đơn giản', bg: 'bg-slate-100 text-slate-700 border-slate-200' },
+              ].map(nat => {
+                const pt = summaryData?.naturePointMap?.[nat.name] ?? (nat.name === 'Đặc biệt phức tạp' ? 3 : nat.name === 'Rất phức tạp' ? 2 : nat.name === 'Phức tạp' ? 1 : 0);
+                const ptsLabel = pt > 0 ? `+${pt}đ/việc` : '0đ/việc';
+                return (
+                  <div key={nat.name} className={`p-4 rounded-xl border ${nat.bg} flex flex-col justify-between space-y-2`}>
+                    <div>
+                      <div className="font-bold text-xs">{nat.name}</div>
+                      <div className="text-[11px] opacity-80">{ptsLabel}</div>
+                    </div>
+                    <div className="text-2xl font-black">{natureDistribution[nat.name] || 0} <span className="text-xs font-normal">việc</span></div>
                   </div>
-                  <div className="text-2xl font-black">{nat.count} <span className="text-xs font-normal">việc</span></div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

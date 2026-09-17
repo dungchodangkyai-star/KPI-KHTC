@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { KPI_A_CRITERIA, STANDARD_MONTHS, getActiveLoggedInUser, safeFetchJson, formatScore, cleanPosition } from '../utils';
+import { KPI_A_CRITERIA, STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, getActiveLoggedInUser, safeFetchJson, formatScore, cleanPosition } from '../utils';
 import { CheckCircle, AlertCircle, Save, Calendar, UserCheck, RefreshCw, Zap, RotateCcw, Plus, Minus, Info } from 'lucide-react';
 
 export default function SelfScoreA() {
-  const [selectedMonth, setSelectedMonth] = useState('08-2026');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [usersList, setUsersList] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -223,9 +223,12 @@ export default function SelfScoreA() {
 
     try {
       setSaving(true);
-      const res = await fetch('/api/kpi/self-score-a', {
+      const data = await safeFetchJson('/api/kpi/self-score-a', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': String(selectedUserObj.id)
+        },
         body: JSON.stringify({
           month: selectedMonth,
           userId: selectedUserObj.id,
@@ -234,18 +237,19 @@ export default function SelfScoreA() {
           note,
         }),
       });
-      const data = await res.json();
+
       if (data.success) {
         setSavedSuccess(true);
         setStatusA('Đã tự chấm');
         setSelfTotal(calculatedSelfTotal);
         setTimeout(() => setSavedSuccess(false), 4000);
       } else {
-        alert('Lỗi: ' + data.error);
+        const errorMsg = data.message || data.error || 'Có lỗi xảy ra khi lưu kết quả tự chấm điểm A.';
+        alert('Lỗi: ' + errorMsg);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Không thể kết nối đến máy chủ.');
+      alert('Không thể kết nối đến máy chủ: ' + (err?.message || 'Vui lòng thử lại sau.'));
     } finally {
       setSaving(false);
     }
@@ -306,10 +310,14 @@ export default function SelfScoreA() {
               onChange={e => handleMonthChange(e.target.value)}
               className="bg-slate-50 border-2 border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black text-[#1F4E78] focus:outline-none focus:border-[#1F4E78] shadow-2xs cursor-pointer"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>
-                  Tháng {m}
-                </option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>
+                      Tháng {m}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS, getActiveLoggedInUser } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, formatMonth, getActiveLoggedInUser } from '../utils';
 
 export default function OtRegister() {
   const navigate = useNavigate();
@@ -22,7 +22,7 @@ export default function OtRegister() {
   };
 
   const [formData, setFormData] = useState({
-    month: '08-2026',
+    month: getCurrentMonth(),
     userId: 0,
     regDate: new Date().toISOString().split('T')[0],
     otDate: new Date().toISOString().split('T')[0],
@@ -97,7 +97,7 @@ export default function OtRegister() {
 
   const handleDownloadTemplate = () => {
     const data = [{
-      'Tháng': '08-2026',
+      'Tháng': getCurrentMonth(),
       'Người thực hiện (ID)': 1,
       'Ngày làm thêm': '2026-08-15',
       'Giờ BĐ': '18:00',
@@ -137,7 +137,7 @@ export default function OtRegister() {
           const matchedUser = users.find(u => u.id === matchedUserId) || currentUser;
 
           const payload = {
-            month: row['Tháng'] || '08-2026',
+            month: row['Tháng'] ? (formatMonth(row['Tháng']) || row['Tháng']) : getCurrentMonth(),
             userId: matchedUserId,
             userName: matchedUser?.name,
             userEmail: matchedUser?.email,
@@ -271,8 +271,12 @@ export default function OtRegister() {
               onChange={(e) => setFormData({ ...formData, month: e.target.value })}
               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-[#1F4E78] outline-none focus:ring-2 focus:ring-[#1F4E78]"
             >
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

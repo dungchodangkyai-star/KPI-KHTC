@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { 
   STANDARD_MONTHS, 
+  MONTH_GROUPS,
+  getCurrentMonth,
   WORK_NATURE_COEFS, 
   DEFAULT_TASK_GROUPS, 
   DEFAULT_TASKS, 
@@ -65,7 +67,7 @@ export default function AssignTask() {
   const [selectedReceivers, setSelectedReceivers] = useState<SelectedReceiver[]>([]);
 
   // Filter state for assigned table
-  const [selectedFilterMonth, setSelectedFilterMonth] = useState('08-2026');
+  const [selectedFilterMonth, setSelectedFilterMonth] = useState(getCurrentMonth());
   const [filterReceiverId, setFilterReceiverId] = useState<number | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterPriority, setFilterPriority] = useState<string>('all');
@@ -84,7 +86,7 @@ export default function AssignTask() {
     method: 'webhook',
     webhookUrl: '',
     groupWebhookUrl: '',
-    senderName: 'Lãnh đạo Phòng KHTC',
+    senderName: 'Lãnh đạo đơn vị',
     senderPhone: '',
     defaultTemplate: ''
   });
@@ -95,7 +97,7 @@ export default function AssignTask() {
 
   // Form State
   const [formData, setFormData] = useState({
-    month: '08-2026',
+    month: getCurrentMonth(),
     taskGroup: 'Kế hoạch vốn',
     taskName: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn',
     taskCode: 'KH01',
@@ -456,7 +458,7 @@ export default function AssignTask() {
       }]);
     }
     setFormData({
-      month: a.month || selectedFilterMonth || '08-2026',
+      month: a.month || selectedFilterMonth || getCurrentMonth(),
       taskGroup: a.taskGroup || 'Kế hoạch vốn',
       taskName: a.taskName || '',
       taskCode: a.taskCode || '',
@@ -1109,8 +1111,12 @@ export default function AssignTask() {
               className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none"
             >
               <option value="Tất cả">Tất cả tháng</option>
-              {STANDARD_MONTHS.map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {MONTH_GROUPS.map(group => (
+                <optgroup key={group.year} label={`── Năm ${group.year} ──`}>
+                  {group.months.map(m => (
+                    <option key={m} value={m}>Tháng {m}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
 
@@ -1343,7 +1349,7 @@ export default function AssignTask() {
                     type="text"
                     value={zaloConfig.senderName || ''}
                     onChange={(e) => setZaloConfig(prev => ({ ...prev, senderName: e.target.value }))}
-                    placeholder="VD: Trưởng phòng KHTC"
+                    placeholder="VD: Trưởng phòng / Lãnh đạo đơn vị"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold"
                   />
                 </div>
@@ -1470,7 +1476,7 @@ export default function AssignTask() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Giao bởi: <strong className="text-slate-700">{viewingAssignment.assigner?.name || 'Lãnh đạo Phòng KHTC'}</strong> • Ngày giao: {formatDate(viewingAssignment.assignDate)}
+                    Giao bởi: <strong className="text-slate-700">{viewingAssignment.assigner?.name || 'Lãnh đạo đơn vị'}</strong> • Ngày giao: {formatDate(viewingAssignment.assignDate)}
                   </p>
                 </div>
               </div>

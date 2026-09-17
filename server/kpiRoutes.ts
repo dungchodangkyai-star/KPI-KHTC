@@ -9,10 +9,167 @@ import {
   evaluateKpiRank,
   getWorkSelfConvertedScore,
   getWorkApprovedConvertedScore,
-  isWorkApproved
+  isWorkApproved,
+  canonicalizeTaskGroup,
+  KPI_A_CRITERIA,
+  getCurrentMonth
 } from '../src/utils.ts';
+import { ADMIN_EMAIL } from './auth.ts';
 
 export const kpiRouter = express.Router();
+
+export function validateAndSanitizeDetailsA(
+  inputDetailsA: any,
+  existingDetailsA?: any,
+  options?: { isSelfScore?: boolean; isApproval?: boolean; maxA?: number }
+) {
+  const maxA = options?.maxA || 30;
+  const existingScores = (existingDetailsA && typeof existingDetailsA === 'object' && existingDetailsA.scores) ? existingDetailsA.scores : {};
+  const inputScores = (inputDetailsA && typeof inputDetailsA === 'object') ? (inputDetailsA.scores || inputDetailsA) : {};
+  
+  const sanitizedScores: Record<string, { max: number; self: number | null; approved: number | null; reason: string }> = {};
+  
+  let selfSum = 0;
+  let hasAnySelf = false;
+  let approvedSum = 0;
+  let hasAnyApproved = false;
+  let allApprovedFilled = true;
+
+  for (const crit of KPI_A_CRITERIA) {
+    const code = crit.code;
+    const maxScore = crit.maxScore;
+
+    // --- 1. Evaluate self score ---
+    let selfVal: number | null = null;
+    if (options?.isSelfScore) {
+      const rawSelf = inputScores?.[code] !== undefined ? inputScores[code] : (inputDetailsA?.[code] !== undefined ? inputDetailsA[code] : null);
+      if (rawSelf !== null && rawSelf !== undefined && rawSelf !== '') {
+        const num = parseFloat(String(rawSelf));
+        if (!isNaN(num) && isFinite(num)) {
+          selfVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
+        }
+      }
+    } else {
+      const rawSelf = inputScores?.[code]?.self !== undefined 
+        ? inputScores[code].self 
+        : (existingScores?.[code]?.self !== undefined ? existingScores[code].self : null);
+      if (rawSelf !== null && rawSelf !== undefined && rawSelf !== '') {
+        const num = parseFloat(String(rawSelf));
+        if (!isNaN(num) && isFinite(num)) {
+          selfVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
+        }
+      }
+    }
+
+    if (selfVal !== null) {
+      hasAnySelf = true;
+      selfSum += selfVal;
+    }
+
+    // --- 2. Evaluate approved score ---
+    let approvedVal: number | null = null;
+    let reason = '';
+
+    if (options?.isApproval) {
+      const rawApproved = inputScores?.[code]?.approved !== undefined 
+        ? inputScores[code].approved 
+        : (inputScores?.[code] !== undefined && typeof inputScores[code] !== 'object' ? inputScores[code] : null);
+      if (rawApproved !== null && rawApproved !== undefined && rawApproved !== '') {
+        const num = parseFloat(String(rawApproved));
+        if (!isNaN(num) && isFinite(num)) {
+          approvedVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
+        }
+      }
+      reason = String(inputScores?.[code]?.reason || inputDetailsA?.scores?.[code]?.reason || existingScores?.[code]?.reason || '');
+    } else {
+      const rawApproved = existingScores?.[code]?.approved !== undefined 
+        ? existingScores[code].approved 
+        : (inputScores?.[code]?.approved !== undefined ? inputScores[code].approved : null);
+      if (rawApproved !== null && rawApproved !== undefined && rawApproved !== '') {
+        const num = parseFloat(String(rawApproved));
+        if (!isNaN(num) && isFinite(num)) {
+          approvedVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
+        }
+      }
+      reason = String(existingScores?.[code]?.reason || inputScores?.[code]?.reason || '');
+    }
+
+    if (approvedVal !== null) {
+      hasAnyApproved = true;
+      approvedSum += approvedVal;
+    } else {
+      allApprovedFilled = false;
+    }
+
+    sanitizedScores[code] = {
+      max: maxScore,
+      self: selfVal,
+      approved: approvedVal,
+      reason
+    };
+  }
+
+  const finalSelfTotal = hasAnySelf ? Math.round(Math.min(maxA, Math.max(0, selfSum)) * 10) / 10 : null;
+  const finalApprovedTotal = (hasAnyApproved && allApprovedFilled) ? Math.round(Math.min(maxA, Math.max(0, approvedSum)) * 10) / 10 : (hasAnyApproved ? Math.round(Math.min(maxA, Math.max(0, approvedSum)) * 10) / 10 : null);
+
+  let statusA = inputDetailsA?.statusA || existingDetailsA?.statusA || 'Chưa tự chấm';
+  if (options?.isSelfScore) {
+    statusA = hasAnySelf ? 'Đã tự chấm' : 'Chưa tự chấm';
+  } else if (options?.isApproval) {
+    statusA = (hasAnyApproved && allApprovedFilled) ? 'Đã duyệt' : (hasAnySelf ? 'Đã tự chấm' : 'Chưa tự chấm');
+  } else {
+    if (hasAnyApproved && allApprovedFilled) {
+      statusA = 'Đã duyệt';
+    } else if (hasAnySelf) {
+      statusA = 'Đã tự chấm';
+    }
+  }
+
+  return {
+    statusA,
+    selfTotal: finalSelfTotal,
+    approvedTotal: (statusA === 'Đã duyệt' || (hasAnyApproved && allApprovedFilled)) ? finalApprovedTotal : (existingDetailsA?.statusA === 'Đã duyệt' ? finalApprovedTotal : null),
+    noteA: String(inputDetailsA?.noteA ?? existingDetailsA?.noteA ?? ''),
+    leaderNoteA: String(inputDetailsA?.leaderNoteA ?? existingDetailsA?.leaderNoteA ?? ''),
+    scores: sanitizedScores,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+export function isKpiLeaderOrAdmin(u: any): boolean {
+  if (!u) return false;
+  const role = String(u.role || '').toUpperCase();
+  const email = String(u.email || '').toLowerCase();
+  if (role === 'ADMIN' || email === ADMIN_EMAIL.toLowerCase()) return true;
+  if (role === 'LEADER') return true;
+
+  const pos = String(u.position || '').toLowerCase();
+  const grp = String(u.group || '').toLowerCase();
+  
+  if (
+    pos.includes('trưởng phòng') ||
+    pos.includes('phó phòng') ||
+    pos.includes('phó trưởng phòng') ||
+    pos.includes('lãnh đạo') ||
+    pos.includes('trưởng đơn vị') ||
+    pos.includes('giám đốc') ||
+    pos.includes('phó giám đốc') ||
+    grp.includes('lãnh đạo')
+  ) {
+    return true;
+  }
+
+  try {
+    if (u.permissions) {
+      const perms = typeof u.permissions === 'string' ? JSON.parse(u.permissions) : u.permissions;
+      if (Array.isArray(perms) && (perms.includes('full_access') || perms.includes('kpi_manage') || perms.includes('approve_kpi') || perms.includes('leader'))) {
+        return true;
+      }
+    }
+  } catch {}
+
+  return false;
+}
 
 export function isUserActive(u: any): boolean {
   if (!u) return false;
@@ -88,13 +245,22 @@ export async function getEffectiveKpiConfig(): Promise<any> {
 export async function getEffectiveWorkNaturePointMap(): Promise<Record<string, number>> {
   try {
     const natureCats = await db.query.categories.findMany({
-      where: (cat, { eq, and }) => and(eq(cat.type, 'WORK_NATURE'), eq(cat.status, 'active'))
+      where: (cat, { eq }) => eq(cat.type, 'WORK_NATURE')
     });
     if (natureCats && natureCats.length > 0) {
+      const activeCats = natureCats.filter(cat => {
+        const st = String(cat.status || '').toLowerCase().trim();
+        return !st.includes('khóa') && !st.includes('khoa') && !st.includes('tạm khóa') && !st.includes('xóa') && !st.includes('xoa') && st !== 'inactive';
+      });
+      const targetCats = activeCats.length > 0 ? activeCats : natureCats;
       const map: Record<string, number> = {};
-      for (const cat of natureCats) {
+      for (const cat of targetCats) {
         const props: any = cat.properties || {};
-        const pt = props.bonusC1 !== undefined ? Number(props.bonusC1) : (props.point !== undefined ? Number(props.point) : 0);
+        const pt = props.c1Point !== undefined 
+          ? Number(props.c1Point) 
+          : (props.bonusC1 !== undefined 
+            ? Number(props.bonusC1) 
+            : (props.point !== undefined ? Number(props.point) : 0));
         map[cat.name] = isNaN(pt) ? 0 : pt;
       }
       return map;
@@ -107,8 +273,49 @@ export async function getEffectiveWorkNaturePointMap(): Promise<Record<string, n
     'Rất phức tạp': 2,
     'Phức tạp': 1,
     'Trung bình': 0,
-    'Đơn giản': 0
+    'Đơn giản': 0,
+    'Rất đơn giản': 0
   };
+}
+
+/**
+ * Generates an immutable, deterministic KPI ID strictly bound to (month, userId).
+ * Eliminates issues caused by employee renaming or name homonyms.
+ */
+export function generateKpiId(month: string, userId: number): string {
+  return `${month}♦u${userId}`;
+}
+
+/**
+ * Finds a user's KPI record for a specific month with multi-stage fallback:
+ * 1. Exact relational match by (month, userId)
+ * 2. Canonical ID match (${month}♦u${userId})
+ * 3. Legacy ID fallback (${month}♦${userName}) for backward compatibility
+ */
+export async function findUserKpiRecord(month: string, userId: number, userName?: string) {
+  // 1. Primary & safest: match by composite key (month, userId)
+  const byUserAndMonth = await db.query.kpiResults.findFirst({
+    where: (r, { eq, and }) => and(eq(r.month, month), eq(r.userId, userId))
+  });
+  if (byUserAndMonth) return byUserAndMonth;
+
+  // 2. Match by canonical KPI ID
+  const canonicalId = generateKpiId(month, userId);
+  const byCanonicalId = await db.query.kpiResults.findFirst({
+    where: (r, { eq }) => eq(r.kpiId, canonicalId)
+  });
+  if (byCanonicalId) return byCanonicalId;
+
+  // 3. Fallback for legacy records created with `${month}♦${userName}`
+  if (userName) {
+    const legacyId = `${month}♦${userName}`;
+    const byLegacyId = await db.query.kpiResults.findFirst({
+      where: (r, { eq }) => eq(r.kpiId, legacyId)
+    });
+    if (byLegacyId) return byLegacyId;
+  }
+
+  return null;
 }
 
 // 1. GET ALL KPI RESULTS
@@ -139,6 +346,10 @@ kpiRouter.get('/org-config', async (req, res) => {
 // 1.6 SAVE ORG / SYSTEM CONFIG
 kpiRouter.post('/org-config', async (req, res) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({ success: false, error: 'Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền chỉnh sửa thông tin Cơ quan - Đơn vị.' });
+    }
     const payload = req.body;
     const orgProperties = {
       parentAgency: payload.parentAgency || DEFAULT_ORG_CONFIG.parentAgency,
@@ -196,6 +407,10 @@ kpiRouter.post('/org-config', async (req, res) => {
 // 1.7 RESET ORG CONFIG
 kpiRouter.post('/org-config/reset', async (req, res) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({ success: false, error: 'Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền khôi phục cấu hình Cơ quan - Đơn vị.' });
+    }
     await db.insert(categories).values({
       code: 'SYSTEM_ORG_CONFIG',
       name: 'Cấu hình Cơ quan - Đơn vị mặc định',
@@ -253,6 +468,10 @@ kpiRouter.get('/config', async (req, res) => {
 // 3. SAVE KPI CONFIG
 kpiRouter.post('/config', async (req, res) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({ success: false, error: 'Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền lưu cấu hình phân bổ điểm & xếp loại KPI.' });
+    }
     const payload = req.body;
     const code = payload.code || 'KPI_GLOBAL_CONFIG';
     const name = payload.name || 'Cấu hình phân bổ điểm KPI & Quy ước xếp loại';
@@ -297,6 +516,10 @@ kpiRouter.post('/config', async (req, res) => {
 // 4. RESET KPI CONFIG
 kpiRouter.post('/config/reset', async (req, res) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({ success: false, error: 'Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền khôi phục cấu hình KPI về mặc định.' });
+    }
     await db.insert(categories).values({
       code: 'KPI_GLOBAL_CONFIG',
       name: 'Cấu hình phân bổ điểm KPI & Quy ước xếp loại tiêu chuẩn',
@@ -331,23 +554,32 @@ kpiRouter.post('/config/reset', async (req, res) => {
 kpiRouter.get('/detail', async (req, res) => {
   try {
     const { month, userId, userName } = req.query;
-    const targetMonth = String(month || '08-2026');
+    const targetMonth = String(month || getCurrentMonth());
+    const authUser = (req as any).authUser;
     
-    let targetUser = null;
-    if (userId) {
-      targetUser = await db.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, Number(userId))
-      });
-    } else if (userName) {
-      targetUser = await db.query.users.findFirst({
-        where: (u, { eq }) => eq(u.name, String(userName))
-      });
+    let targetUser: any = null;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      // Nhân viên chỉ được xem KPI của chính mình; không tin userId truy vấn của người khác
+      if (userId && Number(userId) !== Number(authUser.id)) {
+        return res.status(403).json({ success: false, error: "Bạn chỉ có quyền xem chi tiết KPI của chính mình." });
+      }
+      targetUser = authUser;
     } else {
-      targetUser = await db.query.users.findFirst();
+      if (userId) {
+        targetUser = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(userId))
+        });
+      } else if (userName) {
+        targetUser = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(userName))
+        });
+      } else {
+        targetUser = authUser;
+      }
     }
 
     if (!targetUser) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ success: false, error: "Không tìm thấy người dùng." });
     }
 
     const allUsers = await db.query.users.findMany();
@@ -452,29 +684,10 @@ kpiRouter.get('/detail', async (req, res) => {
     const selfB2 = (userWorks.length > 0 && avgSelfShare > 0) ? Math.round(Math.min(alloc.maxB2 || 15, (userSelfShare / avgSelfShare) * (alloc.maxB2 || 15)) * 100) / 100 : 0;
     const selfBTotal = Math.round(Math.min(alloc.maxB || 60, selfB1 + selfB2) * 100) / 100;
 
-    const kpiId = `${targetMonth}♦${targetUser.name}`;
-    const kpiRecord = await db.query.kpiResults.findFirst({
-      where: (r, { eq }) => eq(r.kpiId, kpiId)
-    });
+    const kpiId = generateKpiId(targetMonth, targetUser.id);
+    const kpiRecord = await findUserKpiRecord(targetMonth, targetUser.id, targetUser.name);
 
-    const defaultDetailsA = {
-      statusA: 'Chưa tự chấm',
-      selfTotal: null,
-      approvedTotal: null,
-      noteA: '',
-      leaderNoteA: '',
-      scores: {
-        A1: { max: 5, self: null, approved: null, reason: '' },
-        A2: { max: 5, self: null, approved: null, reason: '' },
-        A3: { max: 5, self: null, approved: null, reason: '' },
-        A4: { max: 4, self: null, approved: null, reason: '' },
-        A5: { max: 4, self: null, approved: null, reason: '' },
-        A6: { max: 4, self: null, approved: null, reason: '' },
-        A7: { max: 3, self: null, approved: null, reason: '' }
-      }
-    };
-
-    const detailsA = (kpiRecord?.detailsA as any) || defaultDetailsA;
+    const detailsA = validateAndSanitizeDetailsA(kpiRecord?.detailsA, undefined, { maxA: alloc.maxA });
     const rawDetailsC = (kpiRecord?.detailsC as any) || {};
     const finalC1 = approvedAutoC1;
     const finalC2 = rawDetailsC.c2 !== undefined ? rawDetailsC.c2 : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
@@ -644,6 +857,7 @@ kpiRouter.get('/detail', async (req, res) => {
         detailsA,
         detailsC,
         detailsD,
+        naturePointMap,
         works: userWorks,
         approvedTasks: userApprovedWorks
       }
@@ -657,88 +871,83 @@ kpiRouter.get('/detail', async (req, res) => {
 // 6. SELF SCORE A
 kpiRouter.post('/self-score-a', async (req, res) => {
   try {
-    const { month, userId, userName, scores, note } = req.body;
-    const targetMonth = month || '08-2026';
+    const { month, scores, note } = req.body;
+    const targetMonth = month || getCurrentMonth();
+    const authUser = (req as any).authUser;
 
     let targetUser = null;
-    if (userId) {
-      targetUser = await db.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, Number(userId))
-      });
-    } else if (userName) {
-      targetUser = await db.query.users.findFirst({
-        where: (u, { eq }) => eq(u.name, String(userName))
-      });
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      // Nhân viên chỉ được tự chấm điểm A cho chính mình; không tin userId hay role từ body
+      if (req.body.userId && Number(req.body.userId) !== Number(authUser.id)) {
+        const msg = 'Bạn chỉ có quyền tự chấm điểm A cho chính mình.';
+        return res.status(403).json({ success: false, error: msg, message: msg });
+      }
+      targetUser = authUser;
     } else {
-      targetUser = await db.query.users.findFirst();
+      if (req.body.userId) {
+        targetUser = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(req.body.userId))
+        });
+      } else if (req.body.userName) {
+        targetUser = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(req.body.userName))
+        });
+      }
+      if (!targetUser) {
+        targetUser = authUser;
+      }
     }
 
     if (!targetUser) {
-      return res.status(404).json({ error: "User not found" });
+      const msg = "Không tìm thấy người dùng.";
+      return res.status(404).json({ success: false, error: msg, message: msg });
     }
 
-    const totalSelf = Object.keys(scores || {}).reduce((s, k) => s + (parseFloat(scores[k]) || 0), 0);
-    const kpiId = `${targetMonth}♦${targetUser.name}`;
+    const kpiConfig = await getEffectiveKpiConfig();
+    const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
+    const existingKpi = await findUserKpiRecord(targetMonth, targetUser.id, targetUser.name);
 
-    const existingKpi = await db.query.kpiResults.findFirst({
-      where: (r, { eq }) => eq(r.kpiId, kpiId)
+    const sanitizedDetailsA = validateAndSanitizeDetailsA(
+      { scores, noteA: note },
+      existingKpi?.detailsA,
+      { isSelfScore: true, maxA: alloc.maxA }
+    );
+
+    // Save and recalculate full KPI record for user atomically in a single step (no partial unfinalized state)
+    const kpiResult = await calculateAndSaveUserKpi(targetUser, targetMonth, undefined, {
+      overrideDetailsA: sanitizedDetailsA,
+      note: `Tự chấm điểm A lúc ${new Date().toLocaleString('vi-VN')}`
     });
-
-    const detailsA = {
-      statusA: 'Đã tự chấm',
-      selfTotal: Math.round(totalSelf * 10) / 10,
-      approvedTotal: existingKpi?.detailsA ? (existingKpi.detailsA as any).approvedTotal : null,
-      noteA: note || '',
-      leaderNoteA: existingKpi?.detailsA ? (existingKpi.detailsA as any).leaderNoteA : '',
-      scores: {
-        A1: { max: 5, self: scores?.A1 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A1?.approved ?? null, reason: '' },
-        A2: { max: 5, self: scores?.A2 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A2?.approved ?? null, reason: '' },
-        A3: { max: 5, self: scores?.A3 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A3?.approved ?? null, reason: '' },
-        A4: { max: 4, self: scores?.A4 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A4?.approved ?? null, reason: '' },
-        A5: { max: 4, self: scores?.A5 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A5?.approved ?? null, reason: '' },
-        A6: { max: 4, self: scores?.A6 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A6?.approved ?? null, reason: '' },
-        A7: { max: 3, self: scores?.A7 ?? null, approved: (existingKpi?.detailsA as any)?.scores?.A7?.approved ?? null, reason: '' },
-      },
-      updatedAt: new Date().toISOString()
-    };
-
-    await db.insert(kpiResults).values({
-      kpiId,
-      month: targetMonth,
-      userId: targetUser.id,
-      aScore: '0',
-      detailsA,
-      registeredWorks: 0,
-      approvedWorks: 0,
-      totalKpi: '0',
-      rank: 'Chưa chốt'
-    }).onConflictDoUpdate({
-      target: kpiResults.kpiId,
-      set: {
-        detailsA,
-        updatedAt: new Date()
-      }
-    });
-
-    // Automatically recalculate full KPI record for user
-    await calculateAndSaveUserKpi(targetUser, targetMonth);
 
     res.json({
       success: true,
-      message: `Đã lưu kết quả tự chấm A tháng ${targetMonth} (${totalSelf}/30 điểm). Chờ lãnh đạo duyệt!`,
-      data: detailsA
+      message: `Đã lưu kết quả tự chấm A tháng ${targetMonth} (${sanitizedDetailsA.selfTotal ?? 0}/30 điểm). Chờ lãnh đạo duyệt!`,
+      data: sanitizedDetailsA,
+      kpiResult
     });
   } catch (error) {
     console.error("Error self-scoring A:", error);
-    res.status(500).json({ error: String(error) });
+    const msg = 'Lỗi hệ thống khi lưu kết quả tự chấm: ' + String(error);
+    res.status(500).json({ success: false, error: msg, message: msg });
   }
 });
 
 // 7. APPROVE A / C / D
 kpiRouter.post('/approve-acd', async (req, res) => {
   try {
-    const { month, userId, userName, detailsA, detailsC, detailsD, approverName } = req.body;
-    const targetMonth = month || '08-2026';
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      const msg = "Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền thẩm định và phê duyệt điểm KPI.";
+      return res.status(403).json({
+        success: false,
+        error: msg,
+        message: msg
+      });
+    }
+
+    const { month, userId, userName, detailsA, detailsC, detailsD } = req.body;
+    const targetMonth = month || getCurrentMonth();
+    const approverName = authUser?.name || 'Lãnh đạo';
 
     let targetUser = null;
     if (userId) {
@@ -751,12 +960,12 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       });
     }
 
-    if (!targetUser) return res.status(404).json({ error: "User not found" });
+    if (!targetUser) {
+      const msg = "Không tìm thấy người dùng.";
+      return res.status(404).json({ success: false, error: msg, message: msg });
+    }
 
-    const kpiId = `${targetMonth}♦${targetUser.name}`;
-    const existingKpi = await db.query.kpiResults.findFirst({
-      where: (r, { eq }) => eq(r.kpiId, kpiId)
-    });
+    const existingKpi = await findUserKpiRecord(targetMonth, targetUser.id, targetUser.name);
 
     // Calculate B1, B2 and B from currently approved works in month using the exact same filter and formulas as calculateAndSaveUserKpi
     const allUsers = await db.query.users.findMany();
@@ -851,36 +1060,23 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     const b2 = approvedB2;
     const bScore = approvedBTotal;
 
-    // Determine detailsA & aScore
+    // Determine detailsA & aScore with strict server-side validation & ceiling capping
     const hasA = detailsA !== undefined && detailsA !== null;
-    let finalDetailsA = existingKpi?.detailsA ?? null;
+    let finalDetailsA: any = existingKpi?.detailsA ?? null;
     let finalAScore: number | null = null;
 
     if (hasA) {
-      finalDetailsA = detailsA;
-      if (detailsA.approvedTotal !== undefined && detailsA.approvedTotal !== null && detailsA.approvedTotal !== '' && !isNaN(Number(detailsA.approvedTotal))) {
-        finalAScore = Number(detailsA.approvedTotal);
-      } else if (detailsA.scores && typeof detailsA.scores === 'object') {
-        let sumA = 0;
-        let anyValid = false;
-        for (const k of Object.keys(detailsA.scores)) {
-          const sc = detailsA.scores[k]?.approved;
-          if (sc !== undefined && sc !== null && sc !== '' && !isNaN(Number(sc))) {
-            sumA += Number(sc);
-            anyValid = true;
-          }
-        }
-        finalAScore = anyValid ? sumA : null;
-      }
+      finalDetailsA = validateAndSanitizeDetailsA(detailsA, existingKpi?.detailsA, { isApproval: true, maxA: alloc.maxA });
+      finalAScore = finalDetailsA.approvedTotal !== null ? Number(finalDetailsA.approvedTotal) : null;
     } else {
-      if (existingKpi?.detailsA && (existingKpi.detailsA as any).approvedTotal !== undefined && (existingKpi.detailsA as any).approvedTotal !== null && (existingKpi.detailsA as any).approvedTotal !== '' && !isNaN(Number((existingKpi.detailsA as any).approvedTotal))) {
-        finalAScore = Number((existingKpi.detailsA as any).approvedTotal);
+      if (existingKpi?.detailsA) {
+        finalDetailsA = validateAndSanitizeDetailsA(existingKpi.detailsA, undefined, { maxA: alloc.maxA });
+        finalAScore = finalDetailsA.approvedTotal !== null ? Number(finalDetailsA.approvedTotal) : (existingKpi.aScore ? Number(existingKpi.aScore) : null);
       } else if (existingKpi?.aScore !== undefined && existingKpi?.aScore !== null && existingKpi?.aScore !== '' && !isNaN(Number(existingKpi.aScore))) {
         finalAScore = Number(existingKpi.aScore);
       }
     }
 
-    // Validate A (finite, >= 0, <= maxA)
     if (finalAScore !== null) {
       finalAScore = isNaN(finalAScore) || !isFinite(finalAScore) ? 0 : Math.max(0, Math.min(alloc.maxA || 30, finalAScore));
     }
@@ -1002,112 +1198,27 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       }
     }
 
-    // Check if statusA, statusC, statusD are all 'Đã duyệt'
-    const statusA = (finalDetailsA as any)?.statusA;
-    const statusC = (finalDetailsC as any)?.statusC;
-    const statusD = (finalDetailsD as any)?.statusD;
-    const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
+    const saveNote = (approverName || hasA || hasC || hasD)
+      ? `Đã duyệt bởi ${approverName || 'Lãnh đạo'} lúc ${new Date().toLocaleString('vi-VN')}`
+      : undefined;
 
-    // Calculate self total and ranking
-    const explicitSelfA = (finalDetailsA as any)?.selfTotal !== null && (finalDetailsA as any)?.selfTotal !== undefined && !isNaN(Number((finalDetailsA as any).selfTotal)) ? Number((finalDetailsA as any).selfTotal) : null;
-    const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
-    const selfAutoD = Array.isArray((finalDetailsD as any)?.items) ? (finalDetailsD as any).items.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0) : 0;
-    const selfD = alloc.maxD ? Math.min(alloc.maxD, selfAutoD) : selfAutoD;
-    const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
-    const selfKpiTotal = calculateTotalKpi(selfAScoreForTotal, selfBTotal, selfC, selfD, kpiConfig.formula, alloc);
-    let selfRank = 'Chưa xếp loại';
-    if (explicitSelfA !== null) {
-      selfRank = evaluateKpiRank(selfKpiTotal, kpiConfig.rankingTiers, { scoreA: explicitSelfA, scoreB: selfBTotal, scoreD: selfD }).rank;
-    } else {
-      selfRank = 'Chưa tự chấm A';
-    }
-
-    // Calculate total KPI & ranking
-    let totalKpi: number | null = null;
-    let rankEval = { rank: 'Chờ duyệt' };
-
-    if (isAllApproved) {
-      if (finalAScore !== null && !isNaN(finalAScore)) {
-        totalKpi = calculateTotalKpi(finalAScore, approvedBTotal, finalCScore, finalDScore, kpiConfig.formula, alloc);
-        rankEval = evaluateKpiRank(totalKpi, kpiConfig.rankingTiers, { scoreA: finalAScore, scoreB: approvedBTotal, scoreD: finalDScore });
-      }
-    } else {
-      totalKpi = null;
-      rankEval = { rank: 'Chờ duyệt' };
-    }
-
-    const updateSet: any = {
-      b1Score: String(approvedB1),
-      b2Score: String(approvedB2),
-      bScore: String(approvedBTotal),
-      registeredWorks: userWorks.length,
-      approvedWorks: userApprovedWorks.length,
-      updatedAt: new Date()
-    };
-
-    if (hasA) {
-      updateSet.aScore = finalAScore !== null ? String(finalAScore) : null;
-      updateSet.detailsA = finalDetailsA;
-    }
-    if (hasC) {
-      updateSet.c1Score = String(finalC1Score);
-      updateSet.c2Score = String(finalC2Score);
-      updateSet.cScore = String(finalCScore);
-      updateSet.detailsC = finalDetailsC;
-    }
-    if (hasD) {
-      updateSet.dScore = String(finalDScore);
-      updateSet.detailsD = finalDetailsD;
-    }
-
-    if (isAllApproved) {
-      if (totalKpi !== null) {
-        updateSet.totalKpi = String(totalKpi);
-        updateSet.rank = rankEval.rank;
-      }
-    } else {
-      updateSet.totalKpi = null;
-      updateSet.rank = 'Chờ duyệt';
-    }
-
-    if (approverName || hasA || hasC || hasD) {
-      updateSet.note = `Đã cập nhật duyệt bởi ${approverName || 'Lãnh đạo'} lúc ${new Date().toLocaleString('vi-VN')}`;
-    }
-
-    await db.insert(kpiResults).values({
-      kpiId,
-      month: targetMonth,
-      userId: targetUser.id,
-      aScore: finalAScore !== null ? String(finalAScore) : null,
-      b1Score: String(approvedB1),
-      b2Score: String(approvedB2),
-      bScore: String(approvedBTotal),
-      c1Score: String(finalC1Score),
-      c2Score: String(finalC2Score),
-      cScore: String(finalCScore),
-      dScore: String(finalDScore),
-      registeredWorks: userWorks.length,
-      approvedWorks: userApprovedWorks.length,
-      totalKpi: isAllApproved && totalKpi !== null ? String(totalKpi) : null,
-      rank: isAllApproved ? rankEval.rank : 'Chờ duyệt',
-      detailsA: finalDetailsA,
-      detailsC: finalDetailsC,
-      detailsD: finalDetailsD,
-      note: `Đã duyệt bởi ${approverName || 'Lãnh đạo'} lúc ${new Date().toLocaleString('vi-VN')}`
-    }).onConflictDoUpdate({
-      target: kpiResults.kpiId,
-      set: updateSet
+    // Atomically recalculate and save user KPI with validated overrides
+    const kpiCalcResult = await calculateAndSaveUserKpi(targetUser, targetMonth, undefined, {
+      overrideDetailsA: hasA ? finalDetailsA : undefined,
+      overrideDetailsC: hasC ? finalDetailsC : undefined,
+      overrideDetailsD: hasD ? finalDetailsD : undefined,
+      note: saveNote
     });
 
     res.json({ 
       success: true, 
-      message: `Đã cập nhật duyệt điểm A (${finalAScore !== null ? finalAScore : 'chờ duyệt'}đ) / C (${finalCScore}đ) / D (-${finalDScore}đ) cho ${targetUser.name} tháng ${targetMonth}! Tổng KPI: ${totalKpi !== null ? totalKpi : 'Chờ duyệt'} (${rankEval.rank})`,
+      message: `Đã cập nhật duyệt điểm A (${kpiCalcResult.approvedA !== null ? kpiCalcResult.approvedA : 'chờ duyệt'}đ) / C (${kpiCalcResult.cScore}đ) / D (-${kpiCalcResult.dScore}đ) cho ${targetUser.name} tháng ${targetMonth}! Tổng KPI: ${kpiCalcResult.totalKpi !== null ? kpiCalcResult.totalKpi : 'Chờ duyệt'} (${kpiCalcResult.rank})`,
       data: {
-        kpiId,
+        kpiId: kpiCalcResult.kpiId,
         month: targetMonth,
         userId: targetUser.id,
         userName: targetUser.name,
-        approvedA: finalAScore,
+        approvedA: kpiCalcResult.approvedA,
         selfB1,
         selfB2,
         selfBTotal,
@@ -1125,14 +1236,14 @@ kpiRouter.post('/approve-acd', async (req, res) => {
         autoC1: approvedAutoC1,
         c1Score: finalC1Score,
         c2Score: finalC2Score,
-        cScore: finalCScore,
-        dScore: finalDScore,
-        totalKpi,
-        rank: rankEval.rank,
-        selfKpiTotal,
-        selfRank,
-        approvedKpiTotal: totalKpi,
-        approvedRank: rankEval.rank,
+        cScore: kpiCalcResult.cScore,
+        dScore: kpiCalcResult.dScore,
+        totalKpi: kpiCalcResult.totalKpi,
+        rank: kpiCalcResult.rank,
+        selfKpiTotal: kpiCalcResult.selfKpiTotal,
+        selfRank: kpiCalcResult.selfRank,
+        approvedKpiTotal: kpiCalcResult.approvedKpiTotal,
+        approvedRank: kpiCalcResult.approvedRank,
         registeredWorks: userWorks.length,
         approvedWorks: userApprovedWorks.length,
         detailsA: finalDetailsA,
@@ -1149,8 +1260,16 @@ kpiRouter.post('/approve-acd', async (req, res) => {
 // 8. CALCULATE / RECALCULATE KPI FOR A SINGLE USER
 kpiRouter.post('/calculate', async (req, res) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({
+        success: false,
+        error: "Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền thực hiện tính toán KPI."
+      });
+    }
+
     const { month, userId, userName } = req.body;
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
     
     let targetUser = null;
     if (userId) {
@@ -1158,7 +1277,7 @@ kpiRouter.post('/calculate', async (req, res) => {
     } else if (userName) {
       targetUser = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.name, String(userName)) });
     }
-    if (!targetUser) return res.status(404).json({ error: "User not found" });
+    if (!targetUser) return res.status(404).json({ success: false, error: "Không tìm thấy người dùng." });
 
     const result = await calculateAndSaveUserKpi(targetUser, targetMonth);
     res.json({ success: true, message: `Đã tính điểm KPI tháng ${targetMonth} cho ${targetUser.name}: ${result.totalKpi} (${result.rank})`, data: result });
@@ -1171,8 +1290,16 @@ kpiRouter.post('/calculate', async (req, res) => {
 // 9. RECALCULATE ALL OR SPECIFIED USERS FOR A MONTH
 const handleRecalculateAllRequest = async (req: express.Request, res: express.Response) => {
   try {
+    const authUser = (req as any).authUser;
+    if (!isKpiLeaderOrAdmin(authUser)) {
+      return res.status(403).json({
+        success: false,
+        error: "Chỉ Quản trị viên hoặc Lãnh đạo mới có quyền tính toán lại toàn bộ KPI."
+      });
+    }
+
     const { month, userIds } = req.body || {};
-    const targetMonth = month || '08-2026';
+    const targetMonth = month || getCurrentMonth();
 
     const result = await recalculateKpiForMonth(targetMonth, userIds);
 
@@ -1214,7 +1341,7 @@ kpiRouter.post('/recalculate', handleRecalculateAllRequest);
 kpiRouter.get('/department-summary', async (req, res) => {
   try {
     const { month } = req.query;
-    const targetMonth = String(month || '08-2026');
+    const targetMonth = String(month || getCurrentMonth());
 
     const allUsers = await db.query.users.findMany({
       orderBy: (u, { asc }) => [asc(u.id)]
@@ -1254,13 +1381,10 @@ kpiRouter.get('/department-summary', async (req, res) => {
 
     let deptNatureTotal = 0;
     let selfDeptNatureTotal = 0;
-    const natureCountMap: Record<string, number> = {
-      'Đặc biệt phức tạp': 0,
-      'Rất phức tạp': 0,
-      'Phức tạp': 0,
-      'Trung bình': 0,
-      'Đơn giản': 0
-    };
+    const natureCountMap: Record<string, number> = {};
+    Object.keys(naturePointMap).forEach(k => {
+      natureCountMap[k] = 0;
+    });
 
     deptApprovedWorks.forEach(w => {
       const nat = w.approvedNature || w.proposedNature || 'Trung bình';
@@ -1289,10 +1413,19 @@ kpiRouter.get('/department-summary', async (req, res) => {
     const kpiMapByUserId = new Map<number, any>();
     const kpiMapByUserName = new Map<string, any>();
     allKpiResultsInMonth.forEach(r => {
-      if (r.userId) kpiMapByUserId.set(r.userId, r);
+      if (r.userId) {
+        kpiMapByUserId.set(r.userId, r);
+      }
       if (r.kpiId) {
-        const parts = r.kpiId.split('♦');
-        if (parts.length > 1) kpiMapByUserName.set(parts[1].trim(), r);
+        const uMatch = r.kpiId.match(/♦u(\d+)$/);
+        if (uMatch) {
+          kpiMapByUserId.set(parseInt(uMatch[1], 10), r);
+        } else {
+          const parts = r.kpiId.split('♦');
+          if (parts.length > 1) {
+            kpiMapByUserName.set(parts[1].trim(), r);
+          }
+        }
       }
     });
 
@@ -1529,7 +1662,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
     // Task group summary
     const taskGroupMap: Record<string, { total: number; approved: number; completed: number; score: number }> = {};
     validWorksInMonth.forEach(w => {
-      const g = w.taskGroup || 'Khác';
+      const g = canonicalizeTaskGroup(w.taskGroup);
       if (!taskGroupMap[g]) {
         taskGroupMap[g] = { total: 0, approved: 0, completed: 0, score: 0 };
       }
@@ -1630,6 +1763,7 @@ kpiRouter.get('/department-summary', async (req, res) => {
         },
         taskGroupSummary: taskGroupMap,
         natureDistribution: natureCountMap,
+        naturePointMap: naturePointMap,
         users: userKpiSummaries
       }
     });
@@ -1642,7 +1776,18 @@ kpiRouter.get('/department-summary', async (req, res) => {
 export async function calculateAndSaveUserKpi(
   targetUser: any, 
   targetMonth: string,
-  preloadedData?: { allUsers?: any[]; allWorksInMonth?: any[] }
+  preloadedData?: { 
+    allUsers?: any[]; 
+    allWorksInMonth?: any[]; 
+    naturePointMap?: Record<string, number>; 
+    kpiConfig?: any;
+  },
+  options?: {
+    overrideDetailsA?: any;
+    overrideDetailsC?: any;
+    overrideDetailsD?: any;
+    note?: string;
+  }
 ) {
   const allUsers = preloadedData?.allUsers || await db.query.users.findMany();
   const activeUsers = allUsers.filter(isUserActive);
@@ -1683,13 +1828,7 @@ export async function calculateAndSaveUserKpi(
   const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
   const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
-  const naturePointMap: Record<string, number> = {
-    'Đặc biệt phức tạp': 3,
-    'Rất phức tạp': 2,
-    'Phức tạp': 1,
-    'Trung bình': 0,
-    'Đơn giản': 0
-  };
+  const naturePointMap = preloadedData?.naturePointMap || await getEffectiveWorkNaturePointMap();
 
   // Self C1 calculations (all valid dept works in month, independent of leaderApproval; proposedNature -> approvedNature -> 'Trung bình')
   let selfPersonalNatureTotal = 0;
@@ -1706,7 +1845,7 @@ export async function calculateAndSaveUserKpi(
   });
   const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
 
-  const kpiConfig = await getEffectiveKpiConfig();
+  const kpiConfig = preloadedData?.kpiConfig || await getEffectiveKpiConfig();
   const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
   const maxC1Val = alloc.maxC1 || 6;
   const selfAutoC1 = avgSelfDeptNature > 0 ? Math.round(Math.min(maxC1Val, (selfPersonalNatureTotal * maxC1Val) / avgSelfDeptNature)) : 0;
@@ -1742,22 +1881,32 @@ export async function calculateAndSaveUserKpi(
   const b2 = approvedB2;
   const bTotal = approvedBTotal;
 
-  const kpiId = `${targetMonth}♦${targetUser.name}`;
-  const existingKpi = await db.query.kpiResults.findFirst({
-    where: (r, { eq }) => eq(r.kpiId, kpiId)
-  });
+  const canonicalKpiId = generateKpiId(targetMonth, targetUser.id);
+  const existingKpi = await findUserKpiRecord(targetMonth, targetUser.id, targetUser.name);
 
-  const rawDetailsA = (existingKpi?.detailsA as any) || {};
-  const approvedA = rawDetailsA.approvedTotal !== undefined && rawDetailsA.approvedTotal !== null 
-    ? parseFloat(rawDetailsA.approvedTotal) 
+  const rawDetailsA = options?.overrideDetailsA !== undefined
+    ? options.overrideDetailsA
+    : ((existingKpi?.detailsA as any) || null);
+
+  const validatedDetailsA = rawDetailsA 
+    ? validateAndSanitizeDetailsA(rawDetailsA, existingKpi?.detailsA, { maxA: alloc.maxA })
+    : null;
+
+  const approvedA = validatedDetailsA?.approvedTotal !== undefined && validatedDetailsA?.approvedTotal !== null 
+    ? Number(validatedDetailsA.approvedTotal) 
     : (existingKpi?.aScore ? parseFloat(existingKpi.aScore) : null);
 
-  const rawDetailsC = (existingKpi?.detailsC as any) || {};
+  const rawDetailsC = options?.overrideDetailsC !== undefined
+    ? options.overrideDetailsC
+    : ((existingKpi?.detailsC as any) || {});
+
   const c2Score = rawDetailsC.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (existingKpi?.c2Score ? parseFloat(existingKpi.c2Score) : 0);
   const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
   const cScore = Math.min(alloc.maxC || 10, approvedAutoC1 + c2Score);
 
-  const rawDetailsD = (existingKpi?.detailsD as any) || {};
+  const rawDetailsD = options?.overrideDetailsD !== undefined
+    ? options.overrideDetailsD
+    : ((existingKpi?.detailsD as any) || {});
   
   const autoPenaltyItems: any[] = [];
   userWorks.forEach(w => {
@@ -1814,7 +1963,7 @@ export async function calculateAndSaveUserKpi(
   };
 
   // Check if statusA, statusC, statusD are all 'Đã duyệt'
-  const statusA = (rawDetailsA as any)?.statusA;
+  const statusA = validatedDetailsA?.statusA;
   const statusC = (rawDetailsC as any)?.statusC;
   const statusD = (rawDetailsD as any)?.statusD;
   const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
@@ -1851,30 +2000,13 @@ export async function calculateAndSaveUserKpi(
 
   const finalTotalKpiStr = isAllApproved && totalKpi !== null ? String(totalKpi) : null;
   const finalRankStr = isAllApproved ? rankEval.rank : 'Chờ duyệt';
+  const saveNote = options?.note || `Tự động cập nhật tính toán KPI lúc ${new Date().toLocaleString('vi-VN')}`;
 
-  await db.insert(kpiResults).values({
-    kpiId,
-    month: targetMonth,
-    userId: targetUser.id,
-    aScore: approvedA !== null ? String(approvedA) : null,
-    b1Score: String(b1),
-    b2Score: String(b2),
-    bScore: String(bTotal),
-    c1Score: String(approvedAutoC1),
-    c2Score: String(c2Score),
-    cScore: String(cScore),
-    dScore: String(dScore),
-    registeredWorks: userWorks.length,
-    approvedWorks: userApprovedWorks.length,
-    totalKpi: finalTotalKpiStr,
-    rank: finalRankStr,
-    detailsA: rawDetailsA,
-    detailsC: updatedDetailsC,
-    detailsD: updatedDetailsD,
-    note: `Tự động cập nhật tính toán KPI lúc ${new Date().toLocaleString('vi-VN')}`
-  }).onConflictDoUpdate({
-    target: kpiResults.kpiId,
-    set: {
+  if (existingKpi && existingKpi.id) {
+    await db.update(kpiResults).set({
+      kpiId: canonicalKpiId,
+      month: targetMonth,
+      userId: targetUser.id,
       aScore: approvedA !== null ? String(approvedA) : null,
       b1Score: String(b1),
       b2Score: String(b2),
@@ -1887,13 +2019,59 @@ export async function calculateAndSaveUserKpi(
       approvedWorks: userApprovedWorks.length,
       totalKpi: finalTotalKpiStr,
       rank: finalRankStr,
+      detailsA: validatedDetailsA,
       detailsC: updatedDetailsC,
       detailsD: updatedDetailsD,
+      note: saveNote,
       updatedAt: new Date()
-    }
-  });
+    }).where(eq(kpiResults.id, existingKpi.id));
+  } else {
+    await db.insert(kpiResults).values({
+      kpiId: canonicalKpiId,
+      month: targetMonth,
+      userId: targetUser.id,
+      aScore: approvedA !== null ? String(approvedA) : null,
+      b1Score: String(b1),
+      b2Score: String(b2),
+      bScore: String(bTotal),
+      c1Score: String(approvedAutoC1),
+      c2Score: String(c2Score),
+      cScore: String(cScore),
+      dScore: String(dScore),
+      registeredWorks: userWorks.length,
+      approvedWorks: userApprovedWorks.length,
+      totalKpi: finalTotalKpiStr,
+      rank: finalRankStr,
+      detailsA: validatedDetailsA,
+      detailsC: updatedDetailsC,
+      detailsD: updatedDetailsD,
+      note: saveNote
+    }).onConflictDoUpdate({
+      target: kpiResults.kpiId,
+      set: {
+        userId: targetUser.id,
+        aScore: approvedA !== null ? String(approvedA) : null,
+        b1Score: String(b1),
+        b2Score: String(b2),
+        bScore: String(bTotal),
+        c1Score: String(approvedAutoC1),
+        c2Score: String(c2Score),
+        cScore: String(cScore),
+        dScore: String(dScore),
+        registeredWorks: userWorks.length,
+        approvedWorks: userApprovedWorks.length,
+        totalKpi: finalTotalKpiStr,
+        rank: finalRankStr,
+        detailsA: validatedDetailsA,
+        detailsC: updatedDetailsC,
+        detailsD: updatedDetailsD,
+        note: saveNote,
+        updatedAt: new Date()
+      }
+    });
+  }
 
-  const explicitSelfA = rawDetailsA.selfTotal !== undefined && rawDetailsA.selfTotal !== null && !isNaN(Number(rawDetailsA.selfTotal)) ? Number(rawDetailsA.selfTotal) : null;
+  const explicitSelfA = validatedDetailsA?.selfTotal !== undefined && validatedDetailsA?.selfTotal !== null && !isNaN(Number(validatedDetailsA.selfTotal)) ? Number(validatedDetailsA.selfTotal) : null;
   const selfAScoreForTotal = explicitSelfA !== null ? explicitSelfA : 0;
   const selfAutoD = autoPenaltyItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
   const selfD = alloc.maxD ? Math.min(alloc.maxD, selfAutoD) : selfAutoD;
@@ -1906,7 +2084,7 @@ export async function calculateAndSaveUserKpi(
   }
 
   return {
-    kpiId,
+    kpiId: canonicalKpiId,
     totalKpi,
     rank: rankEval.rank,
     selfKpiTotal,
@@ -1983,12 +2161,15 @@ export async function recalculateKpiForMonth(targetMonth: string, specificUserId
     where: (w, { eq }) => eq(w.month, targetMonth)
   });
 
+  const naturePointMap = await getEffectiveWorkNaturePointMap();
+  const kpiConfig = await getEffectiveKpiConfig();
+
   const succeeded: RecalculateUserSuccess[] = [];
   const failed: RecalculateUserFailure[] = [];
 
   for (const u of targetUsers) {
     try {
-      const res = await calculateAndSaveUserKpi(u, targetMonth, { allUsers, allWorksInMonth });
+      const res = await calculateAndSaveUserKpi(u, targetMonth, { allUsers, allWorksInMonth, naturePointMap, kpiConfig });
       succeeded.push({
         userId: Number(u.id),
         name: String(u.name || ''),

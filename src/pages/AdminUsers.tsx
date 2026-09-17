@@ -208,7 +208,7 @@ export default function AdminUsers() {
         }
         fetchUsers();
       } else {
-        alert('Lỗi: ' + data.error);
+        alert('Lỗi: ' + (data.message || data.error || 'Đã xảy ra lỗi khi lưu.'));
       }
     } catch (e) {
       console.error(e);
@@ -222,7 +222,7 @@ export default function AdminUsers() {
       const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) fetchUsers();
-      else alert('Lỗi: ' + data.error);
+      else alert('Lỗi: ' + (data.message || data.error || 'Không thể xóa tài khoản.'));
     } catch (e) {
       console.error(e);
     }

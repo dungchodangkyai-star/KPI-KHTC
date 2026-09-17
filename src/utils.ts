@@ -56,12 +56,58 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Standard 12 months of 2026 (matching Apps Script buildMonthListV8_)
-export const STANDARD_MONTHS = [
-  '01-2026', '02-2026', '03-2026', '04-2026', 
-  '05-2026', '06-2026', '07-2026', '08-2026', 
-  '09-2026', '10-2026', '11-2026', '12-2026'
-];
+// Dynamic multi-year range automatically sliding with real-time calendar
+export const getActiveYears = (): number[] => {
+  const currentYear = new Date().getFullYear();
+  const yearSet = new Set<number>([2025, 2026, 2027]);
+  for (let y = currentYear - 2; y <= currentYear + 2; y++) {
+    yearSet.add(y);
+  }
+  return Array.from(yearSet).sort((a, b) => a - b);
+};
+
+export interface MonthGroup {
+  year: number;
+  months: string[];
+}
+
+export const getMonthGroups = (extraMonths?: string[]): MonthGroup[] => {
+  const years = getActiveYears();
+  const yearSet = new Set<number>(years);
+
+  if (extraMonths && Array.isArray(extraMonths)) {
+    extraMonths.forEach(m => {
+      const match = String(m).match(/(\d{4})/);
+      if (match) {
+        const y = parseInt(match[1], 10);
+        if (!isNaN(y) && y >= 2000 && y <= 2100) {
+          yearSet.add(y);
+        }
+      }
+    });
+  }
+
+  const sortedYears = Array.from(yearSet).sort((a, b) => a - b);
+  return sortedYears.map(year => ({
+    year,
+    months: Array.from({ length: 12 }, (_, i) => `${String(i + 1).padStart(2, '0')}-${year}`)
+  }));
+};
+
+export const MONTH_GROUPS: MonthGroup[] = getMonthGroups();
+
+// Toàn bộ các tháng theo chu kỳ đa năm tự động
+export const STANDARD_MONTHS: string[] = MONTH_GROUPS.flatMap(g => g.months);
+
+/**
+ * Lấy tháng hiện tại linh hoạt theo thời gian thực (định dạng MM-YYYY, ví dụ: '09-2026')
+ */
+export const getCurrentMonth = (): string => {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  return `${mm}-${yyyy}`;
+};
 
 export const formatMonth = (m: any): string => {
   if (!m) return "";
@@ -178,6 +224,84 @@ export const formatDateInput = (d: any): string => {
   } catch (e) {
     return '';
   }
+};
+
+/**
+ * Parses Excel dates from various formats (serial number, Date object, DD/MM/YYYY, YYYY-MM-DD)
+ * and returns standard ISO date string 'YYYY-MM-DD' or null if invalid.
+ */
+export const parseExcelDateToISO = (val: any): string | null => {
+  if (val === undefined || val === null) return null;
+
+  // 1. Date object
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    const yyyy = val.getFullYear();
+    const mm = String(val.getMonth() + 1).padStart(2, '0');
+    const dd = String(val.getDate()).padStart(2, '0');
+    if (yyyy >= 1990 && yyyy <= 2100) {
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  }
+
+  // 2. Numeric Excel serial number (e.g., 46204)
+  const num = Number(val);
+  if (!isNaN(num) && typeof val !== 'boolean' && num >= 20000 && num <= 80000) {
+    // 25569 = days between 1900-01-01 and 1970-01-01
+    const ms = Math.round((num - 25569) * 86400000);
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      if (yyyy >= 1990 && yyyy <= 2100) {
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  }
+
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // 3. Match YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (ymdMatch) {
+    const yyyy = ymdMatch[1];
+    const mm = String(Number(ymdMatch[2])).padStart(2, '0');
+    const dd = String(Number(ymdMatch[3])).padStart(2, '0');
+    if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+
+  // 4. Match DD/MM/YYYY or DD-MM-YYYY (Vietnamese standard)
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    const dd = String(Number(dmyMatch[1])).padStart(2, '0');
+    const mm = String(Number(dmyMatch[2])).padStart(2, '0');
+    const yyyy = dmyMatch[3];
+    if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+
+  // 5. Fallback Date parsing
+  try {
+    const fallback = new Date(str);
+    if (!isNaN(fallback.getTime())) {
+      const yyyy = fallback.getFullYear();
+      const mm = String(fallback.getMonth() + 1).padStart(2, '0');
+      const dd = String(fallback.getDate()).padStart(2, '0');
+      if (yyyy >= 1990 && yyyy <= 2100) {
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return null;
 };
 
 export const getDaysDiff = (targetDateStr: string | null | undefined): number | null => {
@@ -594,6 +718,85 @@ export const DEFAULT_TASK_GROUPS = [
   'Hành chính - tổng hợp'
 ];
 
+export const DEFAULT_PRODUCT_TYPES = [
+  'Báo cáo',
+  'Tờ trình',
+  'Hồ sơ thanh toán',
+  'Hồ sơ quyết toán',
+  'Hồ sơ lựa chọn nhà thầu',
+  'Hồ sơ đền bù/GPMB',
+  'Hồ sơ',
+  'Hợp đồng',
+  'PL hợp đồng',
+  'Bảng tổng hợp',
+  'Bảng lương',
+  'Biên bản',
+  'Văn bản',
+  'Kế hoạch',
+  'Chứng từ',
+  'Sổ sách',
+  'Phiếu chi',
+  'Phiếu thu',
+  'Tờ khai'
+];
+
+export const normalizeKey = (str: any): string => {
+  if (str === null || str === undefined) return '';
+  return normalizeNFC(String(str)).trim().toLowerCase().replace(/\s+/g, ' ');
+};
+
+export const canonicalizeTaskGroup = (groupName: any, customGroups: string[] = []): string => {
+  if (groupName === null || groupName === undefined) return 'Khác';
+  const raw = normalizeNFC(String(groupName)).trim().replace(/\s+/g, ' ');
+  if (!raw) return 'Khác';
+  const clean = raw.toLowerCase();
+
+  // 1. Match default 13 task groups
+  for (const def of DEFAULT_TASK_GROUPS) {
+    if (def.toLowerCase() === clean) {
+      return def;
+    }
+  }
+
+  // 2. Match custom categories
+  if (Array.isArray(customGroups)) {
+    for (const cg of customGroups) {
+      if (cg && normalizeNFC(String(cg)).trim().toLowerCase().replace(/\s+/g, ' ') === clean) {
+        return normalizeNFC(String(cg)).trim().replace(/\s+/g, ' ');
+      }
+    }
+  }
+
+  // 3. Fallback: preserve original with first letter capitalized
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
+export const canonicalizeProductType = (productType: any, customTypes: string[] = []): string => {
+  if (productType === null || productType === undefined) return 'Sản phẩm khác';
+  const raw = normalizeNFC(String(productType)).trim().replace(/\s+/g, ' ');
+  if (!raw) return 'Sản phẩm khác';
+  const clean = raw.toLowerCase();
+
+  // 1. Match default product types
+  for (const def of DEFAULT_PRODUCT_TYPES) {
+    if (def.toLowerCase() === clean) {
+      return def;
+    }
+  }
+
+  // 2. Match custom categories
+  if (Array.isArray(customTypes)) {
+    for (const ct of customTypes) {
+      if (ct && normalizeNFC(String(ct)).trim().toLowerCase().replace(/\s+/g, ' ') === clean) {
+        return normalizeNFC(String(ct)).trim().replace(/\s+/g, ' ');
+      }
+    }
+  }
+
+  // 3. Fallback: capitalize first letter
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
 export const DEFAULT_TASKS: Record<string, Array<{ code: string; name: string; score: number; nature: string; productType: string; unit: string }>> = {
   'Kế hoạch vốn': [
     { code: 'KH01', name: 'Theo dõi kế hoạch vốn theo dự án, nguồn vốn', score: 10, nature: 'Trung bình', productType: 'Bảng tổng hợp', unit: 'Bảng' },
@@ -782,11 +985,6 @@ export const ORG_CONFIG_PRESETS: OrgPreset[] = [
       footerNote: 'Hệ thống Quản lý công việc & Hiệu suất'
     }
   }
-];
-
-export const DEFAULT_PRODUCT_TYPES = [
-  'Báo cáo', 'Văn bản', 'Tờ trình', 'Bảng tổng hợp', 'Hồ sơ thanh toán',
-  'Hồ sơ quyết toán', 'Hồ sơ lựa chọn nhà thầu', 'Hồ sơ đền bù/GPMB', 'Biên bản', 'Khác'
 ];
 
 export const KPI_A_CRITERIA: Array<{ code: string; name: string; maxScore: number; desc: string }> = [
@@ -1213,12 +1411,56 @@ export const setActiveLoggedInUser = (user: any, dispatchEvent = true) => {
 };
 
 /**
+ * Get active session token from localStorage
+ */
+export const getActiveSessionToken = (): string | null => {
+  try {
+    return localStorage.getItem('kpi_session_token');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Save active session token to localStorage
+ */
+export const setActiveSessionToken = (token: string) => {
+  try {
+    if (token) {
+      localStorage.setItem('kpi_session_token', token);
+    }
+  } catch (e) {
+    console.error("Error setting session token:", e);
+  }
+};
+
+/**
+ * Get standard authentication headers including Bearer token and current user ID
+ */
+export const getAuthHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {};
+  try {
+    const token = localStorage.getItem('kpi_session_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Session-Token'] = token;
+    }
+    const userId = localStorage.getItem('kpi_current_user_id');
+    if (userId) {
+      headers['X-User-Id'] = userId;
+    }
+  } catch {}
+  return headers;
+};
+
+/**
  * Clear logged in user session
  */
 export const clearActiveLoggedInUser = () => {
   try {
     localStorage.removeItem('kpi_logged_in_user');
     localStorage.removeItem('kpi_current_user_id');
+    localStorage.removeItem('kpi_session_token');
     window.dispatchEvent(new Event('kpi_user_changed'));
   } catch (e) {
     console.error("Error clearing user session:", e);
@@ -1226,15 +1468,17 @@ export const clearActiveLoggedInUser = () => {
 };
 
 /**
- * Safe parse response to JSON with protection against HTML, text, and "Rate exceeded" errors
+ * Safe parse response to JSON with protection against HTML, text, and "Rate exceeded" errors.
+ * Guarantees that both `error` and `message` properties are populated on failure so `data.error` or `data.message` is never undefined.
  */
 export async function safeParseResponse<T = any>(
   res: Response | Promise<Response>
-): Promise<{ success: boolean; data?: T; error?: string; [key: string]: any }> {
+): Promise<{ success: boolean; data?: T; error?: string; message?: string; [key: string]: any }> {
   try {
     const response = await res;
     if (!response) {
-      return { success: false, error: 'Không nhận được phản hồi từ máy chủ.', data: [] as any };
+      const errMsg = 'Không nhận được phản hồi từ máy chủ.';
+      return { success: false, error: errMsg, message: errMsg, data: [] as any };
     }
 
     const contentType = response.headers?.get('content-type') || '';
@@ -1247,41 +1491,73 @@ export async function safeParseResponse<T = any>(
     // Check if response is text or contains Rate exceeded
     if (text.includes('Rate exceeded') || text.trim().startsWith('<') || !contentType.includes('application/json')) {
       try {
-        return JSON.parse(text);
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.success === false || !response.ok) {
+            const msg = parsed.message || parsed.error || `Lỗi máy chủ (${response.status} ${response.statusText})`;
+            parsed.message = msg;
+            parsed.error = msg;
+            if (!response.ok) parsed.success = false;
+          }
+        }
+        return parsed;
       } catch {
         if (text.includes('Rate exceeded')) {
+          const errMsg = 'Tần suất gửi yêu cầu tạm thời vượt giới hạn. Hệ thống đang tự động tải lại dữ liệu.';
           return {
             success: false,
-            error: 'Tần suất gửi yêu cầu tạm thời vượt giới hạn. Hệ thống đang tự động tải lại dữ liệu.',
+            error: errMsg,
+            message: errMsg,
             data: [] as any
           };
         }
+        const errMsg = response.ok ? 'Dữ liệu nhận về không phải JSON hợp lệ.' : `Lỗi máy chủ (${response.status} ${response.statusText})`;
         return {
           success: false,
-          error: response.ok ? 'Dữ liệu nhận về không phải JSON hợp lệ.' : `Lỗi máy chủ (${response.status} ${response.statusText})`,
+          error: errMsg,
+          message: errMsg,
           data: [] as any
         };
       }
     }
 
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.success === false || !response.ok) {
+        const msg = parsed.message || parsed.error || `Lỗi máy chủ (${response.status} ${response.statusText})`;
+        parsed.message = msg;
+        parsed.error = msg;
+        if (!response.ok) parsed.success = false;
+      }
+    }
+    return parsed;
   } catch (err: any) {
+    const errMsg = err?.message || 'Lỗi xử lý phản hồi máy chủ.';
     return {
       success: false,
-      error: err?.message || 'Lỗi xử lý phản hồi máy chủ.',
+      error: errMsg,
+      message: errMsg,
       data: [] as any
     };
   }
 }
 
 /**
- * Safe fetch with automatic retry and exponential backoff
+ * Safe fetch with automatic retry and exponential backoff and auth headers
  */
 export async function safeFetch(url: string, options?: RequestInit, retries = 2, delayMs = 400): Promise<Response> {
+  const authHeaders = getAuthHeaders();
+  const mergedOptions: RequestInit = {
+    ...options,
+    headers: {
+      ...authHeaders,
+      ...(options?.headers || {})
+    }
+  };
   let lastError: any;
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, mergedOptions);
       if (res.status === 429 && i < retries) {
         // Rate exceeded - exponential backoff + jitter
         await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, i) + Math.random() * 200));

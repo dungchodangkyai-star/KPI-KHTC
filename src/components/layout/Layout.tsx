@@ -132,6 +132,38 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushTestMessage, setPushTestMessage] = useState('');
 
+  // Dynamically update document title based on active page and configured department
+  useEffect(() => {
+    const routeTitles: Record<string, string> = {
+      '/': 'Dashboard tổng quan',
+      '/monitor': 'Theo dõi tiến độ',
+      '/input': 'Đăng ký công việc',
+      '/my-works': 'Công việc của tôi',
+      '/approve': 'Duyệt công việc & KPI',
+      '/assign': 'Giao nhiệm vụ',
+      '/stats': 'Thống kê - Báo cáo',
+      '/department-kpi': orgConfig.departmentName ? `Báo cáo KPI ${orgConfig.departmentName}` : 'Báo cáo KPI đơn vị',
+      '/ot-register': 'Đăng ký làm thêm',
+      '/ot-my': 'Làm thêm của tôi',
+      '/approve-ot': 'Duyệt làm thêm',
+      '/ot-print': 'Bảng tổng hợp làm thêm',
+      '/ot-summary': 'Tổng hợp làm thêm',
+      '/self-score-a': 'Tự chấm điểm KPI',
+      '/score-acd': 'Đánh giá xếp loại',
+      '/kpi': 'KPI cá nhân',
+      '/admin/online': 'Người dùng đang online',
+      '/admin/users': 'Quản lý nhân sự & tài khoản',
+      '/admin/database': 'Cơ sở dữ liệu & Sao lưu',
+      '/admin/sync': 'Đồng bộ dữ liệu Excel',
+      '/admin/settings': 'Cấu hình tham số hệ thống',
+      '/login': 'Đăng nhập hệ thống'
+    };
+
+    const titlePrefix = routeTitles[location.pathname] || orgConfig.systemTitle || 'Hệ thống Quản lý công việc & Đánh giá KPI';
+    const deptTag = orgConfig.shortName ? `KPI ${orgConfig.shortName}` : (orgConfig.departmentName || 'KPI');
+    document.title = `${titlePrefix} | ${deptTag}`;
+  }, [location.pathname, orgConfig.shortName, orgConfig.departmentName, orgConfig.systemTitle]);
+
   // Change password modal states
   const [showChangeModal, setShowChangeModal] = useState(false);
   const [oldPasswordInput, setOldPasswordInput] = useState('');

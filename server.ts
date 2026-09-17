@@ -21,7 +21,7 @@ import {
   formatZaloMessage, 
   DEFAULT_ZALO_TEMPLATE 
 } from "./server/zaloService.ts";
-import { WORK_NATURE_COEFS, getNatureCoef, getWorkStatusFactor } from "./src/utils.ts";
+import { WORK_NATURE_COEFS, getNatureCoef, getWorkStatusFactor, parseExcelDateToISO } from "./src/utils.ts";
 
 
 const webpush: any = (webPushModule as any).default || webPushModule;
@@ -233,49 +233,53 @@ async function startServer() {
   app.use("/api/backups", backupRouter);
 
   // KPI Router
-  app.use("/api/kpi", kpiRouter);
+  app.use("/api/kpi", requireSessionAuthenticated, kpiRouter);
 
   // System & Org Config route aliases for convenience
-  app.get("/api/system-config", (req, res, next) => {
+    app.get("/api/system-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/system-config", (req, res, next) => {
+    app.post("/api/system-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/system-config/reset", (req, res, next) => {
+    app.post("/api/system-config/reset", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config/reset';
     kpiRouter(req, res, next);
   });
-  app.get("/api/org-config", (req, res, next) => {
+    app.get("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/org-config", (req, res, next) => {
+    app.post("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/org-config/reset", (req, res, next) => {
+    app.post("/api/org-config/reset", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config/reset';
     kpiRouter(req, res, next);
   });
 
   // KPI Config route aliases for compatibility
-  app.get("/api/kpi-config", (req, res, next) => {
+  app.get("/api/kpi-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/kpi-config", (req, res, next) => {
+  app.post("/api/kpi-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/config';
     kpiRouter(req, res, next);
   });
-  app.post("/api/kpi-config/reset", (req, res, next) => {
+  app.post("/api/kpi-config/reset", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/config/reset';
     kpiRouter(req, res, next);
   });
-  app.post("/api/kpi-config/recalculate-all", (req, res, next) => {
+  app.post("/api/kpi-config/recalculate-all", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/recalculate-all';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/kpi-config/recalculate", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/recalculate';
     kpiRouter(req, res, next);
   });
 
@@ -297,46 +301,62 @@ async function startServer() {
     try {
       const p = req.body;
       let user = null;
-      if (p.userId) {
+      if (p.userId && Number(p.userId) > 0) {
         user = await db.query.users.findFirst({
           where: (u, { eq }) => eq(u.id, Number(p.userId)),
         });
       }
       if (!user && p.userEmail) {
         user = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.email, String(p.userEmail)),
+          where: (u, { eq }) => eq(u.email, String(p.userEmail).trim().toLowerCase()),
         });
       }
       if (!user && p.userName) {
         user = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.name, String(p.userName)),
+          where: (u, { eq }) => eq(u.name, String(p.userName).trim()),
         });
       }
-      const userId = user ? user.id : (p.userId ? Number(p.userId) : 1);
+      if (!user) {
+        const session = readSessionToken(req);
+        if (session && session.userId) {
+          user = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.id, session.userId),
+          });
+        }
+      }
+      const userId = user ? user.id : (p.userId && Number(p.userId) > 0 ? Number(p.userId) : 1);
 
-        const proposedNature = p.proposedNature || p.nature || "Trung bình";
-        const defaultNatureObj = WORK_NATURE_COEFS[proposedNature] || WORK_NATURE_COEFS["Trung bình"];
-        const resolvedCoef = p.coef !== undefined && p.coef !== null && String(p.coef).trim() !== '' 
-          ? String(p.coef) 
-          : String(defaultNatureObj?.coef ?? "0.8");
+      const parsedStart = parseExcelDateToISO(p.startDate);
+      const parsedEnd = parseExcelDateToISO(p.endDate);
+      const parsedActualEnd = parseExcelDateToISO(p.actualEndDate);
 
-        const dbBaseScore = p.baseScore !== undefined && p.baseScore !== null && String(p.baseScore).trim() !== ''
-          ? String(p.baseScore)
-          : (p.score !== undefined && p.score !== null && String(p.score).trim() !== '' ? String(p.score) : "0");
+      const dbStartDate = parsedStart ? new Date(parsedStart) : (p.startDate && !isNaN(new Date(p.startDate).getTime()) && new Date(p.startDate).getFullYear() >= 1990 ? new Date(p.startDate) : null);
+      const dbEndDate = parsedEnd ? new Date(parsedEnd) : (p.endDate && !isNaN(new Date(p.endDate).getTime()) && new Date(p.endDate).getFullYear() >= 1990 ? new Date(p.endDate) : null);
+      const dbActualEndDate = parsedActualEnd ? new Date(parsedActualEnd) : (p.actualEndDate && !isNaN(new Date(p.actualEndDate).getTime()) && new Date(p.actualEndDate).getFullYear() >= 1990 ? new Date(p.actualEndDate) : null);
 
-        const newWork = await db.insert(works).values({
-          workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          month: p.month || "08-2026",
-          userId: userId,
-          taskGroup: p.taskGroup || p.group,
-          taskName: p.taskName || p.task,
-          taskCode: p.taskCode || p.code,
-          detail: p.detail,
-          startDate: p.startDate ? new Date(p.startDate) : null,
-          startTime: p.startTime || "07:30",
-          endDate: p.endDate ? new Date(p.endDate) : null,
-          endTime: p.endTime || "17:00",
-          actualEndDate: p.actualEndDate ? new Date(p.actualEndDate) : null,
+      const proposedNature = p.proposedNature || p.nature || "Trung bình";
+      const defaultNatureObj = WORK_NATURE_COEFS[proposedNature] || WORK_NATURE_COEFS["Trung bình"];
+      const resolvedCoef = p.coef !== undefined && p.coef !== null && String(p.coef).trim() !== '' 
+        ? String(p.coef) 
+        : String(defaultNatureObj?.coef ?? "0.8");
+
+      const dbBaseScore = p.baseScore !== undefined && p.baseScore !== null && String(p.baseScore).trim() !== ''
+        ? String(p.baseScore)
+        : (p.score !== undefined && p.score !== null && String(p.score).trim() !== '' ? String(p.score) : "0");
+
+      const newWork = await db.insert(works).values({
+        workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        month: p.month || "08-2026",
+        userId: userId,
+        taskGroup: p.taskGroup || p.group,
+        taskName: p.taskName || p.task,
+        taskCode: p.taskCode || p.code,
+        detail: p.detail,
+        startDate: dbStartDate,
+        startTime: p.startTime || "07:30",
+        endDate: dbEndDate,
+        endTime: p.endTime || "17:00",
+        actualEndDate: dbActualEndDate,
           hours: String(p.hours || "8"),
           days: parseInt(p.days || "1"),
           proposedNature: proposedNature,
@@ -447,7 +467,15 @@ async function startServer() {
         updateData.approvedConvertedScore = (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') ? String(p.approvedConvertedScore) : null;
       }
 
-      if (p.leaderApproval !== undefined) updateData.leaderApproval = p.leaderApproval;
+      if (p.leaderApproval !== undefined) {
+        updateData.leaderApproval = p.leaderApproval;
+        if (p.leaderApproval === 'Không duyệt') {
+          updateData.approvedConvertedScore = '0';
+          updateData.convertedScore = '0';
+        } else if (p.leaderApproval === 'Cần bổ sung') {
+          updateData.approvedConvertedScore = null;
+        }
+      }
       if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
       if (p.approverId !== undefined) updateData.approverId = p.approverId ? parseInt(p.approverId) : null;
       if (p.approvalDate !== undefined) updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : null;
@@ -460,7 +488,7 @@ async function startServer() {
 
       // 2. Chỉ chuyển công việc đã duyệt về Chưa duyệt khi thay đổi trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month, userId hoặc dữ liệu làm thay đổi điểm D. Sửa ghi chú, minh chứng hoặc nội dung không ảnh hưởng điểm thì vẫn giữ trạng thái Duyệt.
       const isPreviouslyApproved = oldWork.leaderApproval === 'Duyệt';
-      const isExplicitLeaderAction = p.isLeaderAction === true || (p.leaderApproval === 'Duyệt' && (p.approvedConvertedScore !== undefined || p.approverId !== undefined));
+      const isExplicitLeaderAction = p.isLeaderAction === true || p.leaderApproval === 'Duyệt' || p.leaderApproval === 'Cần bổ sung' || p.leaderApproval === 'Không duyệt';
 
       const isKpiFieldModified = 
         (p.baseScore !== undefined && String(p.baseScore) !== String(oldWork.baseScore)) ||
@@ -514,6 +542,45 @@ async function startServer() {
             await recalculateAffectedMonths(affectedMonths);
           } catch (kpiErr) {
             console.error("Error auto recalculating KPI after work update:", kpiErr);
+          }
+        }
+
+        // Tạo thông báo cho nhân viên khi Lãnh đạo phê duyệt, yêu cầu bổ sung hoặc từ chối duyệt
+        if (p.leaderApproval && p.leaderApproval !== oldWork.leaderApproval && updatedWork.userId) {
+          try {
+            let notifyTitle = '';
+            let notifyContent = '';
+            let notifyType = 'Phê duyệt việc';
+
+            const workTitle = updatedWork.taskName || 'Nhiệm vụ';
+            if (p.leaderApproval === 'Duyệt') {
+              notifyType = 'Phê duyệt việc';
+              notifyTitle = `Lãnh đạo đã phê duyệt công việc: ${workTitle}`;
+              notifyContent = `Công việc "${workTitle}" (Tháng ${updatedWork.month}) đã được phê duyệt đạt. Điểm KPI: ${updatedWork.approvedConvertedScore || updatedWork.convertedScore || 0} điểm.${updatedWork.leaderNote ? ' Ghi chú: ' + updatedWork.leaderNote : ''}`;
+            } else if (p.leaderApproval === 'Cần bổ sung') {
+              notifyType = 'Yêu cầu bổ sung';
+              notifyTitle = `Yêu cầu bổ sung hồ sơ: ${workTitle}`;
+              notifyContent = `Lãnh đạo yêu cầu bổ sung/hoàn thiện công việc "${workTitle}". Ý kiến chỉ đạo: ${updatedWork.leaderNote || 'Vui lòng kiểm tra và hoàn thiện hồ sơ nộp lại.'}`;
+            } else if (p.leaderApproval === 'Không duyệt') {
+              notifyType = 'Từ chối phê duyệt';
+              notifyTitle = `Lãnh đạo không duyệt công việc: ${workTitle}`;
+              notifyContent = `Công việc "${workTitle}" không được phê duyệt đạt (0 điểm KPI). Lý do: ${updatedWork.leaderNote || 'Không đạt yêu cầu quy định.'}`;
+            }
+
+            if (notifyTitle) {
+              await db.insert(notifications).values({
+                notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                senderId: updateData.approverId || null,
+                receiverId: updatedWork.userId,
+                type: notifyType,
+                title: notifyTitle,
+                content: notifyContent,
+                relatedTarget: String(updatedWork.id),
+                status: 'Chưa xem'
+              }).onConflictDoNothing();
+            }
+          } catch (nErr) {
+            console.error("Error creating review notification:", nErr);
           }
         }
       }
