@@ -372,7 +372,7 @@ export default function ScoreAcd() {
   }, 0);
 
   const autoC1 = kpiData?.detailsC?.approvedAutoC1 ?? kpiData?.detailsC?.autoC1 ?? kpiData?.detailsC?.c1 ?? 0;
-  const numC2 = typeof scoreC2 === 'number' ? scoreC2 : 0;
+  const numC2 = typeof scoreC2 === 'number' ? Math.min(4, Math.max(0, scoreC2)) : 0;
   const totalC = Math.min(10, autoC1 + numC2);
 
   const totalAutoD = penaltyItems.reduce<number>((sum, item) => sum + (parseFloat(item.autoD) || 0), 0);

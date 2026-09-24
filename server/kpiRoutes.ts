@@ -35,6 +35,8 @@ export function validateAndSanitizeDetailsA(
   let hasAnyApproved = false;
   let allApprovedFilled = true;
 
+  const isExplicitApproval = Boolean(options?.isApproval || inputDetailsA?.statusA === 'Đã duyệt');
+
   for (const crit of KPI_A_CRITERIA) {
     const code = crit.code;
     const maxScore = crit.maxScore;
@@ -50,10 +52,16 @@ export function validateAndSanitizeDetailsA(
         }
       }
     } else {
-      const rawSelf = inputScores?.[code]?.self !== undefined 
-        ? inputScores[code].self 
-        : (existingScores?.[code]?.self !== undefined ? existingScores[code].self : null);
-      if (rawSelf !== null && rawSelf !== undefined && rawSelf !== '') {
+      let rawSelf: any = undefined;
+      if (inputScores?.[code]?.self !== undefined && inputScores?.[code]?.self !== null && inputScores?.[code]?.self !== '') {
+        rawSelf = inputScores[code].self;
+      } else if (existingScores?.[code]?.self !== undefined && existingScores?.[code]?.self !== null && existingScores?.[code]?.self !== '') {
+        rawSelf = existingScores[code].self;
+      } else if (inputScores?.[code] !== undefined && typeof inputScores[code] !== 'object' && inputScores[code] !== null && inputScores[code] !== '') {
+        rawSelf = inputScores[code];
+      }
+
+      if (rawSelf !== undefined && rawSelf !== null && rawSelf !== '') {
         const num = parseFloat(String(rawSelf));
         if (!isNaN(num) && isFinite(num)) {
           selfVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
@@ -70,28 +78,40 @@ export function validateAndSanitizeDetailsA(
     let approvedVal: number | null = null;
     let reason = '';
 
-    if (options?.isApproval) {
-      const rawApproved = inputScores?.[code]?.approved !== undefined 
-        ? inputScores[code].approved 
-        : (inputScores?.[code] !== undefined && typeof inputScores[code] !== 'object' ? inputScores[code] : null);
+    if (options?.isSelfScore) {
+      // When employee is self-scoring, strictly preserve any existing leader approval
+      const rawApproved = existingScores?.[code]?.approved;
       if (rawApproved !== null && rawApproved !== undefined && rawApproved !== '') {
         const num = parseFloat(String(rawApproved));
         if (!isNaN(num) && isFinite(num)) {
           approvedVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
         }
       }
-      reason = String(inputScores?.[code]?.reason || inputDetailsA?.scores?.[code]?.reason || existingScores?.[code]?.reason || '');
+      reason = String(existingScores?.[code]?.reason || '');
     } else {
-      const rawApproved = existingScores?.[code]?.approved !== undefined 
-        ? existingScores[code].approved 
-        : (inputScores?.[code]?.approved !== undefined ? inputScores[code].approved : null);
-      if (rawApproved !== null && rawApproved !== undefined && rawApproved !== '') {
+      // For approval submissions or recalculation: Prioritize input approved score, then fallback to existing
+      let rawApproved: any = undefined;
+      if (inputScores?.[code]?.approved !== undefined && inputScores?.[code]?.approved !== null && inputScores?.[code]?.approved !== '') {
+        rawApproved = inputScores[code].approved;
+      } else if (inputScores?.[code] !== undefined && typeof inputScores[code] !== 'object' && inputScores[code] !== null && inputScores[code] !== '') {
+        rawApproved = inputScores[code];
+      } else if (existingScores?.[code]?.approved !== undefined && existingScores?.[code]?.approved !== null && existingScores?.[code]?.approved !== '') {
+        rawApproved = existingScores[code].approved;
+      }
+
+      if (rawApproved !== undefined && rawApproved !== null && rawApproved !== '') {
         const num = parseFloat(String(rawApproved));
         if (!isNaN(num) && isFinite(num)) {
           approvedVal = Math.round(Math.min(maxScore, Math.max(0, num)) * 10) / 10;
         }
       }
-      reason = String(existingScores?.[code]?.reason || inputScores?.[code]?.reason || '');
+
+      reason = String(
+        inputScores?.[code]?.reason || 
+        inputDetailsA?.scores?.[code]?.reason || 
+        existingScores?.[code]?.reason || 
+        ''
+      );
     }
 
     if (approvedVal !== null) {
@@ -110,25 +130,33 @@ export function validateAndSanitizeDetailsA(
   }
 
   const finalSelfTotal = hasAnySelf ? Math.round(Math.min(maxA, Math.max(0, selfSum)) * 10) / 10 : null;
-  const finalApprovedTotal = (hasAnyApproved && allApprovedFilled) ? Math.round(Math.min(maxA, Math.max(0, approvedSum)) * 10) / 10 : (hasAnyApproved ? Math.round(Math.min(maxA, Math.max(0, approvedSum)) * 10) / 10 : null);
 
   let statusA = inputDetailsA?.statusA || existingDetailsA?.statusA || 'Chưa tự chấm';
   if (options?.isSelfScore) {
     statusA = hasAnySelf ? 'Đã tự chấm' : 'Chưa tự chấm';
-  } else if (options?.isApproval) {
+  } else if (isExplicitApproval) {
     statusA = (hasAnyApproved && allApprovedFilled) ? 'Đã duyệt' : (hasAnySelf ? 'Đã tự chấm' : 'Chưa tự chấm');
   } else {
-    if (hasAnyApproved && allApprovedFilled) {
+    if (existingDetailsA?.statusA === 'Đã duyệt' && hasAnyApproved && allApprovedFilled) {
+      statusA = 'Đã duyệt';
+    } else if (hasAnyApproved && allApprovedFilled) {
       statusA = 'Đã duyệt';
     } else if (hasAnySelf) {
       statusA = 'Đã tự chấm';
+    } else {
+      statusA = 'Chưa tự chấm';
     }
   }
+
+  const isApprovedA = statusA === 'Đã duyệt';
+  const finalApprovedTotal = isApprovedA && hasAnyApproved 
+    ? Math.round(Math.min(maxA, Math.max(0, approvedSum)) * 10) / 10 
+    : null;
 
   return {
     statusA,
     selfTotal: finalSelfTotal,
-    approvedTotal: (statusA === 'Đã duyệt' || (hasAnyApproved && allApprovedFilled)) ? finalApprovedTotal : (existingDetailsA?.statusA === 'Đã duyệt' ? finalApprovedTotal : null),
+    approvedTotal: finalApprovedTotal,
     noteA: String(inputDetailsA?.noteA ?? existingDetailsA?.noteA ?? ''),
     leaderNoteA: String(inputDetailsA?.leaderNoteA ?? existingDetailsA?.leaderNoteA ?? ''),
     scores: sanitizedScores,
@@ -275,6 +303,174 @@ export async function getEffectiveWorkNaturePointMap(): Promise<Record<string, n
     'Trung bình': 0,
     'Đơn giản': 0,
     'Rất đơn giản': 0
+  };
+}
+
+/**
+ * Resolves penalty points from dynamic kpiConfig.penaltyRules or defaults
+ */
+export function getRuleScoreFromPenaltyRules(keywords: string[], penaltyRules: any[], defaultScore: number): number {
+  if (!Array.isArray(penaltyRules)) return defaultScore;
+  const found = penaltyRules.find((r: any) => {
+    const g = String(r.group || '').toLowerCase();
+    const d = String(r.desc || '').toLowerCase();
+    return keywords.some(kw => g.includes(kw.toLowerCase()) || d.includes(kw.toLowerCase()));
+  });
+  if (found && found.defaultScore !== undefined && !isNaN(Number(found.defaultScore))) {
+    return Number(found.defaultScore);
+  }
+  return defaultScore;
+}
+
+/**
+ * Generates automated penalty items for criterion D from a user's works in the month:
+ * 1. Synchronized with kpiConfig.penaltyRules (not hardcoded 3/2/1)
+ * 2. Properly handles 'Không duyệt' (marks as failed quality penalty) and 'Cần bổ sung' (repeated supplement penalty)
+ * 3. Honors leader-approved penalty exemptions (w.penaltyExemption)
+ */
+export function generateWorkPenaltyItems(userWorks: any[], penaltyRules: any[]): any[] {
+  const penaltyIncomplete = getRuleScoreFromPenaltyRules(['không hoàn thành', 'chưa hoàn thành'], penaltyRules, 3);
+  const penaltyRejected = getRuleScoreFromPenaltyRules(['không đạt chất lượng', 'không duyệt', 'không đạt'], penaltyRules, 3);
+  const penaltyLate = getRuleScoreFromPenaltyRules(['chậm', 'quá hạn'], penaltyRules, 2);
+  const penaltySupplement = getRuleScoreFromPenaltyRules(['bổ sung'], penaltyRules, 1);
+
+  const autoPenaltyItems: any[] = [];
+  userWorks.forEach(w => {
+    const st = String(w.status || '').toLowerCase().trim();
+    const appr = String(w.leaderApproval || '').trim();
+    const isExemptStr = String(w.penaltyExemption || '').trim().toLowerCase();
+    const isExempt = isExemptStr === 'có' || isExemptStr === 'yes' || isExemptStr === 'miễn trừ' || isExemptStr === 'true';
+
+    let autoD = 0;
+    let reason = '';
+    let group = 'Công việc chuyên môn';
+
+    // 1. Leader rejected the work (failed quality / non-compliant)
+    if (appr === 'Không duyệt') {
+      autoD = penaltyRejected;
+      group = 'Không đạt chất lượng / Không duyệt';
+      reason = w.leaderNote ? `Lãnh đạo không duyệt: ${w.leaderNote}` : 'Sản phẩm/Hồ sơ không đạt chất lượng (Lãnh đạo không duyệt)';
+    }
+    // 2. Incomplete or canceled work
+    else if (st.includes('không hoàn thành') || st.includes('không đạt') || st === 'hủy') {
+      autoD = penaltyIncomplete;
+      group = 'Không hoàn thành';
+      reason = 'Không hoàn thành nhiệm vụ';
+    }
+    // 3. Late progress / overdue
+    else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
+      autoD = penaltyLate;
+      group = 'Chậm tiến độ';
+      reason = 'Chậm tiến độ thực hiện so với kế hoạch';
+    }
+    // 4. Repeated supplement required
+    else if (appr === 'Cần bổ sung' || st.includes('bổ sung nhiều lần')) {
+      autoD = penaltySupplement;
+      group = 'Hồ sơ bổ sung nhiều lần';
+      reason = w.leaderNote ? `Yêu cầu bổ sung: ${w.leaderNote}` : 'Hồ sơ cần bổ sung, chỉnh sửa nhiều lần';
+    }
+
+    if (autoD > 0) {
+      if (isExempt) {
+        autoPenaltyItems.push({
+          id: `work-${w.id}`,
+          workId: w.workId,
+          taskName: w.taskName || w.taskCode,
+          group,
+          content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
+          autoD: 0,
+          officialD: 0,
+          decision: 'Miễn phạt',
+          note: `${reason} (Đã được Lãnh đạo chấp thuận miễn trừ phạt: ${w.lateReason || 'Lý do khách quan'})`,
+          reason: `${reason} (Đã được Lãnh đạo chấp thuận miễn trừ phạt: ${w.lateReason || 'Lý do khách quan'})`,
+          isExempted: true
+        });
+      } else {
+        autoPenaltyItems.push({
+          id: `work-${w.id}`,
+          workId: w.workId,
+          taskName: w.taskName || w.taskCode,
+          group,
+          content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
+          autoD,
+          officialD: autoD,
+          decision: 'Giữ nguyên',
+          note: reason,
+          reason
+        });
+      }
+    }
+  });
+
+  return autoPenaltyItems;
+}
+
+/**
+ * Merges auto penalty items with existing/saved decisions on criterion D.
+ * CRITICAL FIX:
+ * - If statusD === 'Đã duyệt', existing decisions and official deductions are strictly preserved.
+ * - Newly arising violations that were NOT present during the leader's approval will NOT silently increase official deductions.
+ * - If new unapproved violations appear after D was approved, statusD transitions to 'Chờ duyệt' so the leader must verify.
+ */
+export function mergePenaltyItems(
+  autoPenaltyItems: any[],
+  rawDetailsD: any,
+  options?: { isApprovalSubmission?: boolean }
+) {
+  const isAlreadyApprovedD = rawDetailsD?.statusD === 'Đã duyệt';
+  const savedItems = Array.isArray(rawDetailsD?.items) ? rawDetailsD.items : [];
+
+  let hasNewUnapprovedViolations = false;
+  const mergedDItems = autoPenaltyItems.map(autoItem => {
+    const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
+    if (savedMatch) {
+      return { 
+        ...autoItem, 
+        ...savedMatch, 
+        autoD: autoItem.autoD, 
+        content: autoItem.content,
+        officialD: savedMatch.officialD !== undefined && savedMatch.officialD !== null && savedMatch.officialD !== ''
+          ? Number(savedMatch.officialD)
+          : (savedMatch.autoD !== undefined ? Number(savedMatch.autoD) : autoItem.autoD)
+      };
+    }
+    // Brand new penalty item not present during previous approval
+    if (autoItem.autoD > 0 && !autoItem.isExempted) {
+      hasNewUnapprovedViolations = true;
+    }
+    if (isAlreadyApprovedD && !options?.isApprovalSubmission) {
+      return { 
+        ...autoItem, 
+        officialD: 0, 
+        decision: 'Chờ thẩm định', 
+        note: (autoItem.note || '') + ' [Phát sinh sau khi duyệt D - cần Lãnh đạo thẩm định lại]' 
+      };
+    }
+    return autoItem;
+  });
+
+  const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
+  const finalDItems = [...mergedDItems, ...manualItems];
+
+  const totalAutoD = autoPenaltyItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD) || 0), 0);
+  const totalOfficialD = finalDItems.reduce((s: number, it: any) => {
+    const val = it.officialD !== undefined && it.officialD !== null && it.officialD !== '' ? parseFloat(it.officialD) : parseFloat(it.autoD || '0');
+    return s + (isNaN(val) || !isFinite(val) ? 0 : Math.max(0, val));
+  }, 0);
+
+  let statusD = rawDetailsD?.statusD || 'Chờ duyệt';
+  if (options?.isApprovalSubmission) {
+    statusD = 'Đã duyệt';
+  } else if (isAlreadyApprovedD && hasNewUnapprovedViolations) {
+    statusD = 'Chờ duyệt';
+  }
+
+  return {
+    items: finalDItems,
+    totalAutoD,
+    totalOfficialD,
+    statusD,
+    hasNewUnapprovedViolations
   };
 }
 
@@ -611,14 +807,15 @@ kpiRouter.get('/detail', async (req, res) => {
     const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
-    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const activeDeptPersonnelCount = Math.max(activeUsers.length, 1);
+    const avgApprovedShare = 100 / activeDeptPersonnelCount;
     const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
     // Self B calculations (all valid works, using selfConvertedScore with fallback)
     const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const userSelfConvertedScore = userWorks.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
-    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+    const avgSelfShare = 100 / activeDeptPersonnelCount;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
     const naturePointMap = await getEffectiveWorkNaturePointMap();
@@ -650,7 +847,7 @@ kpiRouter.get('/detail', async (req, res) => {
       const nat = w.proposedNature || w.approvedNature || 'Trung bình';
       return (naturePointMap[nat] || 0) > 0;
     });
-    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+    const avgSelfDeptNature = selfDeptNatureTotal / activeDeptPersonnelCount;
 
     const kpiConfig = await getEffectiveKpiConfig();
     const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
@@ -672,7 +869,7 @@ kpiRouter.get('/detail', async (req, res) => {
       personalNatureTotal += pt;
     });
 
-    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+    const avgDeptNature = deptNatureTotal / activeDeptPersonnelCount;
     const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
     const autoC1 = approvedAutoC1;
 
@@ -690,7 +887,8 @@ kpiRouter.get('/detail', async (req, res) => {
     const detailsA = validateAndSanitizeDetailsA(kpiRecord?.detailsA, undefined, { maxA: alloc.maxA });
     const rawDetailsC = (kpiRecord?.detailsC as any) || {};
     const finalC1 = approvedAutoC1;
-    const finalC2 = rawDetailsC.c2 !== undefined ? rawDetailsC.c2 : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
+    const rawC2Val = rawDetailsC.c2 !== undefined ? rawDetailsC.c2 : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
+    const finalC2 = isNaN(rawC2Val) || !isFinite(rawC2Val) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2Val));
     const finalTotalC = Math.min(alloc.maxC || 10, finalC1 + finalC2);
 
     const detailsC = {
@@ -703,72 +901,31 @@ kpiRouter.get('/detail', async (req, res) => {
       autoC1: approvedAutoC1,
       personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
       deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
-      activeEmployeeCount: activeApprovedEmployeeIds.length,
+      activeEmployeeCount: activeDeptPersonnelCount,
       avgDeptNature: Math.round(avgDeptNature * 100) / 100,
       selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
       selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
       selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100,
-      selfActiveEmployeeCount: activeSelfEmployeeIds.length,
+      selfActiveEmployeeCount: activeDeptPersonnelCount,
       selfDistribution,
       selfComplexTasks
     };
 
-    const autoPenaltyItems: any[] = [];
-    userWorks.forEach(w => {
-      const st = String(w.status || '').toLowerCase();
-      let autoD = 0;
-      let reason = '';
-      if (st.includes('không hoàn thành') || st.includes('không đạt')) {
-        autoD = 3;
-        reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
-      } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
-        autoD = 2;
-        reason = 'Chậm tiến độ';
-      } else if (st.includes('bổ sung nhiều lần')) {
-        autoD = 1;
-        reason = 'Bổ sung nhiều lần';
-      }
+    const penaltyRules = kpiConfig.penaltyRules || DEFAULT_KPI_CONFIG.penaltyRules;
+    const autoPenaltyItems = generateWorkPenaltyItems(userWorks, penaltyRules);
+    const savedDetailsD = (kpiRecord?.detailsD as any) || { items: [], totalOfficialD: 0, totalAutoD: 0, statusD: 'Chờ duyệt' };
+    const mergedD = mergePenaltyItems(autoPenaltyItems, savedDetailsD);
 
-      if (autoD > 0) {
-        autoPenaltyItems.push({
-          id: `work-${w.id}`,
-          group: 'Công việc chuyên môn',
-          content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
-          autoD,
-          officialD: autoD, // default official
-          decision: 'Giữ nguyên',
-          note: reason
-        });
-      }
-    });
-
-    const savedDetailsD = (kpiRecord?.detailsD as any) || { items: [], totalOfficialD: 0, totalAutoD: 0 };
-    const savedItems = Array.isArray(savedDetailsD.items) ? savedDetailsD.items : [];
-    
-    // Merge: update auto items with saved decisions
-    const mergedDItems = autoPenaltyItems.map(autoItem => {
-      const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
-      if (savedMatch) {
-        return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
-      }
-      return autoItem;
-    });
-
-    // Append manual penalties (those not starting with 'work-')
-    const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
-    const finalDItems = [...mergedDItems, ...manualItems];
-
-    const totalAutoD = autoPenaltyItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0);
-    const totalOfficialD = finalDItems.reduce((s, it) => {
-      const val = it.officialD !== undefined && it.officialD !== null && it.officialD !== '' ? parseFloat(it.officialD) : parseFloat(it.autoD || '0');
-      return s + (isNaN(val) || !isFinite(val) ? 0 : Math.max(0, val));
-    }, 0);
+    const totalAutoD = mergedD.totalAutoD;
+    const totalOfficialD = mergedD.totalOfficialD;
 
     const detailsD = {
       ...savedDetailsD,
-      items: finalDItems,
+      items: mergedD.items,
       totalAutoD,
-      totalOfficialD
+      totalOfficialD,
+      statusD: mergedD.statusD,
+      hasNewUnapprovedViolations: mergedD.hasNewUnapprovedViolations
     };
 
     const explicitSelfA = detailsA?.selfTotal !== null && detailsA?.selfTotal !== undefined && !isNaN(Number(detailsA.selfTotal)) ? Number(detailsA.selfTotal) : null;
@@ -997,14 +1154,15 @@ kpiRouter.post('/approve-acd', async (req, res) => {
     const userApprovedConvertedScore = userApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
-    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const activeDeptPersonnelCount = Math.max(activeUsers.length, 1);
+    const avgApprovedShare = 100 / activeDeptPersonnelCount;
     const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
     // Self B calculations (all valid works, using selfConvertedScore with fallback)
     const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const userSelfConvertedScore = userWorks.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
-    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+    const avgSelfShare = 100 / activeDeptPersonnelCount;
     const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
     const naturePointMap = await getEffectiveWorkNaturePointMap();
@@ -1022,7 +1180,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
       selfPersonalNatureTotal += pt;
     });
-    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+    const avgSelfDeptNature = selfDeptNatureTotal / activeDeptPersonnelCount;
 
     const kpiConfig = await getEffectiveKpiConfig();
     const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
@@ -1044,7 +1202,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       personalNatureTotal += pt;
     });
 
-    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+    const avgDeptNature = deptNatureTotal / activeDeptPersonnelCount;
     const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
     const autoC1 = approvedAutoC1;
 
@@ -1081,7 +1239,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       finalAScore = isNaN(finalAScore) || !isFinite(finalAScore) ? 0 : Math.max(0, Math.min(alloc.maxA || 30, finalAScore));
     }
 
-    // Determine detailsC & cScores (Ignore UI-provided c1/totalC; use approvedAutoC1 + validated c2)
+    // Determine detailsC & cScores (Ignore UI-provided c1/totalC; use approvedAutoC1 + validated c2 with alloc.maxC2 ceiling)
     const hasC = detailsC !== undefined && detailsC !== null;
     let finalDetailsC = existingKpi?.detailsC ?? null;
     let finalC1Score = approvedAutoC1;
@@ -1090,7 +1248,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
 
     if (hasC) {
       const rawC2 = detailsC.c2 !== undefined && detailsC.c2 !== null && detailsC.c2 !== '' ? Number(detailsC.c2) : 0;
-      finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+      finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2));
       finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
 
       finalDetailsC = {
@@ -1104,7 +1262,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
         personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
         deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
         avgDeptNature: Math.round(avgDeptNature * 100) / 100,
-        activeEmployeeCount: activeApprovedEmployeeIds.length,
+        activeEmployeeCount: activeDeptPersonnelCount,
         selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
         selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
         selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100
@@ -1113,7 +1271,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
       const existC = (existingKpi?.detailsC as any) || null;
       if (existC) {
         const rawC2 = existC.c2 !== undefined && existC.c2 !== null && existC.c2 !== '' ? Number(existC.c2) : (existingKpi?.c2Score ? Number(existingKpi.c2Score) : 0);
-        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2));
         finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
         finalDetailsC = {
           ...existC,
@@ -1126,7 +1284,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
         };
       } else if (existingKpi?.cScore !== undefined && existingKpi?.cScore !== null && existingKpi?.cScore !== '' && !isNaN(Number(existingKpi.cScore))) {
         const rawC2 = existingKpi.c2Score ? Number(existingKpi.c2Score) : 0;
-        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC || 10, rawC2));
+        finalC2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2));
         finalCScore = Math.min(alloc.maxC || 10, finalC1Score + finalC2Score);
         finalDetailsC = {
           c1: finalC1Score,
@@ -1152,7 +1310,7 @@ kpiRouter.post('/approve-acd', async (req, res) => {
           personalNatureTotal: Math.round(personalNatureTotal * 100) / 100,
           deptNatureTotal: Math.round(deptNatureTotal * 100) / 100,
           avgDeptNature: Math.round(avgDeptNature * 100) / 100,
-          activeEmployeeCount: activeApprovedEmployeeIds.length,
+          activeEmployeeCount: activeDeptPersonnelCount,
           selfPersonalNatureTotal: Math.round(selfPersonalNatureTotal * 100) / 100,
           selfDeptNatureTotal: Math.round(selfDeptNatureTotal * 100) / 100,
           selfAvgDeptNature: Math.round(avgSelfDeptNature * 100) / 100
@@ -1368,14 +1526,15 @@ kpiRouter.get('/department-summary', async (req, res) => {
     const deptApprovedConvertedScore = deptApprovedWorks.reduce((s, w) => s + getWorkApprovedConvertedScore(w), 0);
     const deptConvertedScore = deptApprovedConvertedScore;
     const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map(w => w.userId)));
+    const activeDeptPersonnelCount = Math.max(validUsers.length, 1);
     const activeEmployeeIds = activeApprovedEmployeeIds;
-    const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+    const avgApprovedShare = 100 / activeDeptPersonnelCount;
     const avgShare = avgApprovedShare;
 
     // Self B calculations (dept level)
     const deptSelfConvertedScore = validWorksInMonth.reduce((s, w) => s + getWorkSelfConvertedScore(w), 0);
     const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map(w => w.userId)));
-    const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+    const avgSelfShare = 100 / activeDeptPersonnelCount;
 
     const naturePointMap = await getEffectiveWorkNaturePointMap();
 
@@ -1403,8 +1562,8 @@ kpiRouter.get('/department-summary', async (req, res) => {
       selfDeptNatureTotal += pt;
     });
 
-    const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
-    const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+    const avgDeptNature = deptNatureTotal / activeDeptPersonnelCount;
+    const avgSelfDeptNature = selfDeptNatureTotal / activeDeptPersonnelCount;
 
     // Fetch all KPI results for this month
     const allKpiResultsInMonth = await db.query.kpiResults.findMany({
@@ -1515,62 +1674,22 @@ kpiRouter.get('/department-summary', async (req, res) => {
         : (kpiRecord?.aScore ? parseFloat(kpiRecord.aScore) : null);
 
       // Score C
-      const c2 = rawDetailsC?.c2 !== null && rawDetailsC?.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
+      const rawC2 = rawDetailsC?.c2 !== null && rawDetailsC?.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (kpiRecord?.c2Score ? parseFloat(kpiRecord.c2Score) : 0);
+      const c2 = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2));
       const cTotal = Math.min(alloc.maxC || 10, approvedAutoC1 + c2);
       const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
 
       // Score D
-      const autoPenaltyItems: any[] = [];
-      userWorks.forEach(w => {
-        const st = String(w.status || '').toLowerCase();
-        let autoD = 0;
-        let reason = '';
-        if (st.includes('không hoàn thành') || st.includes('không đạt')) {
-          autoD = 3;
-          reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
-        } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
-          autoD = 2;
-          reason = 'Chậm tiến độ';
-        } else if (st.includes('bổ sung nhiều lần')) {
-          autoD = 1;
-          reason = 'Bổ sung nhiều lần';
-        }
+      const penaltyRules = kpiConfig.penaltyRules || DEFAULT_KPI_CONFIG.penaltyRules;
+      const autoPenaltyItems = generateWorkPenaltyItems(userWorks, penaltyRules);
+      const savedDetailsD = rawDetailsD || { items: [], statusD: 'Chờ duyệt' };
+      const mergedD = mergePenaltyItems(autoPenaltyItems, savedDetailsD);
 
-        if (autoD > 0) {
-          autoPenaltyItems.push({
-            id: `work-${w.id}`,
-            group: 'Công việc chuyên môn',
-            content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
-            autoD,
-            officialD: autoD,
-            decision: 'Giữ nguyên',
-            note: reason
-          });
-        }
-      });
-
-      const savedDetailsD = rawDetailsD || { items: [] };
-      const savedItems = Array.isArray(savedDetailsD.items) ? savedDetailsD.items : [];
-      
-      const mergedDItems = autoPenaltyItems.map(autoItem => {
-        const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
-        if (savedMatch) {
-          return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
-        }
-        return autoItem;
-      });
-
-      const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
-      const finalDItems = [...mergedDItems, ...manualItems];
-
-      const totalAutoD = autoPenaltyItems.reduce((s: number, it: any) => s + (parseFloat(it.autoD || '0') || 0), 0);
+      const totalAutoD = mergedD.totalAutoD;
       const selfD = alloc.maxD ? Math.min(alloc.maxD, totalAutoD) : totalAutoD;
-
-      const totalOfficialD = finalDItems.reduce((s: number, item: any) => {
-        const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
-        return s + (isNaN(val) ? 0 : val);
-      }, 0);
+      const totalOfficialD = mergedD.totalOfficialD;
       const dTotal = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
+      const statusD = mergedD.statusD;
 
       // Self total and ranking (completely independent from leader evaluation):
       // USER RULE: selfKpiTotal uses selfBTotal, selfC, and selfD
@@ -1588,7 +1707,6 @@ kpiRouter.get('/department-summary', async (req, res) => {
       // Check all 3 statuses for leader approval
       const statusA = (rawDetailsA as any)?.statusA;
       const statusC = (rawDetailsC as any)?.statusC;
-      const statusD = (rawDetailsD as any)?.statusD;
       const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
 
       // Approved total and ranking:
@@ -1818,14 +1936,15 @@ export async function calculateAndSaveUserKpi(
   const userApprovedConvertedScore = userApprovedWorks.reduce((s: number, w: any) => s + getWorkApprovedConvertedScore(w), 0);
   
   const activeApprovedEmployeeIds = Array.from(new Set(deptApprovedWorks.map((w: any) => w.userId)));
-  const avgApprovedShare = activeApprovedEmployeeIds.length > 0 ? (100 / activeApprovedEmployeeIds.length) : 0;
+  const activeDeptPersonnelCount = Math.max(activeUsers.length, 1);
+  const avgApprovedShare = 100 / activeDeptPersonnelCount;
   const userApprovedShare = deptApprovedConvertedScore > 0 ? (userApprovedConvertedScore / deptApprovedConvertedScore * 100) : 0;
 
   // Self B calculations (all valid works, using selfConvertedScore with fallback)
   const deptSelfConvertedScore = validWorksInMonth.reduce((s: number, w: any) => s + getWorkSelfConvertedScore(w), 0);
   const userSelfConvertedScore = userWorks.reduce((s: number, w: any) => s + getWorkSelfConvertedScore(w), 0);
   const activeSelfEmployeeIds = Array.from(new Set(validWorksInMonth.map((w: any) => w.userId)));
-  const avgSelfShare = activeSelfEmployeeIds.length > 0 ? (100 / activeSelfEmployeeIds.length) : 0;
+  const avgSelfShare = 100 / activeDeptPersonnelCount;
   const userSelfShare = deptSelfConvertedScore > 0 ? (userSelfConvertedScore / deptSelfConvertedScore * 100) : 0;
 
   const naturePointMap = preloadedData?.naturePointMap || await getEffectiveWorkNaturePointMap();
@@ -1843,7 +1962,7 @@ export async function calculateAndSaveUserKpi(
     const pt = naturePointMap[nat] !== undefined ? naturePointMap[nat] : 0;
     selfPersonalNatureTotal += pt;
   });
-  const avgSelfDeptNature = activeSelfEmployeeIds.length > 0 ? (selfDeptNatureTotal / activeSelfEmployeeIds.length) : 0;
+  const avgSelfDeptNature = selfDeptNatureTotal / activeDeptPersonnelCount;
 
   const kpiConfig = preloadedData?.kpiConfig || await getEffectiveKpiConfig();
   const alloc = kpiConfig.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation;
@@ -1865,7 +1984,7 @@ export async function calculateAndSaveUserKpi(
     personalNatureTotal += pt;
   });
 
-  const avgDeptNature = activeApprovedEmployeeIds.length > 0 ? (deptNatureTotal / activeApprovedEmployeeIds.length) : 0;
+  const avgDeptNature = deptNatureTotal / activeDeptPersonnelCount;
   const approvedAutoC1 = avgDeptNature > 0 ? Math.round(Math.min(maxC1Val, (personalNatureTotal * maxC1Val) / avgDeptNature)) : 0;
   const autoC1 = approvedAutoC1;
 
@@ -1888,8 +2007,12 @@ export async function calculateAndSaveUserKpi(
     ? options.overrideDetailsA
     : ((existingKpi?.detailsA as any) || null);
 
+  const isAApproval = options?.overrideDetailsA?.statusA === 'Đã duyệt' || rawDetailsA?.statusA === 'Đã duyệt';
   const validatedDetailsA = rawDetailsA 
-    ? validateAndSanitizeDetailsA(rawDetailsA, existingKpi?.detailsA, { maxA: alloc.maxA })
+    ? validateAndSanitizeDetailsA(rawDetailsA, existingKpi?.detailsA, { 
+        maxA: alloc.maxA,
+        isApproval: isAApproval
+      })
     : null;
 
   const approvedA = validatedDetailsA?.approvedTotal !== undefined && validatedDetailsA?.approvedTotal !== null 
@@ -1900,7 +2023,8 @@ export async function calculateAndSaveUserKpi(
     ? options.overrideDetailsC
     : ((existingKpi?.detailsC as any) || {});
 
-  const c2Score = rawDetailsC.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (existingKpi?.c2Score ? parseFloat(existingKpi.c2Score) : 0);
+  const rawC2 = rawDetailsC.c2 !== undefined ? parseFloat(rawDetailsC.c2) : (existingKpi?.c2Score ? parseFloat(existingKpi.c2Score) : 0);
+  const c2Score = isNaN(rawC2) || !isFinite(rawC2) ? 0 : Math.max(0, Math.min(alloc.maxC2 || 4, rawC2));
   const selfC = Math.min(alloc.maxC || 10, selfAutoC1);
   const cScore = Math.min(alloc.maxC || 10, approvedAutoC1 + c2Score);
 
@@ -1908,64 +2032,27 @@ export async function calculateAndSaveUserKpi(
     ? options.overrideDetailsD
     : ((existingKpi?.detailsD as any) || {});
   
-  const autoPenaltyItems: any[] = [];
-  userWorks.forEach(w => {
-    const st = String(w.status || '').toLowerCase();
-    let autoD = 0;
-    let reason = '';
-    if (st.includes('không hoàn thành') || st.includes('không đạt')) {
-      autoD = 3;
-      reason = st.includes('không hoàn thành') ? 'Không hoàn thành' : 'Không đạt chất lượng';
-    } else if (st === 'chậm' || st === 'quá hạn' || st.includes('chậm tiến độ') || st.includes('quá hạn')) {
-      autoD = 2;
-      reason = 'Chậm tiến độ';
-    } else if (st.includes('bổ sung nhiều lần')) {
-      autoD = 1;
-      reason = 'Bổ sung nhiều lần';
-    }
-
-    if (autoD > 0) {
-      autoPenaltyItems.push({
-        id: `work-${w.id}`,
-        group: 'Công việc chuyên môn',
-        content: `Nhiệm vụ: ${w.taskName || w.taskCode} - Trạng thái: ${w.status}`,
-        autoD,
-        officialD: autoD,
-        decision: 'Giữ nguyên',
-        note: reason
-      });
-    }
+  const penaltyRules = kpiConfig.penaltyRules || DEFAULT_KPI_CONFIG.penaltyRules;
+  const autoPenaltyItems = generateWorkPenaltyItems(userWorks, penaltyRules);
+  const mergedD = mergePenaltyItems(autoPenaltyItems, rawDetailsD, {
+    isApprovalSubmission: options?.overrideDetailsD?.statusD === 'Đã duyệt'
   });
 
-  const savedItems = Array.isArray(rawDetailsD.items) ? rawDetailsD.items : [];
-  
-  const mergedDItems = autoPenaltyItems.map(autoItem => {
-    const savedMatch = savedItems.find((it: any) => it.id === autoItem.id);
-    if (savedMatch) {
-      return { ...autoItem, ...savedMatch, autoD: autoItem.autoD, content: autoItem.content };
-    }
-    return autoItem;
-  });
-
-  const manualItems = savedItems.filter((it: any) => !String(it.id || '').startsWith('work-'));
-  const finalDItems = [...mergedDItems, ...manualItems];
-
-  const totalOfficialD = finalDItems.reduce((s: number, item: any) => {
-    const val = item.officialD !== undefined ? parseFloat(item.officialD) : parseFloat(item.autoD || '0');
-    return s + (isNaN(val) ? 0 : val);
-  }, 0);
+  const totalOfficialD = mergedD.totalOfficialD;
   const dScore = alloc.maxD ? Math.min(alloc.maxD, totalOfficialD) : totalOfficialD;
   const updatedDetailsD = {
     ...rawDetailsD,
-    items: finalDItems,
-    totalAutoD: finalDItems.reduce((s, it) => s + (parseFloat(it.autoD) || 0), 0),
-    totalOfficialD
+    items: mergedD.items,
+    totalAutoD: mergedD.totalAutoD,
+    totalOfficialD,
+    statusD: mergedD.statusD,
+    hasNewUnapprovedViolations: mergedD.hasNewUnapprovedViolations
   };
 
   // Check if statusA, statusC, statusD are all 'Đã duyệt'
   const statusA = validatedDetailsA?.statusA;
   const statusC = (rawDetailsC as any)?.statusC;
-  const statusD = (rawDetailsD as any)?.statusD;
+  const statusD = updatedDetailsD?.statusD;
   const isAllApproved = statusA === 'Đã duyệt' && statusC === 'Đã duyệt' && statusD === 'Đã duyệt';
 
   let totalKpi: number | null = null;
