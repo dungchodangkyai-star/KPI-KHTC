@@ -6,7 +6,7 @@ import { db, pool } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter, requireSessionAuthenticated, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
-import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths } from "./server/kpiRoutes.ts";
+import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
@@ -297,34 +297,36 @@ async function startServer() {
     }
   });
 
-  app.post("/api/works", async (req, res) => {
+  app.post("/api/works", requireSessionAuthenticated, async (req, res) => {
     try {
       const p = req.body;
-      let user = null;
-      if (p.userId && Number(p.userId) > 0) {
-        user = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.id, Number(p.userId)),
-        });
-      }
-      if (!user && p.userEmail) {
-        user = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.email, String(p.userEmail).trim().toLowerCase()),
-        });
-      }
-      if (!user && p.userName) {
-        user = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.name, String(p.userName).trim()),
-        });
-      }
-      if (!user) {
-        const session = readSessionToken(req);
-        if (session && session.userId) {
-          user = await db.query.users.findFirst({
-            where: (u, { eq }) => eq(u.id, session.userId),
+      const authUser = (req as any).authUser;
+      const isLeader = isKpiLeaderOrAdmin(authUser);
+
+      let userId = authUser?.id || 1;
+      if (isLeader) {
+        // Chỉ Lãnh đạo hoặc Admin mới có quyền tạo việc hộ / giao việc cho nhân sự khác
+        let targetUser = null;
+        if (p.userId && Number(p.userId) > 0) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.id, Number(p.userId)),
           });
         }
+        if (!targetUser && p.userEmail) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.email, String(p.userEmail).trim().toLowerCase()),
+          });
+        }
+        if (!targetUser && p.userName) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.name, String(p.userName).trim()),
+          });
+        }
+        userId = targetUser ? targetUser.id : (p.userId && Number(p.userId) > 0 ? Number(p.userId) : (authUser?.id || 1));
+      } else {
+        // Nhân viên thông thường TUYỆT ĐỐI chỉ được tạo công việc cho chính mình
+        userId = authUser.id;
       }
-      const userId = user ? user.id : (p.userId && Number(p.userId) > 0 ? Number(p.userId) : 1);
 
       const parsedStart = parseExcelDateToISO(p.startDate);
       const parsedEnd = parseExcelDateToISO(p.endDate);
@@ -344,6 +346,42 @@ async function startServer() {
         ? String(p.baseScore)
         : (p.score !== undefined && p.score !== null && String(p.score).trim() !== '' ? String(p.score) : "0");
 
+      const initBaseScore = parseFloat(dbBaseScore) || 10;
+      const initCoef = parseFloat(resolvedCoef) || 0.8;
+      const initStandardApprovedScore = String(Math.round(initBaseScore * initCoef * 10) / 10);
+
+      // Phân quyền tạo việc: Chỉ Lãnh đạo hoặc Quản trị viên mới được tạo công việc ở trạng thái đã Duyệt
+      let initialLeaderApproval = "Chưa duyệt";
+      let initialApproverId: number | null = null;
+      let initialApprovalDate: Date | null = null;
+      let initialApprovedScore: string | null = null;
+      let initialLeaderNote = "";
+
+      if (isLeader && p.leaderApproval && (p.leaderApproval === 'Duyệt' || p.leaderApproval === 'Không duyệt' || p.leaderApproval === 'Cần bổ sung')) {
+        initialLeaderApproval = p.leaderApproval;
+        initialApproverId = authUser?.id || null;
+        initialApprovalDate = new Date();
+        initialLeaderNote = p.leaderNote || (p.leaderApproval === 'Duyệt' ? 'Đã phê duyệt đạt khi tạo việc.' : '');
+
+        if (p.leaderApproval === 'Duyệt') {
+          if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+            const parsedScore = parseFloat(String(p.approvedConvertedScore));
+            if (!isNaN(parsedScore) && parsedScore >= 0) {
+              initialApprovedScore = String(Math.round(parsedScore * 10) / 10);
+            }
+          }
+          if (!initialApprovedScore) {
+            initialApprovedScore = initStandardApprovedScore;
+          }
+        } else if (p.leaderApproval === 'Không duyệt') {
+          initialApprovedScore = '0';
+        }
+      } else {
+        // Nhân viên thông thường tạo việc: bắt buộc khởi tạo là Chưa duyệt, không có điểm duyệt
+        initialLeaderApproval = "Chưa duyệt";
+        initialApprovedScore = null;
+      }
+
       const newWork = await db.insert(works).values({
         workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         month: p.month || "08-2026",
@@ -357,16 +395,16 @@ async function startServer() {
         endDate: dbEndDate,
         endTime: p.endTime || "17:00",
         actualEndDate: dbActualEndDate,
-          hours: String(p.hours || "8"),
-          days: parseInt(p.days || "1"),
-          proposedNature: proposedNature,
-          approvedNature: p.approvedNature || "",
-          coef: resolvedCoef,
-          baseScore: dbBaseScore,
-          convertedScore: p.convertedScore !== undefined && p.convertedScore !== null && String(p.convertedScore).trim() !== '' ? String(p.convertedScore) : null,
-          selfConvertedScore: p.selfConvertedScore !== undefined && p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '' ? String(p.selfConvertedScore) : null,
-          approvedConvertedScore: p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '' ? String(p.approvedConvertedScore) : (p.leaderApproval === 'Duyệt' && p.convertedScore ? String(p.convertedScore) : null),
-          status: p.status || "Chưa cập nhật",
+        hours: String(p.hours || "8"),
+        days: parseInt(p.days || "1"),
+        proposedNature: proposedNature,
+        approvedNature: p.approvedNature || (initialLeaderApproval === 'Duyệt' ? proposedNature : ""),
+        coef: resolvedCoef,
+        baseScore: dbBaseScore,
+        convertedScore: initialApprovedScore || (p.convertedScore !== undefined && p.convertedScore !== null && String(p.convertedScore).trim() !== '' ? String(p.convertedScore) : null),
+        selfConvertedScore: p.selfConvertedScore !== undefined && p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '' ? String(p.selfConvertedScore) : null,
+        approvedConvertedScore: initialApprovedScore,
+        status: p.status || "Chưa cập nhật",
         evidence: p.evidence || "",
         productType: p.productType || "Báo cáo",
         productQty: parseInt(p.productQty || "1"),
@@ -376,30 +414,48 @@ async function startServer() {
         lateReason: p.lateReason || "",
         penaltyExemption: p.penaltyExemption || "Không",
         editNote: p.editNote || "",
-        leaderApproval: p.leaderApproval || "Chưa duyệt",
-        leaderNote: p.leaderNote || "",
+        leaderApproval: initialLeaderApproval,
+        leaderNote: initialLeaderNote,
+        approverId: initialApproverId,
+        approvalDate: initialApprovalDate,
         source: p.source || "WEBAPP",
       }).returning();
 
+      let kpiRecalcResult: any = null;
       if (newWork[0]) {
         try {
-          await recalculateAffectedMonths([newWork[0].month]);
+          kpiRecalcResult = await recalculateAffectedMonths([newWork[0].month]);
+          if (kpiRecalcResult && !kpiRecalcResult.success) {
+            console.warn("Notice: KPI recalculation had partial failures on work creation:", kpiRecalcResult.failedUsers);
+          }
         } catch (kpiErr) {
           console.error("Error auto recalculating KPI after work creation:", kpiErr);
         }
       }
 
-      res.json({ success: true, data: newWork[0], message: "Đã lưu công việc thành công!" });
+      const responsePayload: any = { 
+        success: true, 
+        data: newWork[0], 
+        message: "Đã lưu công việc thành công!" 
+      };
+
+      if (kpiRecalcResult && !kpiRecalcResult.success && kpiRecalcResult.failedUsers?.length > 0) {
+        responsePayload.warning = `Đã lưu công việc, nhưng tự động cập nhật bảng KPI của ${kpiRecalcResult.failedUsers.length} nhân sự chưa hoàn tất: ${kpiRecalcResult.failedUsers.map((f: any) => f.name).join(', ')}`;
+        responsePayload.failedRecalcs = kpiRecalcResult.failedUsers;
+      }
+
+      res.json(responsePayload);
     } catch (error) {
       console.error("Error creating work:", error);
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.put("/api/works/:id", async (req, res) => {
+  app.put("/api/works/:id", requireSessionAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const p = req.body;
+      const authUser = (req as any).authUser;
       const updateData: any = { updatedAt: new Date() };
 
       const oldWork = await db.query.works.findFirst({
@@ -410,7 +466,42 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
       }
 
-      if (p.userId !== undefined) updateData.userId = parseInt(p.userId);
+      const isLeader = isKpiLeaderOrAdmin(authUser);
+
+      // 1. Phân quyền và kiểm tra quyền sở hữu công việc (Object-Level Authorization)
+      if (!isLeader) {
+        // Nhân viên thông thường CHỈ ĐƯỢC PHÉP sửa công việc của chính mình
+        if (oldWork.userId !== authUser.id) {
+          return res.status(403).json({
+            success: false,
+            error: "Bạn không có quyền chỉnh sửa công việc của nhân sự khác."
+          });
+        }
+
+        // Nhân viên thông thường TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP can thiệp vào các trường thẩm định/phê duyệt của Lãnh đạo
+        const hasLeaderFields = 
+          p.isLeaderAction !== undefined ||
+          p.leaderApproval !== undefined ||
+          p.approvedConvertedScore !== undefined ||
+          p.approvedNature !== undefined ||
+          p.approverId !== undefined ||
+          p.approvalDate !== undefined ||
+          p.leaderNote !== undefined ||
+          (p.userId !== undefined && Number(p.userId) !== Number(oldWork.userId));
+
+        if (hasLeaderFields) {
+          return res.status(403).json({
+            success: false,
+            error: "Bạn không có quyền Lãnh đạo để phê duyệt, chỉnh sửa điểm KPI duyệt hoặc thay đổi quyền sở hữu công việc."
+          });
+        }
+      } else {
+        // Lãnh đạo/Admin có quyền chuyển giao việc cho nhân sự khác
+        if (p.userId !== undefined && Number(p.userId) > 0) {
+          updateData.userId = parseInt(p.userId);
+        }
+      }
+
       if (p.taskGroup !== undefined) updateData.taskGroup = p.taskGroup;
       if (p.taskName !== undefined) updateData.taskName = p.taskName;
       if (p.taskCode !== undefined) updateData.taskCode = p.taskCode;
@@ -435,7 +526,6 @@ async function startServer() {
           updateData.coef = String(getNatureCoef(p.proposedNature));
         }
       }
-      if (p.approvedNature !== undefined) updateData.approvedNature = p.approvedNature;
       if (p.coef !== undefined) updateData.coef = String(p.coef);
       if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
 
@@ -463,22 +553,59 @@ async function startServer() {
         updateData.convertedScore = computedSelfScore;
       }
 
-      if (p.approvedConvertedScore !== undefined) {
-        updateData.approvedConvertedScore = (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') ? String(p.approvedConvertedScore) : null;
+      // 2. Điểm thẩm định & Phê duyệt của Lãnh đạo trên máy chủ:
+      // Chỉ Lãnh đạo/Admin mới có quyền can thiệp vào khối này
+      if (isLeader) {
+        if (p.leaderApproval !== undefined) {
+          updateData.leaderApproval = p.leaderApproval;
+          if (p.leaderApproval === 'Duyệt') {
+            const approvedBase = parseFloat(updateData.baseScore ?? p.baseScore ?? oldWork.baseScore ?? '10') || 10;
+            const approvedNature = updateData.approvedNature ?? p.approvedNature ?? updateData.proposedNature ?? p.proposedNature ?? oldWork.approvedNature ?? oldWork.proposedNature ?? 'Trung bình';
+            const approvedCoef = parseFloat(updateData.coef ?? p.coef ?? oldWork.coef ?? String(getNatureCoef(approvedNature))) || 0.8;
+            
+            const serverStandardApprovedScore = Math.round(approvedBase * approvedCoef * 10) / 10;
+
+            // Tôn trọng điểm số Lãnh đạo đã nhập; nếu không truyền hoặc không hợp lệ thì mặc định theo Điểm chuẩn × Hệ số
+            let finalApprovedScore = serverStandardApprovedScore;
+            if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+              const clientScore = parseFloat(String(p.approvedConvertedScore));
+              if (!isNaN(clientScore) && clientScore >= 0) {
+                finalApprovedScore = Math.round(clientScore * 10) / 10;
+              }
+            }
+
+            updateData.approvedConvertedScore = String(finalApprovedScore);
+            updateData.convertedScore = String(finalApprovedScore);
+            updateData.approverId = authUser.id; // Luôn luôn gắn định danh người duyệt từ phiên an toàn
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          } else if (p.leaderApproval === 'Không duyệt') {
+            updateData.approvedConvertedScore = '0';
+            updateData.convertedScore = '0';
+            updateData.approverId = authUser.id;
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          } else if (p.leaderApproval === 'Cần bổ sung') {
+            updateData.approvedConvertedScore = null;
+            updateData.approverId = authUser.id;
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          }
+        } else if (p.approvedConvertedScore !== undefined) {
+          // Lãnh đạo chủ động sửa điểm duyệt trực tiếp (khi việc đã duyệt)
+          if (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+            const clientScore = parseFloat(String(p.approvedConvertedScore));
+            if (!isNaN(clientScore) && clientScore >= 0) {
+              const finalScore = String(Math.round(clientScore * 10) / 10);
+              updateData.approvedConvertedScore = finalScore;
+              updateData.convertedScore = finalScore;
+              updateData.approverId = authUser.id;
+              updateData.approvalDate = new Date();
+            }
+          }
+        }
+
+        if (p.approvedNature !== undefined) updateData.approvedNature = p.approvedNature;
+        if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
       }
 
-      if (p.leaderApproval !== undefined) {
-        updateData.leaderApproval = p.leaderApproval;
-        if (p.leaderApproval === 'Không duyệt') {
-          updateData.approvedConvertedScore = '0';
-          updateData.convertedScore = '0';
-        } else if (p.leaderApproval === 'Cần bổ sung') {
-          updateData.approvedConvertedScore = null;
-        }
-      }
-      if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
-      if (p.approverId !== undefined) updateData.approverId = p.approverId ? parseInt(p.approverId) : null;
-      if (p.approvalDate !== undefined) updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : null;
       if (p.lateReason !== undefined) updateData.lateReason = p.lateReason;
       if (p.penaltyExemption !== undefined) updateData.penaltyExemption = p.penaltyExemption;
       if (p.editNote !== undefined) updateData.editNote = p.editNote;
@@ -517,6 +644,8 @@ async function startServer() {
       const updated = await db.update(works).set(updateData).where(eq(works.id, id)).returning();
       const updatedWork = updated[0];
 
+      let kpiRecalcResult: any = null;
+
       // Tự động tính lại KPI toàn bộ nhân sự đúng phòng và tháng bị ảnh hưởng khi duyệt, sửa, chuyển việc
       if (updatedWork) {
         const isRelevantChange = 
@@ -539,7 +668,10 @@ async function startServer() {
         if (isRelevantChange) {
           try {
             const affectedMonths = [oldWork?.month, updatedWork.month];
-            await recalculateAffectedMonths(affectedMonths);
+            kpiRecalcResult = await recalculateAffectedMonths(affectedMonths);
+            if (kpiRecalcResult && !kpiRecalcResult.success) {
+              console.warn("Notice: KPI recalculation had partial failures:", kpiRecalcResult.failedUsers);
+            }
           } catch (kpiErr) {
             console.error("Error auto recalculating KPI after work update:", kpiErr);
           }
@@ -585,16 +717,28 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true, data: updatedWork, message: "Đã cập nhật công việc thành công!" });
+      const responsePayload: any = { 
+        success: true, 
+        data: updatedWork, 
+        message: "Đã cập nhật công việc thành công!" 
+      };
+
+      if (kpiRecalcResult && !kpiRecalcResult.success && kpiRecalcResult.failedUsers?.length > 0) {
+        responsePayload.warning = `Đã lưu công việc, nhưng tự động cập nhật bảng KPI của ${kpiRecalcResult.failedUsers.length} nhân sự chưa hoàn tất: ${kpiRecalcResult.failedUsers.map((f: any) => f.name).join(', ')}`;
+        responsePayload.failedRecalcs = kpiRecalcResult.failedUsers;
+      }
+
+      res.json(responsePayload);
     } catch (error) {
       console.error("Error updating work:", error);
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.delete("/api/works/:id", async (req, res) => {
+  app.delete("/api/works/:id", requireSessionAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const authUser = (req as any).authUser;
       const oldWork = await db.query.works.findFirst({
         where: eq(works.id, id)
       });
@@ -603,25 +747,17 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
       }
 
-      // Xác định quyền nhân sự dựa trên token / cookie phiên đăng nhập thực tế phía server
-      const session = readSessionToken(req);
-      let sessionUser: any = null;
-      if (session?.userId) {
-        sessionUser = await db.query.users.findFirst({
-          where: eq(users.id, session.userId)
+      const isLeaderOrAdmin = isKpiLeaderOrAdmin(authUser);
+
+      // 1. Kiểm tra quyền sở hữu: Nhân viên chỉ được phép xóa công việc của chính mình
+      if (!isLeaderOrAdmin && oldWork.userId !== authUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: "Bạn không có quyền xóa công việc của nhân sự khác."
         });
       }
 
-      const isLeaderOrAdmin = sessionUser && (
-        sessionUser.role === 'ADMIN' || 
-        sessionUser.role === 'LEADER' || 
-        String(sessionUser.email || '').toLowerCase() === ADMIN_EMAIL ||
-        ['Trưởng phòng', 'Phó Trưởng phòng', 'Phó phòng', 'Ban Lãnh đạo'].some(pos => 
-          String(sessionUser.position || '').includes(pos) || String(sessionUser.group || '').includes(pos)
-        )
-      );
-
-      // Kiểm tra công việc đã duyệt hoặc đã từng duyệt
+      // 2. Kiểm tra công việc đã duyệt hoặc đã từng duyệt
       const isApprovedOrEverApproved = 
         oldWork.leaderApproval === 'Duyệt' || 
         Boolean(oldWork.approvedConvertedScore && String(oldWork.approvedConvertedScore).trim() !== '') ||
@@ -640,7 +776,7 @@ async function startServer() {
 
       const updated = await db.update(works).set({
         dataStatus: "Đã xóa mềm",
-        sysNote: `Xóa mềm lúc ${new Date().toISOString()} bởi ${sessionUser?.name || 'Người dùng'}${req.body?.reason ? ` - Lý do: ${req.body.reason}` : ''}`,
+        sysNote: `Xóa mềm lúc ${new Date().toISOString()} bởi ${authUser?.name || 'Người dùng'}${req.body?.reason ? ` - Lý do: ${req.body.reason}` : ''}`,
         updatedAt: new Date(),
       }).where(eq(works.id, id)).returning();
 

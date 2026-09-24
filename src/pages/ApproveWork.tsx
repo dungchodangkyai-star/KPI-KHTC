@@ -25,117 +25,13 @@ import {
   getNatureCoef,
   WorkNatureItem,
   safeFetch,
-  safeParseResponse
+  safeParseResponse,
+  calculateWorkSchedule,
+  type WorkScheduleInfo
 } from '../utils';
 import { Work, User as UserType, Assignment } from '../types';
 
-export interface WorkScheduleInfo {
-  startDateStr: string;
-  endDateStr: string;
-  daysCount: number;
-  scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue';
-  scheduleText: string;
-  diffDays: number;
-}
-
-export function calculateWorkSchedule(w: Work): WorkScheduleInfo {
-  const isValidDate = (d: any) => {
-    if (!d) return false;
-    const date = new Date(d);
-    return !isNaN(date.getTime()) && date.getFullYear() >= 1990 && date.getFullYear() <= 2100;
-  };
-
-  const start = isValidDate(w.startDate) ? new Date(w.startDate!) : (isValidDate(w.createdAt) ? new Date(w.createdAt!) : null);
-  const end = isValidDate(w.actualEndDate) ? new Date(w.actualEndDate!) : (isValidDate(w.endDate) ? new Date(w.endDate!) : null);
-  const deadline = isValidDate(w.endDate) ? new Date(w.endDate!) : null;
-  const now = new Date();
-
-  // Format strings
-  const startDateStr = formatDate(start);
-  const endDateStr = formatDate(end || deadline);
-
-  // Calculate days worked based on actual date range if available
-  let daysCount = 0;
-  if (start && end) {
-    const s = new Date(start);
-    s.setHours(0, 0, 0, 0);
-    const e = new Date(end);
-    e.setHours(0, 0, 0, 0);
-    const diffMs = e.getTime() - s.getTime();
-    daysCount = Math.max(1, Math.round(diffMs / 86400000) + 1);
-  } else if (w.days && Number(w.days) > 0) {
-    daysCount = Number(w.days);
-  } else {
-    daysCount = 1;
-  }
-
-  // Calculate schedule comparison
-  let scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue' = 'in_progress';
-  let scheduleText = 'Đang thực hiện';
-  let diffDays = 0;
-
-  const isCompleted = w.status === 'Hoàn thành';
-  const isLate = w.status === 'Chậm';
-
-  if (isCompleted && isValidDate(w.actualEndDate) && deadline) {
-    const actualTime = new Date(w.actualEndDate!).setHours(0, 0, 0, 0);
-    const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
-    const diff = Math.round((actualTime - deadlineTime) / 86400000);
-    diffDays = Math.abs(diff);
-
-    if (diff < 0) {
-      scheduleStatus = 'early';
-      scheduleText = `Sớm ${diffDays} ngày`;
-    } else if (diff === 0) {
-      scheduleStatus = 'on_time';
-      scheduleText = 'Đúng hạn';
-    } else {
-      scheduleStatus = 'late';
-      scheduleText = `Chậm ${diffDays} ngày`;
-    }
-  } else if (isCompleted) {
-    scheduleStatus = 'on_time';
-    scheduleText = 'Đúng hạn';
-  } else if (isLate) {
-    if (deadline) {
-      const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
-      const nowTime = now.setHours(0, 0, 0, 0);
-      const diff = Math.max(1, Math.round((nowTime - deadlineTime) / 86400000));
-      diffDays = diff;
-      scheduleStatus = 'late';
-      scheduleText = `Chậm ${diffDays} ngày`;
-    } else {
-      scheduleStatus = 'late';
-      scheduleText = 'Chậm tiến độ';
-    }
-  } else if (deadline) {
-    const deadlineTime = new Date(deadline).setHours(0, 0, 0, 0);
-    const nowTime = new Date().setHours(0, 0, 0, 0);
-    const diff = Math.round((nowTime - deadlineTime) / 86400000);
-    
-    if (diff > 0) {
-      scheduleStatus = 'overdue';
-      diffDays = diff;
-      scheduleText = `Quá hạn ${diff} ngày`;
-    } else if (diff === 0) {
-      scheduleStatus = 'in_progress';
-      scheduleText = 'Đến hạn hôm nay';
-    } else {
-      scheduleStatus = 'in_progress';
-      diffDays = Math.abs(diff);
-      scheduleText = `Còn ${diffDays} ngày`;
-    }
-  }
-
-  return {
-    startDateStr,
-    endDateStr,
-    daysCount,
-    scheduleStatus,
-    scheduleText,
-    diffDays
-  };
-}
+export { calculateWorkSchedule, type WorkScheduleInfo };
 
 const QUICK_LEADER_SUGGESTIONS = [
   'Hồ sơ đạt yêu cầu, số liệu đầy đủ và chính xác.',
@@ -217,7 +113,7 @@ interface WorkReviewModalProps {
   currentUser: any;
   workNatures?: WorkNatureItem[];
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, warning?: string) => void;
   refreshAll: () => Promise<void>;
 }
 
@@ -283,16 +179,14 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
   );
   const [reviewNote, setReviewNote] = useState<string>(work.leaderNote || '');
   const [reviewScore, setReviewScore] = useState<number | ''>(() => {
-    if (work.approvedConvertedScore && !isNaN(Number(work.approvedConvertedScore))) {
+    // Nếu công việc đã từng được Lãnh đạo duyệt chính thức và có điểm duyệt lưu sẵn:
+    if (work.leaderApproval === 'Duyệt' && work.approvedConvertedScore !== undefined && work.approvedConvertedScore !== null && !isNaN(Number(work.approvedConvertedScore))) {
       return Number(work.approvedConvertedScore);
-    } else if (work.convertedScore && !isNaN(Number(work.convertedScore))) {
-      return Number(work.convertedScore);
-    } else if (work.selfConvertedScore && !isNaN(Number(work.selfConvertedScore))) {
-      return Number(work.selfConvertedScore);
-    } else {
-      const baseSc = Number(work.baseScore) || 10;
-      return Math.round(baseSc * initialCoef * 10) / 10;
     }
+    // Đối với công việc đang thẩm định / chưa duyệt: Điểm Lãnh đạo duyệt = Điểm chuẩn × Hệ số duyệt
+    // TUYỆT ĐỐI KHÔNG kế thừa selfConvertedScore hay convertedScore (vốn đã bị nhân hệ số tiến độ 0.7 hoặc 0.5)
+    const baseSc = Number(work.baseScore) || 10;
+    return Math.round(baseSc * initialCoef * 10) / 10;
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -395,7 +289,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
       const d = await safeParseResponse(res);
       if (d.success) {
         const actionLabel = finalDecision === 'Duyệt' ? 'Phê duyệt đạt' : (finalDecision === 'Cần bổ sung' ? 'Yêu cầu bổ sung' : 'Không duyệt');
-        onSuccess(`Đã ${actionLabel} công việc "${work.taskName || 'nhiệm vụ'}" thành công!`);
+        onSuccess(`Đã ${actionLabel} công việc "${work.taskName || 'nhiệm vụ'}" thành công!`, d.warning);
         onClose();
         refreshAll();
       } else {
@@ -476,6 +370,17 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                 <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
                 <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
                 <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
+                {sched.actualEndDateStr && (
+                  <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                    Thực tế: {sched.actualEndDateStr}
+                  </div>
+                )}
+                {sched.isAbnormalDate && (
+                  <div className="text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded mt-1 flex items-center gap-1" title={sched.abnormalDateNote}>
+                    <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                    <span>Dữ liệu ngày bất thường</span>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white p-2.5 rounded-lg border border-slate-200">
@@ -488,6 +393,11 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                 }`}>
                   {sched.scheduleText}
                 </span>
+                {sched.isAbnormalDate && (
+                  <div className="text-[9px] text-amber-700 font-semibold mt-0.5" title={sched.abnormalDateNote}>
+                    ⚠ Ngày HT trước ngày BĐ
+                  </div>
+                )}
               </div>
             </div>
 
@@ -881,6 +791,7 @@ export default function ApproveWork() {
   const [workNatures, setWorkNatures] = useState<WorkNatureItem[]>(getWorkNatureList());
   const [reviewingWork, setReviewingWork] = useState<Work | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [warningMsg, setWarningMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const fetchAll = async () => {
@@ -988,27 +899,63 @@ export default function ApproveWork() {
 
     setIsBatchApproving(true);
     try {
-      const promises = selectedIds.map(id => {
+      const promises = selectedIds.map(async id => {
         const foundWork = works.find(w => w.id === id);
-        const initialApprovedScore = String(foundWork?.selfConvertedScore || foundWork?.convertedScore || '0');
-        return fetch(`/api/works/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            leaderApproval: 'Duyệt',
-            approvedNature: foundWork?.approvedNature || foundWork?.proposedNature || 'Trung bình',
-            coef: String(foundWork?.coef || '0.8'),
-            approvedConvertedScore: initialApprovedScore,
-            convertedScore: initialApprovedScore,
-            leaderNote: 'Lãnh đạo phòng đã phê duyệt đạt yêu cầu.'
-          })
-        });
+        const baseScore = parseFloat(String(foundWork?.baseScore || '10')) || 10;
+        const nature = foundWork?.approvedNature || foundWork?.proposedNature || 'Trung bình';
+        const defaultNatureCoef = getNatureCoef(nature);
+        const coef = (foundWork?.coef && !isNaN(parseFloat(String(foundWork.coef)))) 
+          ? parseFloat(String(foundWork.coef)) 
+          : defaultNatureCoef;
+        
+        // Công thức chuẩn của Lãnh đạo: Điểm chuẩn × Hệ số duyệt (KHÔNG nhân hệ số tiến độ)
+        const correctApprovedScore = String(Math.round(baseScore * coef * 10) / 10);
+
+        try {
+          const res = await safeFetch(`/api/works/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              leaderApproval: 'Duyệt',
+              approvedNature: nature,
+              coef: String(coef),
+              approvedConvertedScore: correctApprovedScore,
+              convertedScore: correctApprovedScore,
+              leaderNote: 'Lãnh đạo phòng đã phê duyệt đạt yêu cầu theo danh sách.',
+              approverId: currentUser?.id || null,
+              approvalDate: new Date(),
+              isLeaderAction: true
+            })
+          });
+          const d = await safeParseResponse(res);
+          return { id, ok: d.success, error: d.error, warning: d.warning };
+        } catch (err: any) {
+          return { id, ok: false, error: err?.message || String(err) };
+        }
       });
-      await Promise.all(promises);
-      setSuccessMsg(`Đã phê duyệt thành công ${selectedIds.length} công việc!`);
+
+      const results = await Promise.all(promises);
+      const successful = results.filter(r => r.ok);
+      const failed = results.filter(r => !r.ok);
+      const warnings = results.map(r => r.warning).filter(Boolean);
+
+      if (failed.length === 0) {
+        setSuccessMsg(`Đã phê duyệt đạt thành công toàn bộ ${successful.length} công việc!`);
+      } else if (successful.length > 0) {
+        setSuccessMsg(`Đã phê duyệt ${successful.length}/${selectedIds.length} công việc. Có ${failed.length} công việc gặp lỗi!`);
+      } else {
+        alert(`Phê duyệt hàng loạt thất bại: ${failed[0]?.error || 'Lỗi kết nối máy chủ'}`);
+      }
+
+      if (warnings.length > 0) {
+        setWarningMsg(String(warnings[0]));
+      } else {
+        setWarningMsg('');
+      }
+
       setSelectedIds([]);
       fetchAll();
-      setTimeout(() => setSuccessMsg(''), 4000);
+      setTimeout(() => setSuccessMsg(''), 5000);
     } catch (e) {
       alert("Lỗi khi duyệt hàng loạt: " + String(e));
     } finally {
@@ -1031,8 +978,9 @@ export default function ApproveWork() {
         "Nhóm": w.taskGroup || '-',
         "Ngày bắt đầu / đăng ký": sched.startDateStr,
         "Ngày kết thúc / hạn": sched.endDateStr,
+        "Ngày hoàn thành thực tế": sched.actualEndDateStr || '-',
         "Số ngày làm": sched.daysCount,
-        "Đánh giá tiến độ": sched.scheduleText,
+        "Đánh giá tiến độ": sched.isAbnormalDate ? `${sched.scheduleText} (Ngày bất thường)` : sched.scheduleText,
         "Tính chất đã chọn": w.proposedNature || '-',
         "Hệ số đăng ký": w.coef || '-',
         "Tính chất duyệt": w.approvedNature || w.proposedNature || '-',
@@ -1106,15 +1054,48 @@ export default function ApproveWork() {
 
         {/* Alerts */}
         {successMsg && (
-          <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold flex items-center gap-2 animate-fadeIn">
-            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-            <span>{successMsg}</span>
+          <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold flex items-center justify-between gap-2 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>{successMsg}</span>
+            </div>
+            <button 
+              onClick={() => setSuccessMsg('')} 
+              className="text-emerald-700 hover:text-emerald-950 font-bold px-1.5 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {warningMsg && (
+          <div className="mt-4 p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs font-medium flex items-start justify-between gap-2 animate-fadeIn">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-black text-amber-900">Lưu ý đồng bộ KPI: </span>
+                <span className="text-amber-950 font-semibold">{warningMsg}</span>
+              </div>
+            </div>
+            <button 
+              onClick={() => setWarningMsg('')} 
+              className="text-amber-700 hover:text-amber-950 font-bold px-1.5 py-0.5 rounded hover:bg-amber-200/50 cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
         )}
         {errorMsg && (
-          <div className="mt-4 p-3.5 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2 animate-fadeIn">
-            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
-            <span>{errorMsg}</span>
+          <div className="mt-4 p-3.5 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center justify-between gap-2 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+            <button 
+              onClick={() => setErrorMsg('')} 
+              className="text-red-700 hover:text-red-950 font-bold px-1.5 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
         )}
       </div>
@@ -1350,10 +1331,24 @@ export default function ApproveWork() {
                           <span className="text-slate-400">Kết thúc:</span>
                           <span className="font-bold">{sched.endDateStr}</span>
                         </div>
-                        <div className="mt-1">
+                        {sched.actualEndDateStr && (
+                          <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold mt-0.5">
+                            <span className="text-slate-400">Thực tế:</span>
+                            <span>{sched.actualEndDateStr}</span>
+                          </div>
+                        )}
+                        <div className="mt-1 flex items-center gap-1 flex-wrap">
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1F4E78] border border-blue-200">
                             <Timer className="w-3 h-3" /> {sched.daysCount} ngày làm
                           </span>
+                          {sched.isAbnormalDate && (
+                            <span 
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                              title={sched.abnormalDateNote}
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" /> Ngày bất thường
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -1404,6 +1399,17 @@ export default function ApproveWork() {
                             </span>
                           )}
                         </div>
+
+                        {sched.isAbnormalDate && (
+                          <div className="mt-1">
+                            <span 
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                              title={sched.abnormalDateNote}
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" /> Ngày bất thường
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Tính chất & Điểm QĐ */}
@@ -1510,9 +1516,14 @@ export default function ApproveWork() {
           currentUser={currentUser}
           workNatures={workNatures}
           onClose={() => setReviewingWork(null)}
-          onSuccess={(msg) => {
+          onSuccess={(msg, warning) => {
             setSuccessMsg(msg);
-            setTimeout(() => setSuccessMsg(''), 4000);
+            if (warning) {
+              setWarningMsg(warning);
+            } else {
+              setWarningMsg('');
+            }
+            setTimeout(() => setSuccessMsg(''), 5000);
           }}
           refreshAll={fetchAll}
         />
