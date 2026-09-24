@@ -2201,10 +2201,43 @@ export async function recalculateKpiForMonth(targetMonth: string, specificUserId
   };
 }
 
-export async function recalculateAffectedMonths(months: (string | undefined | null)[]) {
+export interface AffectedMonthsRecalculateResult {
+  success: boolean;
+  totalMonths: number;
+  succeededMonths: string[];
+  failedUsers: { month: string; userId: number; name: string; error: string }[];
+  details: any[];
+}
+
+export async function recalculateAffectedMonths(months: (string | undefined | null)[]): Promise<AffectedMonthsRecalculateResult> {
   const distinctMonths = Array.from(new Set(months.filter((m): m is string => Boolean(m))));
+  const failedUsers: { month: string; userId: number; name: string; error: string }[] = [];
+  const succeededMonths: string[] = [];
+  const details: any[] = [];
+
   for (const m of distinctMonths) {
-    await recalculateKpiForMonth(m);
+    try {
+      const res = await recalculateKpiForMonth(m);
+      details.push(res);
+      if (res.failed && res.failed.length > 0) {
+        for (const f of res.failed) {
+          failedUsers.push({ month: m, userId: f.userId, name: f.name, error: f.error });
+        }
+      } else {
+        succeededMonths.push(m);
+      }
+    } catch (err: any) {
+      console.error(`Failed to run recalculateKpiForMonth for month ${m}:`, err);
+      failedUsers.push({ month: m, userId: 0, name: 'TẤT CẢ', error: err?.message || String(err) });
+    }
   }
+
+  return {
+    success: failedUsers.length === 0,
+    totalMonths: distinctMonths.length,
+    succeededMonths,
+    failedUsers,
+    details
+  };
 }
 

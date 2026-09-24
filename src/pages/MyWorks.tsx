@@ -28,6 +28,7 @@ import {
   setGlobalWorkNatures,
   getNatureCoef,
   WorkNatureItem,
+  calculateWorkSchedule,
   safeFetch,
   safeParseResponse
 } from '../utils';
@@ -293,33 +294,46 @@ export default function MyWorks() {
       const originalWork = works.find(w => w.id === editingWork.id);
       const isApprovedBefore = originalWork?.leaderApproval === 'Duyệt';
       
-      // Kiểm tra các trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month, userId
+      // Kiểm tra các trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month
       const isKpiFieldModified = originalWork && (
         String(editingWork.baseScore || '') !== String(originalWork.baseScore || '') ||
         String(editingWork.coef || '') !== String(originalWork.coef || '') ||
         String(editingWork.proposedNature || '') !== String(originalWork.proposedNature || '') ||
         String(editingWork.status || '') !== String(originalWork.status || '') ||
-        String(editingWork.month || '') !== String(originalWork.month || '') ||
-        Number(editingWork.userId || 0) !== Number(originalWork.userId || 0)
+        String(editingWork.month || '') !== String(originalWork.month || '')
       );
 
-      const payload: any = {
-        ...editingWork,
+      // Chỉ tạo payload theo danh sách các trường nhân viên được phép sửa
+      // TUYỆT ĐỐI KHÔNG gửi: leaderApproval, approvedConvertedScore, approvedNature, approverId, approvalDate, leaderNote, isLeaderAction, userId
+      const payload: Record<string, any> = {
+        taskGroup: editingWork.taskGroup,
+        taskName: editingWork.taskName,
+        taskCode: editingWork.taskCode,
+        detail: editingWork.detail,
+        startDate: editingWork.startDate,
+        startTime: editingWork.startTime,
+        endDate: editingWork.endDate,
+        endTime: editingWork.endTime,
+        actualEndDate: editingWork.actualEndDate,
+        hours: editingWork.hours,
+        days: editingWork.days,
+        proposedNature: editingWork.proposedNature,
+        coef: editingWork.coef,
+        baseScore: editingWork.baseScore,
+        status: editingWork.status,
+        evidence: editingWork.evidence,
+        productType: editingWork.productType,
+        productQty: editingWork.productQty,
+        unit: editingWork.unit,
+        project: editingWork.project,
+        relatedUnit: editingWork.relatedUnit,
+        lateReason: editingWork.lateReason,
+        penaltyExemption: editingWork.penaltyExemption,
+        editNote: editingWork.editNote,
+        month: editingWork.month,
         selfConvertedScore: editingWork.selfConvertedScore,
         convertedScore: editingWork.selfConvertedScore
       };
-
-      // Chỉ chuyển về Chưa duyệt nếu thay đổi trường thực sự ảnh hưởng KPI
-      if (isApprovedBefore && isKpiFieldModified) {
-        payload.leaderApproval = 'Chưa duyệt';
-        payload.approvedConvertedScore = null;
-        payload.approvalDate = null;
-        payload.approverId = null;
-        const noteSuffix = 'Đã sửa sau duyệt - chuyển về Chưa duyệt để thẩm định lại';
-        payload.editNote = payload.editNote?.trim() 
-          ? `${payload.editNote.trim()} (${noteSuffix})` 
-          : noteSuffix;
-      }
 
       const res = await safeFetch(`/api/works/${editingWork.id}`, {
         method: 'PUT',
@@ -820,6 +834,7 @@ export default function MyWorks() {
                 const isSelected = selectedIds.includes(w.id);
                 // Sanitize task code from showing email address
                 const cleanCode = w.taskCode && !w.taskCode.includes('@') && !w.taskCode.toLowerCase().includes('.com') ? w.taskCode : null;
+                const sched = calculateWorkSchedule(w);
                 return (
                   <tr key={w.id} className={`hover:bg-blue-50/40 transition-colors ${isSelected ? 'bg-blue-50/60' : ''}`}>
                     {/* Checkbox */}
@@ -901,14 +916,14 @@ export default function MyWorks() {
                     {/* Thời gian */}
                     <td className="py-3 px-3 text-center">
                       <div className="font-semibold text-slate-800 text-[11px]">
-                        {w.startDate ? formatDate(w.startDate) : '-'} → {w.endDate ? formatDate(w.endDate) : '-'}
+                        {sched.startDateStr} → {sched.endDateStr}
                       </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        {w.hours || 8} giờ ({w.days || 1} ngày)
+                        {w.hours || 8} giờ ({sched.daysCount} ngày)
                       </div>
-                      {w.actualEndDate && (
-                        <div className="text-[10px] text-emerald-700 font-semibold">
-                          Thực tế: {formatDate(w.actualEndDate)}
+                      {sched.actualEndDateStr && (
+                        <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                          Thực tế: {sched.actualEndDateStr}
                         </div>
                       )}
                     </td>
@@ -935,16 +950,61 @@ export default function MyWorks() {
 
                     {/* Tiến độ */}
                     <td className="py-3 px-3 text-center">
-                      <span className={`inline-block px-2.5 py-1 rounded-full font-black text-[10px] shadow-2xs ${
-                        w.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800' :
-                        w.status === 'Chậm' ? 'bg-rose-100 text-rose-800' :
-                        w.status === 'Không hoàn thành' ? 'bg-red-100 text-red-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {w.status || 'Đang xử lý'}
-                      </span>
+                      {/* Trạng thái công việc */}
+                      <div className="mb-1">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full font-black text-[10px] shadow-2xs ${
+                          w.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                          w.status === 'Chậm' ? 'bg-rose-100 text-rose-800 border border-rose-200' :
+                          w.status === 'Không hoàn thành' ? 'bg-red-100 text-red-800 border border-red-200' :
+                          'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                          {w.status || 'Đang xử lý'}
+                        </span>
+                      </div>
+
+                      {/* Đánh giá tiến độ (Đồng bộ với màn hình Duyệt việc của Lãnh đạo) */}
+                      <div>
+                        {sched.scheduleStatus === 'early' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-300 inline-block">
+                            ⚡ {sched.scheduleText}
+                          </span>
+                        )}
+                        {sched.scheduleStatus === 'on_time' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-block">
+                            ✓ {sched.scheduleText}
+                          </span>
+                        )}
+                        {sched.scheduleStatus === 'late' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-300 inline-block">
+                            ⚠ {sched.scheduleText}
+                          </span>
+                        )}
+                        {sched.scheduleStatus === 'overdue' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-50 text-red-700 border border-red-300 inline-block">
+                            ✕ {sched.scheduleText}
+                          </span>
+                        )}
+                        {sched.scheduleStatus === 'in_progress' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 inline-block">
+                            ⏳ {sched.scheduleText}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Cảnh báo ngày bất thường nếu actualEndDate < startDate */}
+                      {sched.isAbnormalDate && (
+                        <div className="mt-1">
+                          <span 
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
+                            title={sched.abnormalDateNote}
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" /> Ngày bất thường
+                          </span>
+                        </div>
+                      )}
+
                       {w.lateReason && (
-                        <div className="text-[10px] text-rose-600 font-medium mt-0.5 line-clamp-1" title={w.lateReason}>
+                        <div className="text-[10px] text-rose-600 font-medium mt-1 line-clamp-1" title={w.lateReason}>
                           {w.lateReason}
                         </div>
                       )}

@@ -669,8 +669,8 @@ export const getWorkSelfConvertedScore = (work: any): number => {
  * 2. If work is approved (leaderApproval === 'Duyệt'):
  *    - If approvedConvertedScore exists and is valid -> return it.
  *    - If approvedConvertedScore is missing:
- *      - For valid legacy records: allowed fallback to convertedScore or selfConvertedScore.
- *      - Otherwise: calculate dynamically from approvedNature/proposedNature, coef, baseScore, status.
+ *      - Strictly compute from Base Score x Coefficient (NEVER multiply by status progress factor!).
+ *      - Progress delay penalties are assessed independently in Criterion D.
  */
 export const getWorkApprovedConvertedScore = (work: any): number => {
   if (!work) return 0;
@@ -681,25 +681,19 @@ export const getWorkApprovedConvertedScore = (work: any): number => {
     const val = parseFloat(String(work.approvedConvertedScore));
     if (!isNaN(val)) return val;
   }
-  // For valid legacy approved records without approvedConvertedScore
-  if (isLegacyWork(work)) {
-    if (work.selfConvertedScore !== undefined && work.selfConvertedScore !== null && String(work.selfConvertedScore).trim() !== '') {
-      const val = parseFloat(String(work.selfConvertedScore));
-      if (!isNaN(val)) return val;
-    }
-    if (work.convertedScore !== undefined && work.convertedScore !== null && String(work.convertedScore).trim() !== '') {
-      const val = parseFloat(String(work.convertedScore));
-      if (!isNaN(val)) return val;
-    }
-  }
-  // Dynamic fallback calculation for approved records
+
+  // Fallback for approved records missing approvedConvertedScore:
+  // Strictly: Base Score x Coefficient (NEVER multiply by status progress factor!)
   const rawBase = work.baseScore !== undefined && work.baseScore !== null && String(work.baseScore).trim() !== '' 
     ? parseFloat(String(work.baseScore)) 
     : 10;
   const nature = work.approvedNature || work.proposedNature || 'Trung bình';
   const natureCoef = getNatureCoef(nature);
-  const coef = (work.coef && !isNaN(parseFloat(String(work.coef)))) ? parseFloat(String(work.coef)) : natureCoef;
-  return computeWorkConvertedScore(rawBase, coef, work.status);
+  const coef = (work.coef !== undefined && work.coef !== null && !isNaN(parseFloat(String(work.coef))) && parseFloat(String(work.coef)) > 0) 
+    ? parseFloat(String(work.coef)) 
+    : natureCoef;
+
+  return Math.round(rawBase * coef * 10) / 10;
 };
 
 export const DEFAULT_TASK_GROUPS = [
@@ -1589,6 +1583,145 @@ export async function safeFetchJson<T = any>(
     return { success: false, error: err?.message || 'Không thể kết nối đến máy chủ.', data: [] as any };
   }
 }
+
+export interface WorkScheduleInfo {
+  startDateStr: string;
+  endDateStr: string;
+  actualEndDateStr: string;
+  daysCount: number;
+  scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue';
+  scheduleText: string;
+  diffDays: number;
+  isAbnormalDate: boolean;
+  abnormalDateNote?: string;
+}
+
+/**
+ * Tính toán và đánh giá tiến độ thực hiện công việc:
+ * - Tách bạch ngày kế hoạch startDate-endDate khỏi actualEndDate
+ * - Thời lượng kế hoạch chỉ tính từ khoảng thời gian kế hoạch (startDate đến endDate)
+ * - Đánh giá sớm/chậm chỉ so sánh ngày hoàn thành thực tế (actualEndDate) với hạn chót kế hoạch (endDate)
+ * - Cảnh báo dữ liệu ngày bất thường nếu actualEndDate < startDate
+ */
+export function calculateWorkSchedule(w: any): WorkScheduleInfo {
+  const isValidDate = (d: any) => {
+    if (!d) return false;
+    const date = new Date(d);
+    return !isNaN(date.getTime()) && date.getFullYear() >= 1990 && date.getFullYear() <= 2100;
+  };
+
+  const planStart = isValidDate(w?.startDate) ? new Date(w.startDate) : (isValidDate(w?.createdAt) ? new Date(w.createdAt) : null);
+  const planEnd = isValidDate(w?.endDate) ? new Date(w.endDate) : null;
+  const actualEnd = isValidDate(w?.actualEndDate) ? new Date(w.actualEndDate) : null;
+  const now = new Date();
+
+  // 1. Tách ngày kế hoạch startDate–endDate khỏi actualEndDate
+  const startDateStr = formatDate(planStart);
+  const endDateStr = formatDate(planEnd);
+  const actualEndDateStr = actualEnd ? formatDate(actualEnd) : '';
+
+  // 2. Thời lượng kế hoạch chỉ tính từ startDate–endDate (không lấy actualEndDate)
+  let daysCount = 0;
+  if (planStart && planEnd) {
+    const s = new Date(planStart);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(planEnd);
+    e.setHours(0, 0, 0, 0);
+    const diffMs = e.getTime() - s.getTime();
+    if (diffMs >= 0) {
+      daysCount = Math.max(1, Math.round(diffMs / 86400000) + 1);
+    } else {
+      daysCount = (w?.days && Number(w.days) > 0) ? Number(w.days) : 1;
+    }
+  } else if (w?.days && Number(w.days) > 0) {
+    daysCount = Number(w.days);
+  } else {
+    daysCount = 1;
+  }
+
+  // 3. Sớm/chậm chỉ so sánh actualEndDate với endDate
+  let scheduleStatus: 'early' | 'on_time' | 'late' | 'in_progress' | 'overdue' = 'in_progress';
+  let scheduleText = 'Đang thực hiện';
+  let diffDays = 0;
+
+  const isCompleted = w?.status === 'Hoàn thành';
+  const isLate = w?.status === 'Chậm';
+
+  if (isCompleted && actualEnd && planEnd) {
+    const actTime = new Date(actualEnd).setHours(0, 0, 0, 0);
+    const deadlineTime = new Date(planEnd).setHours(0, 0, 0, 0);
+    const diff = Math.round((actTime - deadlineTime) / 86400000);
+    diffDays = Math.abs(diff);
+
+    if (diff < 0) {
+      scheduleStatus = 'early';
+      scheduleText = `Sớm ${diffDays} ngày`;
+    } else if (diff === 0) {
+      scheduleStatus = 'on_time';
+      scheduleText = 'Đúng hạn';
+    } else {
+      scheduleStatus = 'late';
+      scheduleText = `Chậm ${diffDays} ngày`;
+    }
+  } else if (isCompleted) {
+    scheduleStatus = 'on_time';
+    scheduleText = 'Đúng hạn';
+  } else if (isLate) {
+    if (planEnd) {
+      const deadlineTime = new Date(planEnd).setHours(0, 0, 0, 0);
+      const nowTime = now.setHours(0, 0, 0, 0);
+      const diff = Math.max(1, Math.round((nowTime - deadlineTime) / 86400000));
+      diffDays = diff;
+      scheduleStatus = 'late';
+      scheduleText = `Chậm ${diffDays} ngày`;
+    } else {
+      scheduleStatus = 'late';
+      scheduleText = 'Chậm tiến độ';
+    }
+  } else if (planEnd) {
+    const deadlineTime = new Date(planEnd).setHours(0, 0, 0, 0);
+    const nowTime = new Date().setHours(0, 0, 0, 0);
+    const diff = Math.round((nowTime - deadlineTime) / 86400000);
+    
+    if (diff > 0) {
+      scheduleStatus = 'overdue';
+      diffDays = diff;
+      scheduleText = `Quá hạn ${diff} ngày`;
+    } else if (diff === 0) {
+      scheduleStatus = 'in_progress';
+      scheduleText = 'Đến hạn hôm nay';
+    } else {
+      scheduleStatus = 'in_progress';
+      diffDays = Math.abs(diff);
+      scheduleText = `Còn ${diffDays} ngày`;
+    }
+  }
+
+  // 4. Kiểm tra cảnh báo dữ liệu ngày bất thường: Nếu actualEndDate < startDate
+  let isAbnormalDate = false;
+  let abnormalDateNote = '';
+  if (actualEnd && planStart) {
+    const actTime = new Date(actualEnd).setHours(0, 0, 0, 0);
+    const startTime = new Date(planStart).setHours(0, 0, 0, 0);
+    if (actTime < startTime) {
+      isAbnormalDate = true;
+      abnormalDateNote = `Ngày hoàn thành thực tế (${actualEndDateStr}) trước ngày bắt đầu kế hoạch (${startDateStr})`;
+    }
+  }
+
+  return {
+    startDateStr,
+    endDateStr,
+    actualEndDateStr,
+    daysCount,
+    scheduleStatus,
+    scheduleText,
+    diffDays,
+    isAbnormalDate,
+    abnormalDateNote
+  };
+}
+
 
 
 
