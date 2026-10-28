@@ -12,7 +12,7 @@
     "authHeaderValue": "",
     "sendAsMultipart": false
   },
-  "lastBackupAt": "",
-  "lastBackupStatus": "idle",
-  "lastBackupMessage": "Chưa có bản sao lưu nào được thực hiện"
+  "lastBackupAt": "2026-10-22T03:55:12.664Z",
+  "lastBackupStatus": "success",
+  "lastBackupMessage": "Sao lưu thành công 736 công việc, 19 nhân sự (2188.4 KB) • Đám mây: Google Drive trả về HTTP 404: <!DOCTYPE html><html lang=\"en\"><head><script nonce=\"0fm73LQ8HHYPm0iilpH7sA\">window['ppConfig'] = {productName: '26981ed0d57bbad37e728ff58134270c', del"
 }

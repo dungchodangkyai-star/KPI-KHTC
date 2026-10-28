@@ -14,6 +14,9 @@ import {
   getActiveLoggedInUser, 
   setActiveLoggedInUser, 
   clearActiveLoggedInUser, 
+  getActiveSessionToken,
+  setActiveSessionToken,
+  getAuthHeaders,
   canAccessRoute, 
   formatDate,
   DEFAULT_INITIAL_PASSWORD,
@@ -217,6 +220,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             activeU = merged;
           }
         }
+      }
+
+      // Sync active session token from cookie/session endpoint if missing
+      if (!getActiveSessionToken()) {
+        safeFetch('/api/auth/session', { credentials: 'include' }).then(async (res) => {
+          const sData = await safeParseResponse(res);
+          const t = sData.token || sData.sessionToken;
+          if (sData.success && t) {
+            setActiveSessionToken(t);
+          }
+        }).catch(() => {});
       }
 
       setIsLoaded(true);
@@ -465,7 +479,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          ...(currentUser?.id ? { 'x-user-id': String(currentUser.id) } : {})
+          ...getAuthHeaders()
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -482,9 +496,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const token = data.token || data.sessionToken;
+      if (token) {
+        setActiveSessionToken(token);
+      }
+
       const updated = { ...data.user, mustChangePassword: false };
       setCurrentUser(updated);
-      setActiveLoggedInUser(updated);
+      setActiveLoggedInUser(updated, true, token);
       setPwdSuccess('Đổi mật khẩu thành công!');
       setTimeout(() => {
         setShowChangeModal(false);

@@ -1,34 +1,82 @@
-import { db } from '../src/db/index.ts';
+import fs from 'fs';
+import path from 'path';
+import { db, getStorageMode } from '../src/db/index.ts';
 import { users, categories, assignments, overtimes } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword } from './auth.ts';
 import { OFFICIAL_USERS } from './syncRoutes.ts';
+import { checkNeonTargetAdminStatus } from './migrationService.ts';
 
 export async function runSeeder() {
   try {
     const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
 
-    // 1. Seed official users ONLY IF user table is completely empty
-    let allUsers: any[] = await db.query.users.findMany();
-    if (allUsers.length === 0) {
-      for (const u of OFFICIAL_USERS) {
-        await db.insert(users).values({
-          ...u,
-          password: defaultPwdHash,
-          mustChangePassword: true,
-        }).onConflictDoNothing();
+    const mode = getStorageMode();
+    const dataStorePath = path.join(process.cwd(), 'data', 'db-local-store.json');
+    const hasLocalStore = fs.existsSync(dataStorePath);
+
+    // In postgres mode: if target is awaiting migration (EMPTY_BOOTSTRAP or RECOVERY_REQUIRED or !hasValidAdmin),
+    // or lacks the persistent migration_completed marker, strictly skip all seeding so we do NOT turn an empty
+    // database into a dirty one or overwrite real user data.
+    if (mode === 'postgres') {
+      const targetStatus = await checkNeonTargetAdminStatus();
+      if (targetStatus.state === 'EMPTY_BOOTSTRAP' || targetStatus.state === 'RECOVERY_REQUIRED' || !targetStatus.hasValidAdmin) {
+        console.log(`[Seeder] Neon PostgreSQL đang ở trạng thái ${targetStatus.state} chờ di chuyển (Migration). Bỏ qua khởi tạo nhân sự, danh mục, phân công để bảo toàn trạng thái đích an toàn.`);
+        return { success: true, message: `Bỏ qua seeding do CSDL đích đang ở trạng thái ${targetStatus.state}` };
       }
-      allUsers = await db.query.users.findMany();
-    } else {
-      // Do NOT overwrite user modifications. Only insert missing official users without updating existing records.
-      for (const u of OFFICIAL_USERS) {
-        await db.insert(users).values({
-          ...u,
-          password: defaultPwdHash,
-          mustChangePassword: true,
-        }).onConflictDoNothing();
+
+      // Check persistent migration completion marker in migration_metadata table
+      try {
+        const { pool } = await import('../src/db/index.ts');
+        const metaRes = await pool.query(`
+          SELECT key, value FROM migration_metadata WHERE key IN ('migration_completed', 'canonical_restored')
+        `).catch(() => null);
+        const hasCompletedMarker = (metaRes?.rows || []).some((r: any) => r.value === 'true');
+
+        // Check if real users exist in target
+        const userCountRes = await pool.query('SELECT COUNT(*)::int AS count FROM users').catch(() => ({ rows: [{ count: 0 }] }));
+        const userCount = Number(userCountRes.rows[0]?.count || 0);
+
+        if (userCount > 0 || hasCompletedMarker) {
+          console.log(`[Seeder] Neon PostgreSQL đã có dữ liệu thực (${userCount} nhân sự, canonical restored). TUYỆT ĐỐI BỎ QUA SEEDING để bảo toàn 100% dữ liệu gốc.`);
+          return { success: true, message: `Bỏ qua seeding: CSDL đã có ${userCount} nhân sự thực (canonical restored).` };
+        }
+
+        if (!hasCompletedMarker) {
+          console.log('[Seeder] Neon PostgreSQL chưa có đánh dấu hoàn tất di chuyển (migration_completed). Bỏ qua seeding để bảo toàn dữ liệu thực.');
+          return { success: true, message: 'Bỏ qua seeding do chưa có xác nhận hoàn tất migration.' };
+        }
+      } catch (err) {
+        console.warn('[Seeder] Notice checking migration_metadata:', err);
+        return { success: true, message: 'Bỏ qua seeding để bảo vệ dữ liệu thực.' };
       }
+    }
+
+    let allUsers: any[] = [];
+    try {
       allUsers = await db.query.users.findMany();
+      if (allUsers.length === 0) {
+        for (const u of OFFICIAL_USERS) {
+          await db.insert(users).values({
+            ...u,
+            password: defaultPwdHash,
+            mustChangePassword: true,
+          }).onConflictDoNothing();
+        }
+        allUsers = await db.query.users.findMany();
+      } else {
+        // Do NOT overwrite user modifications. Only insert missing official users without updating existing records.
+        for (const u of OFFICIAL_USERS) {
+          await db.insert(users).values({
+            ...u,
+            password: defaultPwdHash,
+            mustChangePassword: true,
+          }).onConflictDoNothing();
+        }
+        allUsers = await db.query.users.findMany();
+      }
+    } catch (err: any) {
+      console.warn('[Seeder] Notice during user seed check:', err?.message || err);
     }
 
     const assigner: any = allUsers.find((u: any) => u.name && String(u.name).includes('Sơn')) || allUsers[0];

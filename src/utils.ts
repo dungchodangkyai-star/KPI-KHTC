@@ -1391,11 +1391,15 @@ export const getActiveLoggedInUser = (userList: any[] = []): any => {
 /**
  * Set the currently logged-in user into localStorage
  */
-export const setActiveLoggedInUser = (user: any, dispatchEvent = true) => {
+export const setActiveLoggedInUser = (user: any, dispatchEvent = true, sessionToken?: string) => {
   if (!user) return;
   try {
     localStorage.setItem('kpi_logged_in_user', JSON.stringify(user));
     localStorage.setItem('kpi_current_user_id', String(user.id));
+    const token = sessionToken || user.token || user.sessionToken;
+    if (token) {
+      localStorage.setItem('kpi_session_token', token);
+    }
     if (dispatchEvent) {
       window.dispatchEvent(new Event('kpi_user_changed'));
     }
@@ -1418,10 +1422,12 @@ export const getActiveSessionToken = (): string | null => {
 /**
  * Save active session token to localStorage
  */
-export const setActiveSessionToken = (token: string) => {
+export const setActiveSessionToken = (token: string | null | undefined) => {
   try {
     if (token) {
       localStorage.setItem('kpi_session_token', token);
+    } else {
+      localStorage.removeItem('kpi_session_token');
     }
   } catch (e) {
     console.error("Error setting session token:", e);
@@ -1429,7 +1435,8 @@ export const setActiveSessionToken = (token: string) => {
 };
 
 /**
- * Get standard authentication headers including Bearer token and current user ID
+ * Get standard authentication headers including Bearer token
+ * Strictly does NOT include simulated user IDs (X-User-Id, etc.)
  */
 export const getAuthHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = {};
@@ -1438,10 +1445,6 @@ export const getAuthHeaders = (): Record<string, string> => {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
       headers['X-Session-Token'] = token;
-    }
-    const userId = localStorage.getItem('kpi_current_user_id');
-    if (userId) {
-      headers['X-User-Id'] = userId;
     }
   } catch {}
   return headers;

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import express from 'express';
-import { db } from '../src/db/index.ts';
+import { db, getStorageMode, isPostgresConfigured } from '../src/db/index.ts';
 import { users } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import { logActivity, removeSession, getClientIp } from './onlineTracker.ts';
@@ -42,6 +42,7 @@ export function readSessionToken(req: express.Request): AuthSession | null {
       }
     }
     if (!token) return null;
+    token = token.trim().replace(/^"(.*)"$/, '$1');
 
     const [payload, signature] = token.split('.');
     if (!payload || !signature) return null;
@@ -59,14 +60,14 @@ export function readSessionToken(req: express.Request): AuthSession | null {
 
 function setSessionCookie(req: express.Request, res: express.Response, userId: number) {
   const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
-  const cookieFlags = secure ? '; Secure; SameSite=None' : '; SameSite=Lax';
-  res.setHeader('Set-Cookie', `kpi_session=${encodeURIComponent(createSessionToken(userId))}; HttpOnly; Path=/; Max-Age=${AUTH_SESSION_TTL_SECONDS}${cookieFlags}`);
+  const cookieFlags = secure ? '; Secure; SameSite=None; Partitioned' : '; SameSite=Lax';
+  res.append('Set-Cookie', `kpi_session=${encodeURIComponent(createSessionToken(userId))}; HttpOnly; Path=/; Max-Age=${AUTH_SESSION_TTL_SECONDS}${cookieFlags}`);
 }
 
 function clearSessionCookie(req: express.Request, res: express.Response) {
   const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
-  const cookieFlags = secure ? '; Secure; SameSite=None' : '; SameSite=Lax';
-  res.setHeader('Set-Cookie', `kpi_session=; HttpOnly; Path=/; Max-Age=0${cookieFlags}`);
+  const cookieFlags = secure ? '; Secure; SameSite=None; Partitioned' : '; SameSite=Lax';
+  res.append('Set-Cookie', `kpi_session=; HttpOnly; Path=/; Max-Age=0${cookieFlags}`);
 }
 
 export async function requireSessionAuthenticated(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -93,15 +94,72 @@ export async function requireSessionAuthenticated(req: express.Request, res: exp
     return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
   }
 
-  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
-  if (!user || user.status !== 'Đang làm') {
-    const errorMsg = 'Tài khoản không tồn tại hoặc không còn hoạt động. Vui lòng đăng nhập lại.';
-    return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
+  try {
+    const user = await db.query.users.findFirst({ where: (u: any, { eq }: any) => eq(u.id, userId) });
+    if (!user || user.status !== 'Đang làm') {
+      const errorMsg = 'Tài khoản không tồn tại hoặc không còn hoạt động. Vui lòng đăng nhập lại.';
+      return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
+    }
+
+    (req as any).authUser = user;
+    try { setSessionCookie(req, res, user.id); } catch {}
+    next();
+  } catch (err: any) {
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+}
+
+/**
+ * Strict Admin Session Authenticator:
+ * Accepts ONLY cryptographically verified session tokens (Cookie or Bearer).
+ * Strictly forbids any simulated header/body ID fallback.
+ */
+export async function requireStrictAdminSession(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = readSessionToken(req);
+  if (!session || !Number.isInteger(session.userId)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Yêu cầu phiên đăng nhập Quản trị viên hợp lệ (Cookie kpi_session hoặc Bearer token). Không chấp nhận tham số ID giả lập.'
+    });
   }
 
-  (req as any).authUser = user;
-  try { setSessionCookie(req, res, user.id); } catch {}
-  next();
+  try {
+    const user = await db.query.users.findFirst({ where: (u: any, { eq }: any) => eq(u.id, session.userId) });
+    if (!user || user.status !== 'Đang làm') {
+      return res.status(401).json({
+        success: false,
+        error: 'Tài khoản không tồn tại hoặc đã bị khóa.'
+      });
+    }
+
+    if (user.role !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'Từ chối truy cập: Chỉ Quản trị viên cấp cao (ADMIN) mới có quyền thực thi thao tác này.'
+      });
+    }
+
+    (req as any).authUser = user;
+    next();
+  } catch (err: any) {
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 }
 
 async function requireAuthenticated(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -127,16 +185,28 @@ async function requireAuthenticated(req: express.Request, res: express.Response,
     return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
   }
 
-  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
-  if (!user || user.status !== 'Đang làm') {
-    const errorMsg = 'Tài khoản không còn hoạt động. Vui lòng đăng nhập lại.';
-    return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
-  }
-  (req as any).authUser = user;
   try {
-    setSessionCookie(req, res, user.id);
-  } catch {}
-  next();
+    const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
+    if (!user || user.status !== 'Đang làm') {
+      const errorMsg = 'Tài khoản không còn hoạt động. Vui lòng đăng nhập lại.';
+      return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
+    }
+    (req as any).authUser = user;
+    try {
+      setSessionCookie(req, res, user.id);
+    } catch {}
+    next();
+  } catch (err: any) {
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 }
 
 async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -162,23 +232,35 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
   }
 
-  const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
-  if (!user || user.status !== 'Đang làm') {
-    const errorMsg = 'Tài khoản không tồn tại hoặc không còn hoạt động.';
-    return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
-  }
-
-  const isAdmin = user?.role === 'ADMIN' || String(user?.email || '').toLowerCase() === ADMIN_EMAIL;
-  if (!isAdmin) {
-    const errorMsg = 'Chỉ quản trị viên được thực hiện thao tác này.';
-    return res.status(403).json({ success: false, message: errorMsg, error: errorMsg });
-  }
-
-  (req as any).authUser = user;
   try {
-    setSessionCookie(req, res, user.id);
-  } catch {}
-  next();
+    const user = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, userId) });
+    if (!user || user.status !== 'Đang làm') {
+      const errorMsg = 'Tài khoản không tồn tại hoặc không còn hoạt động.';
+      return res.status(401).json({ success: false, message: errorMsg, error: errorMsg });
+    }
+
+    const isAdmin = user?.role === 'ADMIN' || String(user?.email || '').toLowerCase() === ADMIN_EMAIL;
+    if (!isAdmin) {
+      const errorMsg = 'Chỉ quản trị viên được thực hiện thao tác này.';
+      return res.status(403).json({ success: false, message: errorMsg, error: errorMsg });
+    }
+
+    (req as any).authUser = user;
+    try {
+      setSessionCookie(req, res, user.id);
+    } catch {}
+    next();
+  } catch (err: any) {
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 }
 
 export function hashPassword(password: string, salt?: string, iterations: number = 310000): { hash: string; salt: string; iterations: number } {
@@ -431,9 +513,13 @@ authRouter.post('/change-password', requireAuthenticated, async (req, res) => {
     }).where(eq(users.id, Number(user.id))).returning();
 
     const updatedUser = updated[0];
+    const sessionToken = createSessionToken(Number(user.id));
+    try { setSessionCookie(req, res, Number(user.id)); } catch {}
 
     return res.json({
       success: true,
+      token: sessionToken,
+      sessionToken: sessionToken,
       message: 'Đổi mật khẩu thành công! Bạn có thể sử dụng mật khẩu mới cho các lần đăng nhập tiếp theo.',
       user: {
         id: updatedUser.id,
@@ -511,6 +597,51 @@ authRouter.post('/logout', async (req, res) => {
   } catch (err) {
     console.error('Logout handler error:', err);
     return res.json({ success: true, message: 'Đã đăng xuất.' });
+  }
+});
+
+// 4.1 SESSION VERIFICATION ENDPOINT
+authRouter.get('/session', async (req, res) => {
+  try {
+    const session = readSessionToken(req);
+    if (!session || !Number.isInteger(session.userId)) {
+      return res.status(401).json({
+        success: false,
+        error: 'Phiên đăng nhập không tồn tại hoặc đã hết hạn.'
+      });
+    }
+
+    const user = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, session.userId)
+    });
+
+    if (!user || user.status !== 'Đang làm') {
+      return res.status(401).json({
+        success: false,
+        error: 'Tài khoản không tồn tại hoặc đã bị khóa.'
+      });
+    }
+
+    // Refresh cookie safely
+    try { setSessionCookie(req, res, user.id); } catch {}
+
+    const isSonAdmin = (user.email && String(user.email).toLowerCase() === 'khvanson@gmail.com') || (user.name && String(user.name).includes('Sơn'));
+    const userRole = isSonAdmin ? 'ADMIN' : user.role;
+
+    return res.json({
+      success: true,
+      token: createSessionToken(user.id),
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: userRole,
+        status: user.status,
+        permissions: user.permissions
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
 

@@ -1,73 +1,73 @@
-import fs from 'fs';
-import path from 'path';
 import { Pool } from 'pg';
+import { getStorageMode, getDatabaseUrl, isPostgresConfigured, checkDatabaseHealth, StorageMode } from '../src/db/index.ts';
 
 export interface DatabaseConfig {
-  mode: 'local' | 'external';
-  connectionString?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  user?: string;
-  password?: string;
+  mode: 'local' | 'external' | 'neon' | 'postgres' | 'local-json';
+  storageMode: StorageMode;
+  provider: 'neon' | 'postgres' | 'local-json';
+  configured: boolean;
+  maskedHost?: string;
+  maskedDatabase?: string;
+  maskedUser?: string;
   ssl?: boolean;
   lastTested?: string;
-  status?: 'connected' | 'error' | 'untested';
+  status: 'connected' | 'error' | 'unconfigured';
+  message?: string;
 }
 
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'data', 'db-config.json');
+export const getDatabaseConfig = async (): Promise<DatabaseConfig> => {
+  const mode = getStorageMode();
+  const configured = isPostgresConfigured();
+  const health = await checkDatabaseHealth();
+  const url = getDatabaseUrl();
 
-// Ensure data directory exists
-const ensureDataDir = () => {
-  const dir = path.dirname(CONFIG_FILE_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  let maskedHost = '';
+  let maskedDatabase = '';
+  let maskedUser = '';
+
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      maskedHost = parsed.hostname;
+      maskedDatabase = parsed.pathname ? parsed.pathname.replace(/^\//, '') : 'postgres';
+      maskedUser = parsed.username ? `${parsed.username.slice(0, 3)}***` : '***';
+    } catch {}
   }
-};
 
-export const getDatabaseConfig = (): DatabaseConfig => {
-  try {
-    ensureDataDir();
-    if (fs.existsSync(CONFIG_FILE_PATH)) {
-      const content = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-      return JSON.parse(content);
+  let status: DatabaseConfig['status'] = 'connected';
+  if (mode === 'postgres') {
+    if (!configured) {
+      status = 'unconfigured';
+    } else if (!health.connected) {
+      status = 'error';
+    } else {
+      status = 'connected';
     }
-  } catch (error) {
-    console.error('Error reading database config:', error);
   }
 
-  // Default configuration (Local mode using default DB)
   return {
-    mode: 'local',
-    host: process.env.SQL_HOST || '127.0.0.1',
-    port: Number(process.env.SQL_PORT) || 5432,
-    database: process.env.SQL_DB_NAME || 'postgres',
-    user: process.env.SQL_USER || 'postgres',
-    password: process.env.SQL_PASSWORD || 'password',
-    status: 'connected'
+    mode: mode === 'postgres' ? 'postgres' : 'local-json',
+    storageMode: mode,
+    provider: health.provider,
+    configured,
+    maskedHost: maskedHost || (mode === 'local-json' ? 'localhost' : undefined),
+    maskedDatabase: maskedDatabase || (mode === 'local-json' ? 'db-local-store.json' : undefined),
+    maskedUser: maskedUser || undefined,
+    ssl: mode === 'postgres',
+    lastTested: health.lastSuccessfulCheck || undefined,
+    status,
+    message: health.error || undefined
   };
 };
 
-export const saveDatabaseConfig = (config: DatabaseConfig): boolean => {
-  try {
-    ensureDataDir();
-    fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(config, null, 2), 'utf-8');
-    return true;
-  } catch (error) {
-    console.error('Error saving database config:', error);
-    return false;
-  }
-};
-
-export const parseConnectionString = (uri: string): Partial<DatabaseConfig> => {
+export const parseConnectionString = (uri: string): { host?: string; port?: number; database?: string; user?: string; ssl?: boolean } => {
   try {
     const url = new URL(uri);
     return {
       host: url.hostname,
-      port: url.port ? parseInt(url.port) : 5432,
-      database: url.pathname ? url.pathname.replace('/', '') : 'postgres',
+      port: url.port ? parseInt(url.port, 10) : 5432,
+      database: url.pathname ? url.pathname.replace(/^\//, '') : 'postgres',
       user: decodeURIComponent(url.username || 'postgres'),
-      password: decodeURIComponent(url.password || ''),
       ssl: url.searchParams.get('sslmode') !== 'disable' && url.searchParams.get('ssl') !== 'false'
     };
   } catch (e) {
@@ -75,38 +75,34 @@ export const parseConnectionString = (uri: string): Partial<DatabaseConfig> => {
   }
 };
 
-export const testDatabaseConnection = async (config: DatabaseConfig): Promise<{ success: boolean; message: string; latencyMs?: number }> => {
-  const start = Date.now();
-  
-  if (config.mode === 'local') {
+export const testDatabaseConnection = async (candidateUri?: string): Promise<{ success: boolean; message: string; latencyMs?: number; provider?: string }> => {
+  const uriToTest = candidateUri?.trim() || getDatabaseUrl();
+
+  if (!uriToTest) {
+    const mode = getStorageMode();
+    if (mode === 'local-json') {
+      return {
+        success: true,
+        message: 'Chế độ CSDL cục bộ JSON (local-json) đang hoạt động bình thường.',
+        latencyMs: 1,
+        provider: 'local-json'
+      };
+    }
     return {
-      success: true,
-      message: 'Kết nối cơ sở dữ liệu nội bộ (PGlite / Nhúng Cục bộ) hoạt động hoàn hảo.',
-      latencyMs: 24
+      success: false,
+      message: 'Chưa có chuỗi kết nối DATABASE_URL để kiểm tra. Vui lòng thiết lập biến môi trường DATABASE_URL trong Secrets.'
     };
   }
 
-  let poolConfig: any = {};
+  const start = Date.now();
+  const isNeon = uriToTest.includes('neon') || uriToTest.includes('neon.tech');
+  const isSsl = !uriToTest.includes('sslmode=disable') && !uriToTest.includes('127.0.0.1') && !uriToTest.includes('localhost');
 
-  if (config.connectionString && config.connectionString.startsWith('postgres')) {
-    poolConfig = {
-      connectionString: config.connectionString,
-      ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 8000
-    };
-  } else {
-    poolConfig = {
-      host: config.host,
-      port: config.port || 5432,
-      database: config.database || 'postgres',
-      user: config.user || 'postgres',
-      password: config.password,
-      ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
-      connectionTimeoutMillis: 8000
-    };
-  }
-
-  const pool = new Pool(poolConfig);
+  const pool = new Pool({
+    connectionString: uriToTest,
+    ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+    connectionTimeoutMillis: 8000
+  });
 
   try {
     const client = await pool.connect();
@@ -115,11 +111,14 @@ export const testDatabaseConnection = async (config: DatabaseConfig): Promise<{ 
     await pool.end();
 
     const latencyMs = Date.now() - start;
-    const dbName = result.rows[0]?.db_name || config.database || 'postgres';
+    const dbName = result.rows[0]?.db_name || 'postgres';
+    const providerName = isNeon ? 'Neon Serverless PostgreSQL' : 'PostgreSQL';
+
     return {
       success: true,
-      message: `Kết nối thành công đến PostgreSQL (${dbName})! Độ trễ: ${latencyMs}ms.`,
-      latencyMs
+      message: `Kết nối thành công đến ${providerName} (${dbName})! Độ trễ: ${latencyMs}ms.`,
+      latencyMs,
+      provider: isNeon ? 'neon' : 'postgres'
     };
   } catch (err: any) {
     try {
