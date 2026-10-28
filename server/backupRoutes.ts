@@ -9,6 +9,7 @@ import {
   deleteBackupFile, 
   getBackupContent, 
   restoreFromBackup,
+  runRestoreDryRun,
   autoPruneBackups,
   pushExistingBackupToOffsite
 } from './backupService.ts';
@@ -209,8 +210,8 @@ backupRouter.post('/sync-offsite/:filename', async (req: Request, res: Response)
   }
 });
 
-// POST /api/backups/restore
-backupRouter.post('/restore', async (req: Request, res: Response) => {
+// POST /api/backups/dry-run
+backupRouter.post('/dry-run', async (req: Request, res: Response) => {
   try {
     const { filename, backupPayload } = req.body;
     let dataToRestore = backupPayload;
@@ -220,16 +221,74 @@ backupRouter.post('/restore', async (req: Request, res: Response) => {
     }
 
     if (!dataToRestore) {
-      return res.status(400).json({ success: false, error: 'Không tìm thấy dữ liệu sao lưu để phục hồi.' });
+      return res.status(400).json({ 
+        success: false, 
+        errorStage: 'PREFLIGHT',
+        error: `Không tìm thấy file sao lưu '${filename || 'unknown'}' để thực hiện Dry-Run.` 
+      });
     }
 
-    const result = await restoreFromBackup(dataToRestore);
-    if (result.success) {
-      res.json({ success: true, message: result.message });
-    } else {
-      res.status(500).json({ success: false, error: result.error });
-    }
-  } catch (error) {
-    res.status(500).json({ success: false, error: String(error) });
+    const result = await runRestoreDryRun(dataToRestore);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ 
+      success: false, 
+      errorStage: 'DRY_RUN',
+      error: `Lỗi khi thực hiện Dry-Run phục hồi: ${error?.message || String(error)}` 
+    });
   }
 });
+
+// POST /api/backups/restore
+backupRouter.post('/restore', async (req: Request, res: Response) => {
+  try {
+    const { filename, backupPayload, mode } = req.body;
+    let dataToRestore = backupPayload;
+
+    if (filename && !dataToRestore) {
+      dataToRestore = getBackupContent(filename);
+    }
+
+    if (!dataToRestore) {
+      return res.status(400).json({ 
+        success: false, 
+        errorStage: 'PREFLIGHT',
+        error: `Không tìm thấy dữ liệu sao lưu '${filename || 'unknown'}' để phục hồi.` 
+      });
+    }
+
+    if (mode !== 'apply') {
+      return res.status(400).json({
+        success: false,
+        errorStage: 'RESTORE_MODE',
+        error: "Yêu cầu khôi phục ghi thật phải gửi mode='apply'. Kiểm tra thử phải dùng endpoint /api/backups/dry-run."
+      });
+    }
+
+    console.log(`[RestoreRoute] APPLY requested for ${filename || 'uploaded-payload'}`);
+    const result = await restoreFromBackup(dataToRestore, { 
+      mode: 'apply', 
+      adminUser: (req as any).authUser 
+    });
+    console.log(`[RestoreRoute] APPLY result success=${result.success}, stage=${result.errorStage || 'COMPLETED'}`);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(result.statusCode || 500).json({
+        success: false,
+        errorStage: result.errorStage || 'RESTORE',
+        table: result.table,
+        error: result.error || 'Khôi phục thất bại',
+        details: result.details
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({ 
+      success: false, 
+      errorStage: 'INTERNAL',
+      error: `Lỗi hệ thống khi khôi phục: ${error?.message || String(error)}` 
+    });
+  }
+});
+

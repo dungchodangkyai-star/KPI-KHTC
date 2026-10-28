@@ -2,10 +2,10 @@ import express from "express";
 import webPushModule from "web-push";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { db, pool } from "./src/db/index.ts";
+import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
-import { authRouter, requireSessionAuthenticated, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
+import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
 import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
@@ -14,6 +14,7 @@ import { backupRouter } from "./server/backupRoutes.ts";
 import { startBackupScheduler } from "./server/backupService.ts";
 import { ensureDatabaseSchema } from "./server/dbMigrate.ts";
 import { runSeeder } from "./server/seeder.ts";
+import { isCleanupLocked, incrementInFlightWrites, decrementInFlightWrites } from "./server/cleanupService.ts";
 import { 
   getZaloConfig, 
   saveZaloConfig, 
@@ -197,28 +198,116 @@ async function startServer() {
   });
 
 
-  // Migrate schema and seed data on startup (deferred non-blocking task)
+  let schemaInitialized = false;
+  let schemaInitError: string | null = null;
+
+  // Migrate schema and seed data on startup
   setTimeout(async () => {
     try {
+      const mode = getStorageMode();
+      if (mode === 'postgres' && !isPostgresConfigured()) {
+        schemaInitError = 'DATABASE_URL chưa được cấu hình trong Secrets';
+        console.warn('[Startup] Fail-Closed: DATABASE_URL is not set. Real write operations locked.');
+        return;
+      }
+
+      // 1. ensureDatabaseSchema MUST run before seeder
       const migResult = await ensureDatabaseSchema();
-      console.log("Schema sync result:", migResult?.message || "OK");
-      const seedResult = await runSeeder();
-      console.log("Init seed result:", seedResult?.message || "OK");
-      startBackupScheduler();
-    } catch (e) {
+      if (migResult.success) {
+        schemaInitialized = true;
+        schemaInitError = null;
+        console.log("Schema sync result:", migResult.message || "OK");
+        
+        // 2. Seeder is idempotent, only seeds if empty
+        const seedResult = await runSeeder();
+        console.log("Init seed result:", seedResult?.message || "OK");
+        startBackupScheduler();
+      } else {
+        schemaInitialized = false;
+        schemaInitError = migResult.message || 'Lỗi đồng bộ cấu trúc bảng CSDL';
+        console.error("Schema sync failed:", schemaInitError);
+      }
+    } catch (e: any) {
+      schemaInitialized = false;
+      schemaInitError = e?.message || String(e);
       console.warn("Startup background sync notice:", e);
     }
-  }, 3000);
+  }, 2000);
 
   // --- API Routes ---
 
-  // Health check endpoint
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  // Maintenance check for active cleanup lock (blocks concurrent write operations)
+  // and Fail-Closed protection when in PostgreSQL mode without DATABASE_URL
+  app.use("/api", (req, res, next) => {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+      const url = req.originalUrl || req.url;
+      const isExempt = url.includes('/auth/') || url.includes('/database/') || url.includes('/backups/');
+
+      // Fail-closed write lock if in postgres mode but not configured
+      if (!isExempt && getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Ứng dụng đang ở chế độ Fail-Closed để bảo vệ an toàn dữ liệu.',
+          storageMode: 'postgres',
+          connected: false
+        });
+      }
+
+      if (!url.includes('/database/clean') && !url.includes('/auth/login') && !url.includes('/auth/logout') && !url.includes('/auth/session')) {
+        const lockStatus = isCleanupLocked();
+        if (lockStatus.locked) {
+          return res.status(423).json({
+            success: false,
+            error: 'Hệ thống đang trong quá trình bảo trì và làm sạch dữ liệu. Mọi thao tác ghi tạm thời bị khóa trong vài giây, vui lòng thử lại sau ít phút.'
+          });
+        }
+
+        // Increment in-flight write counter for non-cleanup write operations
+        incrementInFlightWrites();
+        let decremented = false;
+        const onFinishOrClose = () => {
+          if (!decremented) {
+            decremented = true;
+            decrementInFlightWrites();
+          }
+        };
+        res.once('finish', onFinishOrClose);
+        res.once('close', onFinishOrClose);
+      }
+    }
+    next();
+  });
+
+  // Health check endpoint - real SELECT 1 ping, never fakes OK on failure
+  app.get("/api/health", async (_req, res) => {
+    const health = await checkDatabaseHealth();
+    if (health.storageMode === 'postgres') {
+      if (!health.connected) {
+        return res.status(503).json({
+          status: "degraded",
+          ...health,
+          schemaInitialized,
+          schemaError: schemaInitError
+        });
+      }
+      if (!schemaInitialized && schemaInitError) {
+        return res.status(503).json({
+          status: "degraded",
+          ...health,
+          schemaInitialized: false,
+          schemaError: schemaInitError
+        });
+      }
+    }
+    res.json({
+      status: "ok",
+      ...health,
+      schemaInitialized: health.storageMode === 'postgres' ? schemaInitialized : true
+    });
   });
 
   // Seeder endpoint
-  app.get("/api/seed", async (req, res) => {
+  app.get("/api/seed", requireStrictAdminSession, async (req, res) => {
     const result = await runSeeder();
     res.json(result);
   });
@@ -230,7 +319,7 @@ async function startServer() {
   app.use("/api/database", databaseRouter);
 
   // Backup & Disaster Recovery Router
-  app.use("/api/backups", backupRouter);
+  app.use("/api/backups", requireStrictAdminSession, backupRouter);
 
   // KPI Router
   app.use("/api/kpi", requireSessionAuthenticated, kpiRouter);
@@ -1719,6 +1808,23 @@ async function startServer() {
 
   // 8. Online & Session Tracking Router
   app.use("/api/online", onlineRouter);
+
+  // Global API error handler for fail-closed resilience
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+    console.error("Unhandled API error:", err?.message || err);
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    res.status(500).json({ success: false, error: err?.message || 'Lỗi máy chủ nội bộ' });
+  });
 
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {

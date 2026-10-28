@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { setActiveLoggedInUser, setActiveSessionToken, getActiveLoggedInUser, DEFAULT_INITIAL_PASSWORD, ADMIN_EMAIL } from '../utils';
+import { setActiveLoggedInUser, setActiveSessionToken, getActiveLoggedInUser, getActiveSessionToken, getAuthHeaders, DEFAULT_INITIAL_PASSWORD, ADMIN_EMAIL } from '../utils';
 import { 
   ShieldCheck, Lock, User as UserIcon, KeyRound, AlertCircle, 
   CheckCircle2, ArrowRight, Eye, EyeOff, Building2, 
@@ -46,19 +46,31 @@ export default function Login() {
   const [changeLoading, setChangeLoading] = useState(false);
 
   useEffect(() => {
-    // If already logged in and doesn't need password change, redirect to workspace
+    // Only auto-redirect if BOTH currentUser AND valid sessionToken exist!
     const currentUser = getActiveLoggedInUser();
-    if (currentUser && !currentUser.mustChangePassword) {
-      if (currentUser.role === 'ADMIN' || currentUser.email?.toLowerCase() === 'khvanson@gmail.com' || currentUser.role === 'LEADER') {
+    const sessionToken = getActiveSessionToken();
+
+    if (currentUser && !currentUser.mustChangePassword && sessionToken) {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get('redirect');
+      if (redirect && redirect.startsWith('/')) {
+        navigate(redirect);
+      } else if (currentUser.role === 'ADMIN' || currentUser.email?.toLowerCase() === 'khvanson@gmail.com' || currentUser.role === 'LEADER') {
         navigate('/monitor');
       } else {
         navigate('/my-works');
       }
+    } else if (currentUser && !sessionToken) {
+      // Legacy session without token. Do not auto-redirect; prefill login identifier
+      if (currentUser.email || currentUser.name) {
+        setLoginId(currentUser.email || currentUser.name);
+      }
+      setError('Phiên làm việc Quản trị viên cần được xác thực lại bằng mật khẩu để kích hoạt tính năng an toàn trong môi trường bảo mật iframe.');
     }
 
     // Load saved username if remember me was checked
     const savedUser = localStorage.getItem('saved_login_identifier');
-    if (savedUser) {
+    if (savedUser && !currentUser?.email) {
       setLoginId(savedUser);
     }
   }, [navigate]);
@@ -87,6 +99,7 @@ export default function Login() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           username: loginId.trim(),
           password: password.trim()
@@ -101,8 +114,9 @@ export default function Login() {
       }
 
       // Check if user must change password (first time login with default password)
-      if (data.token || data.sessionToken) {
-        setActiveSessionToken(data.token || data.sessionToken);
+      const token = data.token || data.sessionToken;
+      if (token) {
+        setActiveSessionToken(token);
       }
 
       if (data.mustChangePassword) {
@@ -113,8 +127,13 @@ export default function Login() {
       }
 
       // Login success
-      setActiveLoggedInUser(data.user);
-      if (data.user.role === 'ADMIN' || data.user.email?.toLowerCase() === 'khvanson@gmail.com' || data.user.role === 'LEADER') {
+      setActiveLoggedInUser(data.user, true, token);
+      
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get('redirect');
+      if (redirect && redirect.startsWith('/')) {
+        navigate(redirect);
+      } else if (data.user.role === 'ADMIN' || data.user.email?.toLowerCase() === 'khvanson@gmail.com' || data.user.role === 'LEADER') {
         navigate('/monitor');
       } else {
         navigate('/my-works');
@@ -210,7 +229,7 @@ export default function Login() {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          ...(pendingUser?.id ? { 'x-user-id': String(pendingUser.id) } : {})
+          ...getAuthHeaders()
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -227,12 +246,21 @@ export default function Login() {
         return;
       }
 
+      const token = data.token || data.sessionToken;
+      if (token) {
+        setActiveSessionToken(token);
+      }
+
       // Updated user with mustChangePassword = false
       const updatedUser = { ...data.user, mustChangePassword: false };
-      setActiveLoggedInUser(updatedUser);
+      setActiveLoggedInUser(updatedUser, true, token);
       setShowChangeModal(false);
 
-      if (updatedUser.role === 'ADMIN' || updatedUser.email?.toLowerCase() === 'khvanson@gmail.com' || updatedUser.role === 'LEADER') {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get('redirect');
+      if (redirect && redirect.startsWith('/')) {
+        navigate(redirect);
+      } else if (updatedUser.role === 'ADMIN' || updatedUser.email?.toLowerCase() === 'khvanson@gmail.com' || updatedUser.role === 'LEADER') {
         navigate('/monitor');
       } else {
         navigate('/my-works');

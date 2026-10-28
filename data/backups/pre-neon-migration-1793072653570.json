@@ -1,0 +1,107 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "dungchodangkyai@gmail.com",
+      "name": "Quản trị viên",
+      "role": "ADMIN",
+      "status": "Đang làm",
+      "password": "password123"
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "code": "CAT_01",
+      "name": "Nhiệm vụ trọng tâm",
+      "type": "TASK",
+      "status": "Đang áp dụng",
+      "order": 1
+    }
+  ],
+  "works": [
+    {
+      "id": 1,
+      "workId": "W_2026_001",
+      "month": "10-2026",
+      "userId": 1,
+      "taskName": "Lập báo cáo kế hoạch",
+      "hours": "8",
+      "coef": "0.8",
+      "baseScore": "10",
+      "convertedScore": "8",
+      "status": "Đang xử lý"
+    }
+  ],
+  "assignments": [
+    {
+      "id": 1,
+      "assignmentId": "A_2026_001",
+      "month": "10-2026",
+      "receiverId": 1,
+      "taskName": "Phân công quý 4",
+      "baseScore": "10",
+      "suggestedCoef": "0.8",
+      "expectedConvertedScore": "8"
+    }
+  ],
+  "overtimes": [
+    {
+      "id": 1,
+      "otId": "OT_2026_001",
+      "month": "10-2026",
+      "userId": 1,
+      "otDate": "2026-10-20",
+      "startTime": "17:30",
+      "endTime": "20:30",
+      "totalRegHours": "3.0",
+      "approvedHours": "3.0"
+    }
+  ],
+  "kpiResults": [
+    {
+      "id": 1,
+      "kpiId": "KPI_2026_001",
+      "month": "10-2026",
+      "userId": 1,
+      "aScore": "20",
+      "bScore": "75",
+      "totalKpi": "95",
+      "rank": "Hoàn thành xuất sắc"
+    }
+  ],
+  "notifications": [
+    {
+      "id": 1,
+      "notifyId": "N_001",
+      "type": "WORK",
+      "title": "Nhắc nhở phê duyệt",
+      "content": "Vui lòng kiểm tra báo cáo"
+    }
+  ],
+  "systemLogs": [
+    {
+      "id": 1,
+      "logId": "L_001",
+      "action": "LOGIN",
+      "target": "System"
+    }
+  ],
+  "pushSettings": [
+    {
+      "id": 1,
+      "vapid_public_key": "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjOJuBtr3qhmMwwpQ",
+      "vapid_private_key": "private_key_sample_test_do_not_log_this_in_plain_text",
+      "subject": "mailto:admin@kpi.internal"
+    }
+  ],
+  "pushSubscriptions": [
+    {
+      "userId": 1,
+      "endpoint": "https://fcm.googleapis.com/fcm/send/sample-device-token",
+      "p256dh": "sample_p256dh_key",
+      "auth": "sample_auth_secret",
+      "deviceLabel": "Chrome MacOS"
+    }
+  ]
+}

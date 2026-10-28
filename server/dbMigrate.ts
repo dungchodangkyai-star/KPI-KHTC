@@ -4,13 +4,40 @@ import { pool } from '../src/db/index.ts';
  * Migration script to ensure all tables and all required columns exist in PostgreSQL
  * Prevents missing column errors (e.g. created_at, b3_score, etc.)
  */
-export async function ensureDatabaseSchema(): Promise<{ success: boolean; message: string }> {
+export interface SchemaSyncResult {
+  success: boolean;
+  message: string;
+  errorDetail?: {
+    code?: string;
+    routine?: string;
+    table?: string;
+    column?: string;
+    detail?: string;
+    message?: string;
+  };
+}
+
+export async function ensureDatabaseSchema(poolOrClient?: any): Promise<SchemaSyncResult> {
+  let client: any = null;
+  let shouldRelease = false;
+
   try {
-    const client = await pool.connect();
+    if (poolOrClient && typeof poolOrClient.query === 'function' && typeof poolOrClient.release === 'function') {
+      client = poolOrClient;
+      shouldRelease = false;
+    } else if (poolOrClient && typeof poolOrClient.connect === 'function') {
+      client = await poolOrClient.connect();
+      shouldRelease = true;
+    } else {
+      client = await pool.connect();
+      shouldRelease = true;
+    }
+
     try {
+      await client.query('BEGIN');
+
       // 1. Create tables if they do not exist
-      try {
-        await client.query(`
+      await client.query(`
         -- 1. USERS
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -40,6 +67,10 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
           properties JSONB DEFAULT '{}'::jsonb,
           status TEXT DEFAULT 'Đang áp dụng',
           "order" INTEGER DEFAULT 0,
+          description TEXT,
+          parent_id INTEGER,
+          order_num INTEGER,
+          is_active BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         );
@@ -59,24 +90,24 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
           end_date TIMESTAMP,
           end_time TEXT,
           actual_end_date TIMESTAMP,
-          hours TEXT DEFAULT '8',
-          days INTEGER DEFAULT 1,
-          proposed_nature TEXT DEFAULT 'Trung bình',
+          hours TEXT,
+          days INTEGER,
+          proposed_nature TEXT,
           approved_nature TEXT,
-          coef TEXT DEFAULT '0.8',
-          base_score TEXT DEFAULT '10',
-          converted_score TEXT DEFAULT '8',
+          coef TEXT,
+          base_score TEXT,
+          converted_score TEXT,
           self_converted_score TEXT,
           approved_converted_score TEXT,
           status TEXT DEFAULT 'Đang xử lý',
           evidence TEXT,
-          product_type TEXT DEFAULT 'Báo cáo',
-          product_qty INTEGER DEFAULT 1,
-          unit TEXT DEFAULT 'Sản phẩm',
+          product_type TEXT,
+          product_qty INTEGER,
+          unit TEXT,
           project TEXT,
           related_unit TEXT,
           late_reason TEXT,
-          penalty_exemption TEXT DEFAULT 'Không',
+          penalty_exemption TEXT,
           edit_note TEXT,
           leader_approval TEXT DEFAULT 'Chưa duyệt',
           leader_note TEXT,
@@ -99,19 +130,19 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
           task_group TEXT,
           task_name TEXT,
           task_code TEXT,
-          base_score TEXT DEFAULT '10',
-          suggested_nature TEXT DEFAULT 'Trung bình',
-          suggested_coef TEXT DEFAULT '0.8',
-          expected_converted_score TEXT DEFAULT '8',
+          base_score TEXT,
+          suggested_nature TEXT,
+          suggested_coef TEXT,
+          expected_converted_score TEXT,
           detail TEXT,
           assign_date TIMESTAMP DEFAULT NOW(),
           start_date TIMESTAMP,
           deadline TIMESTAMP,
           product_required TEXT,
-          product_type TEXT DEFAULT 'Báo cáo',
-          product_qty INTEGER DEFAULT 1,
-          unit TEXT DEFAULT 'Sản phẩm',
-          priority TEXT DEFAULT 'Bình thường',
+          product_type TEXT,
+          product_qty INTEGER,
+          unit TEXT,
+          priority TEXT,
           receive_status TEXT DEFAULT 'Chưa xem',
           view_date TIMESTAMP,
           receive_date TIMESTAMP,
@@ -130,10 +161,10 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
           reg_date TIMESTAMP DEFAULT NOW(),
           ot_date TIMESTAMP NOT NULL,
-          start_time TEXT DEFAULT '17:00',
-          end_time TEXT DEFAULT '20:30',
+          start_time TEXT,
+          end_time TEXT,
           break_minutes INTEGER DEFAULT 0,
-          total_reg_hours TEXT DEFAULT '3.5',
+          total_reg_hours TEXT,
           content TEXT,
           reason TEXT,
           project TEXT,
@@ -244,14 +275,17 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
         );
         CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_active
           ON push_subscriptions(user_id, active);
-        `);
-      } catch (err: any) {
-        console.warn('Notice during CREATE TABLE phase:', err?.message || err);
-      }
+
+        -- 11. MIGRATION METADATA (persistent migration completion state)
+        CREATE TABLE IF NOT EXISTS migration_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
 
       // 2. ALTER TABLE ... ADD COLUMN IF NOT EXISTS for all existing tables to guarantee schema sync
-      try {
-        await client.query(`
+      await client.query(`
         -- Users columns
         ALTER TABLE users ADD COLUMN IF NOT EXISTS uid TEXT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
@@ -271,6 +305,10 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS properties JSONB DEFAULT '{}'::jsonb;
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Đang áp dụng';
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS "order" INTEGER DEFAULT 0;
+        ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT;
+        ALTER TABLE categories ADD COLUMN IF NOT EXISTS parent_id INTEGER;
+        ALTER TABLE categories ADD COLUMN IF NOT EXISTS order_num INTEGER;
+        ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
 
@@ -278,24 +316,24 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
         ALTER TABLE works ADD COLUMN IF NOT EXISTS start_time TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS end_time TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS actual_end_date TIMESTAMP;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS hours TEXT DEFAULT '8';
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS days INTEGER DEFAULT 1;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS proposed_nature TEXT DEFAULT 'Trung bình';
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS hours TEXT;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS days INTEGER;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS proposed_nature TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS approved_nature TEXT;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS coef TEXT DEFAULT '0.8';
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS base_score TEXT DEFAULT '10';
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS converted_score TEXT DEFAULT '8';
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS coef TEXT;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS base_score TEXT;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS converted_score TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS self_converted_score TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS approved_converted_score TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Đang xử lý';
         ALTER TABLE works ADD COLUMN IF NOT EXISTS evidence TEXT;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS product_type TEXT DEFAULT 'Báo cáo';
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS product_qty INTEGER DEFAULT 1;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'Sản phẩm';
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS product_type TEXT;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS product_qty INTEGER;
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS unit TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS project TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS related_unit TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS late_reason TEXT;
-        ALTER TABLE works ADD COLUMN IF NOT EXISTS penalty_exemption TEXT DEFAULT 'Không';
+        ALTER TABLE works ADD COLUMN IF NOT EXISTS penalty_exemption TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS edit_note TEXT;
         ALTER TABLE works ADD COLUMN IF NOT EXISTS leader_approval TEXT DEFAULT 'Chưa duyệt';
         ALTER TABLE works ADD COLUMN IF NOT EXISTS leader_note TEXT;
@@ -308,19 +346,19 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
         ALTER TABLE works ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
 
         -- Assignments columns
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS base_score TEXT DEFAULT '10';
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS suggested_nature TEXT DEFAULT 'Trung bình';
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS suggested_coef TEXT DEFAULT '0.8';
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS expected_converted_score TEXT DEFAULT '8';
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS base_score TEXT;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS suggested_nature TEXT;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS suggested_coef TEXT;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS expected_converted_score TEXT;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS detail TEXT;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS assign_date TIMESTAMP DEFAULT NOW();
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS start_date TIMESTAMP;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS product_required TEXT;
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS product_type TEXT DEFAULT 'Báo cáo';
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS product_qty INTEGER DEFAULT 1;
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'Sản phẩm';
-        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'Bình thường';
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS product_type TEXT;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS product_qty INTEGER;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS unit TEXT;
+        ALTER TABLE assignments ADD COLUMN IF NOT EXISTS priority TEXT;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS receive_status TEXT DEFAULT 'Chưa xem';
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS view_date TIMESTAMP;
         ALTER TABLE assignments ADD COLUMN IF NOT EXISTS receive_date TIMESTAMP;
@@ -332,10 +370,10 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
 
         -- Overtimes columns
         ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS reg_date TIMESTAMP DEFAULT NOW();
-        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '17:00';
-        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '20:30';
+        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS start_time TEXT;
+        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS end_time TEXT;
         ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS break_minutes INTEGER DEFAULT 0;
-        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS total_reg_hours TEXT DEFAULT '3.5';
+        ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS total_reg_hours TEXT;
         ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS content TEXT;
         ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS reason TEXT;
         ALTER TABLE overtimes ADD COLUMN IF NOT EXISTS project TEXT;
@@ -391,42 +429,284 @@ export async function ensureDatabaseSchema(): Promise<{ success: boolean; messag
         -- System Logs columns
         ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
-        `);
-      } catch (err: any) {
-        console.warn('Notice during ALTER TABLE phase:', err?.message || err);
-      }
+      `);
 
-      // 3. Backfill data for newly added columns if they are NULL
-      try {
-        await client.query(`
-        UPDATE works SET self_converted_score = converted_score WHERE self_converted_score IS NULL;
-        UPDATE works SET approved_converted_score = converted_score WHERE leader_approval = 'Duyệt' AND approved_converted_score IS NULL;
-        `);
-      } catch (err: any) {
-        console.warn('Notice during data backfill phase:', err?.message || err);
-      }
-
-      // 4. Create indexes for high performance
-      try {
-        await client.query(`
+      // 3. Create indexes for high performance
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_works_user_month ON works(user_id, month);
         CREATE INDEX IF NOT EXISTS idx_works_status ON works(status);
         CREATE INDEX IF NOT EXISTS idx_assignments_receiver_month ON assignments(receiver_id, month);
         CREATE INDEX IF NOT EXISTS idx_overtimes_user_month ON overtimes(user_id, month);
         CREATE INDEX IF NOT EXISTS idx_kpi_results_user_month ON kpi_results(user_id, month);
         CREATE INDEX IF NOT EXISTS idx_notifications_receiver ON notifications(receiver_id, status);
-        `);
-      } catch (err: any) {
-        console.warn('Notice during CREATE INDEX phase:', err?.message || err);
-      }
+      `);
 
-      console.log('Database schema synchronization verified.');
+      await client.query('COMMIT');
       return { success: true, message: 'Database schema verified and up-to-date' };
+    } catch (err: any) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+      console.error('[SchemaSync] Error during transaction:', err?.message || String(err));
+      return { 
+        success: false, 
+        message: `Database schema synchronization failed: ${err?.message || String(err)}`,
+        errorDetail: {
+          code: err?.code,
+          routine: err?.routine,
+          table: err?.table,
+          column: err?.column,
+          detail: err?.detail,
+          message: err?.message || String(err)
+        }
+      };
     } finally {
-      client.release();
+      if (shouldRelease && client) {
+        try {
+          client.release();
+        } catch {}
+      }
     }
   } catch (err: any) {
-    console.warn('Database schema synchronization notice:', err?.message || String(err));
-    return { success: true, message: 'Database schema verified (with notice)' };
+    console.error('[SchemaSync] Connection error:', err?.message || String(err));
+    return { 
+      success: false, 
+      message: `Database schema synchronization failed: ${err?.message || String(err)}`,
+      errorDetail: {
+        message: err?.message || String(err)
+      }
+    };
   }
 }
+
+export interface SchemaPreflightResult {
+  compatible: boolean;
+  isLegacySchema: boolean;
+  existingPublicTables: string[];
+  canonicalTablesPresent: string[];
+  canonicalTablesMissing: string[];
+  incompatibleColumns: Array<{
+    table: string;
+    column: string;
+    actualType: string;
+    expectedType: string;
+    reason: string;
+  }>;
+  message: string;
+  suggestedAction?: string;
+}
+
+/**
+ * Preflight schema validation: inspects public schema on PostgreSQL to determine
+ * whether it is fully compatible with canonical schema or contains legacy structure
+ * (such as users.id being TEXT/UUID instead of INTEGER, or missing canonical tables).
+ */
+export async function validateSchemaPreflight(poolOrClient?: any): Promise<SchemaPreflightResult> {
+  let client: any = null;
+  let shouldRelease = false;
+
+  try {
+    if (poolOrClient && typeof poolOrClient.query === 'function') {
+      client = poolOrClient;
+      shouldRelease = typeof poolOrClient.release === 'function';
+    } else if (poolOrClient && typeof poolOrClient.connect === 'function') {
+      client = await poolOrClient.connect();
+      shouldRelease = true;
+    } else {
+      client = await pool.connect();
+      shouldRelease = true;
+    }
+
+    const tableRes = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    `);
+    const existingTables: string[] = tableRes.rows.map((r: any) => r.table_name);
+
+    const canonicalRequired = ['users', 'categories', 'works', 'assignments', 'overtimes', 'kpi_results', 'notifications', 'system_logs'];
+    const canonicalPresent = canonicalRequired.filter(t => existingTables.includes(t));
+    const canonicalMissing = canonicalRequired.filter(t => !existingTables.includes(t));
+
+    const incompatibleColumns: Array<{
+      table: string;
+      column: string;
+      actualType: string;
+      expectedType: string;
+      reason: string;
+    }> = [];
+
+    // Check critical column types if tables exist
+    if (existingTables.includes('users')) {
+      const colRes = await client.query(`
+        SELECT column_name, data_type, udt_name
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id'
+      `);
+      const idCol = colRes.rows[0];
+      if (idCol && !['integer', 'int4', 'int8', 'smallint', 'bigint'].includes(idCol.data_type.toLowerCase()) && !['int4', 'int8', 'serial'].includes(idCol.udt_name.toLowerCase())) {
+        incompatibleColumns.push({
+          table: 'users',
+          column: 'id',
+          actualType: idCol.data_type,
+          expectedType: 'integer',
+          reason: `users.id có kiểu '${idCol.data_type}' không tương thích với schema chuẩn (SERIAL/INTEGER); đây là schema legacy (ID TEXT/UUID).`
+        });
+      }
+    }
+
+    if (existingTables.includes('works')) {
+      const colRes = await client.query(`
+        SELECT column_name, data_type, udt_name
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'works' AND column_name IN ('id', 'user_id')
+      `);
+      for (const r of colRes.rows) {
+        if (!['integer', 'int4', 'int8', 'smallint', 'bigint'].includes(r.data_type.toLowerCase()) && !['int4', 'int8', 'serial'].includes(r.udt_name.toLowerCase())) {
+          incompatibleColumns.push({
+            table: 'works',
+            column: r.column_name,
+            actualType: r.data_type,
+            expectedType: 'integer',
+            reason: `works.${r.column_name} có kiểu '${r.data_type}' không tương thích với schema chuẩn (SERIAL/INTEGER); đây là schema legacy (ID TEXT/UUID).`
+          });
+        }
+      }
+    }
+
+    const isLegacy = incompatibleColumns.length > 0 || (canonicalMissing.length > 0 && existingTables.length > 0);
+    const compatible = !isLegacy && canonicalMissing.length === 0 && incompatibleColumns.length === 0;
+
+    let message = 'Schema public hoàn toàn tương thích với chuẩn canonical.';
+    let suggestedAction = 'Sẵn sàng phục hồi hoặc đồng bộ dữ liệu.';
+
+    if (!compatible) {
+      if (incompatibleColumns.length > 0) {
+        message = `Phát hiện ${incompatibleColumns.length} cột không tương thích: ${incompatibleColumns.map(c => `${c.table}.${c.column} [${c.actualType} != ${c.expectedType}]`).join(', ')}.`;
+      } else if (canonicalMissing.length > 0) {
+        message = `Thiếu ${canonicalMissing.length} bảng canonical: ${canonicalMissing.join(', ')}.`;
+      }
+      suggestedAction = 'Cần chuyển bảo toàn các bảng hiện hữu sang schema legacy_pre_restore_20261027 trước khi tạo schema canonical và phục hồi dữ liệu.';
+    }
+
+    return {
+      compatible,
+      isLegacySchema: isLegacy,
+      existingPublicTables: existingTables,
+      canonicalTablesPresent: canonicalPresent,
+      canonicalTablesMissing: canonicalMissing,
+      incompatibleColumns,
+      message,
+      suggestedAction
+    };
+  } catch (err: any) {
+    return {
+      compatible: false,
+      isLegacySchema: true,
+      existingPublicTables: [],
+      canonicalTablesPresent: [],
+      canonicalTablesMissing: [],
+      incompatibleColumns: [],
+      message: `Lỗi khi kiểm tra schema preflight: ${err?.message || String(err)}`,
+      suggestedAction: 'Kiểm tra lại quyền truy cập hoặc kết nối PostgreSQL.'
+    };
+  } finally {
+    if (shouldRelease && client) {
+      try {
+        client.release();
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Determine a collision-free preservation schema name before BEGIN transaction.
+ * If the default schema (e.g. legacy_pre_restore_20261027) already contains any tables,
+ * automatically generates a unique timestamp-suffixed schema name to prevent collision or overwriting.
+ */
+export async function determineSafeLegacySchemaName(
+  clientOrPool: any, 
+  baseSchemaName: string = 'legacy_pre_restore_20261027'
+): Promise<{ schemaName: string; isFallback: boolean; existingCount: number }> {
+  const checkRes = await clientOrPool.query(`
+    SELECT COUNT(*)::int AS count 
+    FROM information_schema.tables 
+    WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+  `, [baseSchemaName]);
+
+  const count = checkRes.rows[0]?.count || 0;
+  if (count === 0) {
+    return { schemaName: baseSchemaName, isFallback: false, existingCount: 0 };
+  }
+
+  // Schema already contains tables! Automatically pick a unique timestamped schema name
+  const timestampSuffix = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+  const uniqueSchemaName = `${baseSchemaName}_${timestampSuffix}`;
+  return { schemaName: uniqueSchemaName, isFallback: true, existingCount: count };
+}
+
+/**
+ * Move all tables in public schema into a designated preservation schema (e.g. legacy_pre_restore_20261027)
+ * Safe operation: zero DROP, zero DELETE.
+ */
+export async function movePublicTablesToLegacySchema(
+  client: any, 
+  legacySchemaName: string = 'legacy_pre_restore_20261027'
+): Promise<{
+  success: boolean;
+  movedTables: string[];
+  message: string;
+}> {
+  // 1. Safety check: Abort if preservation schema already exists AND contains tables
+  const existingInLegacyRes = await client.query(`
+    SELECT table_name 
+    FROM information_schema.tables 
+    WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+  `, [legacySchemaName]);
+
+  if (existingInLegacyRes.rows.length > 0) {
+    const existingTableNames = existingInLegacyRes.rows.map((r: any) => r.table_name);
+    throw new Error(
+      `[Safety Abort] Schema bảo toàn '${legacySchemaName}' đã tồn tại và đang chứa ${existingTableNames.length} bảng (${existingTableNames.join(', ')}). Thao tác APPLY bị hủy an toàn để chống ghi đè hoặc nhập lẫn dữ liệu.`
+    );
+  }
+
+  // 2. Ensure destination schema exists
+  await client.query(`CREATE SCHEMA IF NOT EXISTS "${legacySchemaName}"`);
+
+  // 3. Query all existing public tables
+  const res = await client.query(`
+    SELECT table_name 
+    FROM information_schema.tables 
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+  `);
+  const tables: string[] = res.rows.map((r: any) => r.table_name);
+  const movedTables: string[] = [];
+
+  // 4. Move tables and all their associated constraints/indexes to legacy schema
+  for (const t of tables) {
+    await client.query(`ALTER TABLE public."${t}" SET SCHEMA "${legacySchemaName}"`);
+    movedTables.push(t);
+  }
+
+  // 5. Move sequences in public schema to preserve integrity and avoid naming collision
+  try {
+    const seqRes = await client.query(`
+      SELECT sequence_name 
+      FROM information_schema.sequences 
+      WHERE sequence_schema = 'public'
+    `);
+    for (const s of seqRes.rows) {
+      try {
+        await client.query(`ALTER SEQUENCE public."${s.sequence_name}" SET SCHEMA "${legacySchemaName}"`);
+      } catch {}
+    }
+  } catch {}
+
+  return {
+    success: true,
+    movedTables,
+    message: `Đã bảo toàn thành công ${movedTables.length} bảng sang schema ${legacySchemaName}: ${movedTables.join(', ')}`
+  };
+}
+
