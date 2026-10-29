@@ -549,7 +549,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   return (
-    <div className="flex h-screen w-full bg-[#edf2f7] font-sans text-slate-900 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block app-layout-root">
+    <div className="flex h-screen w-full bg-[#F4F7FA] font-sans text-slate-900 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block app-layout-root">
       {/* Sidebar - strictly hidden when printing */}
       <aside className={cn(
         "flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print transition-all duration-300 ease-in-out relative overflow-hidden",
@@ -683,18 +683,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
         {/* Top Header - strictly hidden when printing */}
-        <header className="flex-shrink-0 bg-[#6bc782] border-b border-slate-300 px-6 py-3 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#1F4E78] via-[#2F75B5] to-[#4A90E2]" />
+        <header className="flex-shrink-0 bg-[#F4F7FA] border-b-2 border-[#1F4E78] px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-[#1F4E78]" />
           
-          <div className="flex items-center gap-3.5 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
             {/* Toggle Sidebar Button */}
             <button
               onClick={toggleSidebar}
               className={cn(
-                "px-3 py-2 rounded-xl border transition-all shadow-xs flex items-center gap-2 shrink-0 cursor-pointer group",
+                "px-2.5 py-1.5 rounded-lg border transition-all shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer group",
                 isSidebarOpen
-                  ? "bg-slate-100 hover:bg-slate-200/90 border-slate-300 text-slate-700 hover:text-[#1F4E78]"
-                  : "bg-gradient-to-r from-[#1F4E78] to-[#2B6CB0] hover:from-[#183d5e] hover:to-[#22578e] border-blue-900 text-white shadow-md shadow-blue-900/25 ring-2 ring-blue-400/40"
+                  ? "bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-[#1F4E78]"
+                  : "btn-3d-primary"
               )}
               title={isSidebarOpen ? "Ẩn thanh menu để mở rộng không gian làm việc" : "Hiện thanh menu điều hướng"}
             >
@@ -712,13 +712,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </button>
 
             <div className="flex flex-col pt-0.5 min-w-0">
-              <span className="text-[11px] font-extrabold text-[#4657d1] tracking-wide uppercase truncate">
+              <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 tracking-wide uppercase truncate">
                 {orgConfig.parentAgency || 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk'}
               </span>
-              <span className="text-xl font-black text-[#0f2440] tracking-tight mt-0.5 truncate">
+              <span className="text-base sm:text-lg md:text-xl font-black text-[#1F4E78] tracking-tight mt-0.5 truncate">
                 {orgConfig.systemTitle || 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI'}
               </span>
-              <span className="text-xs font-bold text-[#1F4E78] mt-0.5 flex items-center gap-1.5 truncate">
+              <span className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1.5 truncate">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0"></span>
                 <span className="truncate">{orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}</span>
                 {orgConfig.shortName && (
@@ -730,15 +730,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           
-          <div className="relative flex items-center gap-3 bg-[#c3ddec] p-2 rounded-2xl border border-slate-300 shadow-xs">
+          <div className="relative flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-2xs shrink-0">
             {/* Notification Bell */}
             <div className="relative">
               <button
                 onClick={() => setShowNotificationMenu(!showNotificationMenu)}
-                className="p-2 bg-[#28c363] hover:bg-slate-50 border border-slate-300 rounded-xl relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs"
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs cursor-pointer"
                 title="Thông báo & Nhắc việc"
               >
-                <Bell className="w-4 h-4 bg-[#dccb2f]" />
+                <Bell className="w-4 h-4 text-slate-700" />
                 {pendingAssignmentsCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
                     {pendingAssignmentsCount}
@@ -844,27 +844,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div 
               onClick={() => setShowSwitchMenu(!showSwitchMenu)}
-              className="flex items-center gap-3 pl-2 cursor-pointer group hover:bg-white p-1 rounded-xl transition border border-transparent hover:border-slate-300 shadow-2xs"
+              className="flex items-center gap-2 pl-1 cursor-pointer group hover:bg-slate-50 px-1.5 py-1 rounded-lg transition border border-transparent hover:border-slate-200"
               title="Nhấn để xem / chuyển tài khoản"
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] shadow-sm flex items-center justify-center text-white font-black text-sm border border-blue-900">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] shadow-2xs flex items-center justify-center text-white font-black text-xs border border-blue-900 shrink-0">
                 {getInitials(currentUser?.name)}
               </div>
-              <div className="flex flex-col justify-center">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-[15px] leading-none group-hover:text-[#1F4E78] transition-colors">
+              <div className="flex flex-col justify-center min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-slate-900 text-xs sm:text-[13px] leading-tight group-hover:text-[#1F4E78] transition-colors max-w-[110px] sm:max-w-[150px] truncate">
                     {currentUser?.name || 'Đang tải...'}
                   </span>
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border shrink-0 ${
                     isAdmin ? 'bg-purple-100 text-purple-900 border-purple-300' :
                     currentUser?.role === 'LEADER' ? 'bg-blue-100 text-blue-900 border-blue-300' :
-                    'bg-slate-200 text-slate-800 border-slate-300'
+                    'bg-slate-100 text-slate-700 border-slate-300'
                   }`}>
                     {isAdmin ? 'Quản trị' : currentUser?.role === 'LEADER' ? 'Lãnh đạo' : 'Chuyên viên'}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-800" />
+                  <ChevronDown className="w-3 h-3 text-slate-500 group-hover:text-slate-800 shrink-0" />
                 </div>
-                <span className="text-xs text-slate-600 font-medium mt-1 leading-none">
+                <span className="text-[11px] text-slate-500 font-medium leading-none mt-0.5 max-w-[140px] truncate hidden xl:inline">
                   {currentUser?.email || 'Chưa đăng nhập'}
                 </span>
               </div>
@@ -899,8 +899,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            <div className="h-8 w-px bg-slate-300 mx-1"></div>
-            <div className="flex items-center gap-2 pr-1">
+            <div className="h-6 w-px bg-slate-200 mx-0.5 shrink-0"></div>
+            <div className="flex items-center gap-1.5 shrink-0 pr-0.5">
               <button 
                 onClick={() => {
                   setPwdError('');
@@ -910,19 +910,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   setConfirmPasswordInput('');
                   setShowChangeModal(true);
                 }}
-                className="px-3 py-1.5 bg-white border border-slate-300 text-slate-800 hover:bg-slate-50 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                className="btn-secondary px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shrink-0"
                 title="Đổi mật mã truy cập"
               >
-                <KeyRound className="w-3.5 h-3.5 text-slate-600" />
-                <span>Đổi mã</span>
+                <KeyRound className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Đổi mã</span>
               </button>
               <button 
                 onClick={handleLogout}
-                className="px-3 py-1.5 bg-red-600 text-white hover:bg-red-700 rounded-lg text-xs font-bold shadow-xs transition-colors inline-flex items-center gap-1.5"
+                className="btn-danger px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shrink-0"
                 title="Đăng xuất khỏi hệ thống"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Đăng xuất</span>
+                <span className="hidden lg:inline">Đăng xuất</span>
               </button>
             </div>
           </div>
@@ -1023,7 +1023,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setShowChangeModal(false)}
-                    className="px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                    className="btn-secondary px-4 py-2 rounded-lg text-xs font-bold"
                   >
                     Đóng
                   </button>
@@ -1031,7 +1031,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <button
                   type="submit"
                   disabled={pwdLoading}
-                  className="inline-flex items-center gap-2 bg-[#1F4E78] hover:bg-[#173a5a] text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                  className="btn-3d-primary inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-bold shadow-xs disabled:opacity-50"
                 >
                   {pwdLoading ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
