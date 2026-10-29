@@ -98,7 +98,7 @@ jobs:
             --user "$(id -u):$(id -g)" \
             --env DATABASE_URL="$database_url" \
             --volume "$RUNNER_TEMP:/backup" \
-            postgres:17-alpine \
+            postgres:18-alpine \
             sh -c 'pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --no-acl --file="/backup/'"$(basename "$backup_file")"'"'
           unset database_url
           gcloud storage cp "$backup_file" "gs://$BACKUP_BUCKET/pre-release/"
