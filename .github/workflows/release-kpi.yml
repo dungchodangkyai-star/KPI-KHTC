@@ -1,0 +1,198 @@
+name: Phat hanh KPI KHTC
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: "Tich chon de xac nhan phat hanh vao he thong dang su dung"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: kpi-khtc-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: kpi-release-engine
+  PROJECT_NUMBER: "357878679052"
+  REGION: asia-southeast1
+  SERVICE: kpi-khtc
+  CONTAINER: app-container
+  ARTIFACT_REPOSITORY: kpi-release
+  IMAGE_NAME: kpi-khtc
+  DATABASE_SECRET: kpi-database-url
+  BACKUP_BUCKET: kpi-release-engine-kpi-backups
+  FIXED_URL: https://kpi-khtc.ai.studio
+
+jobs:
+  quality:
+    name: Kiem tra ma nguon
+    if: ${{ inputs.confirm_release == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Tai dung phien ban duoc chon
+        uses: actions/checkout@v4
+
+      - name: Cai Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Cai thu vien
+        run: npm ci
+
+      - name: Kiem tra TypeScript
+        run: npm run lint
+
+      - name: Chay kiem tra tu dong
+        run: npm test
+
+      - name: Build thu
+        run: npm run build
+
+  release:
+    name: Sao luu va phat hanh an toan
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Tai dung phien ban da kiem tra
+        uses: actions/checkout@v4
+
+      - name: Dang nhap Google Cloud khong dung khoa dai han
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/357878679052/locations/global/workloadIdentityPools/github-actions/providers/github-kpi-khtc
+          service_account: github-kpi-release@kpi-release-engine.iam.gserviceaccount.com
+
+      - name: Cai Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Kiem tra dung dich vu va luu revision hien tai
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_json="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format=json)"
+          previous_revision="$(jq -r '.status.traffic[]? | select(.percent == 100) | .revisionName // empty' <<<"$service_json" | head -n1)"
+          if [[ -z "$previous_revision" ]]; then
+            previous_revision="$(jq -r '.status.latestReadyRevisionName // empty' <<<"$service_json")"
+          fi
+          [[ -n "$previous_revision" ]] || { echo "Khong xac dinh duoc revision dang phuc vu"; exit 1; }
+          echo "previous_revision=$previous_revision" >> "$GITHUB_OUTPUT"
+          echo "Revision dang phuc vu: $previous_revision"
+
+      - name: Sao luu Neon truoc khi phat hanh
+        shell: bash
+        run: |
+          set -euo pipefail
+          database_url="$(gcloud secrets versions access 3 --secret="$DATABASE_SECRET" --project="$PROJECT_ID")"
+          backup_file="$RUNNER_TEMP/kpi-pre-release-${GITHUB_SHA::8}-$(date -u +%Y%m%dT%H%M%SZ).dump"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env DATABASE_URL="$database_url" \
+            --volume "$RUNNER_TEMP:/backup" \
+            postgres:17-alpine \
+            sh -c 'pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --no-acl --file="/backup/'"$(basename "$backup_file")"'"'
+          unset database_url
+          gcloud storage cp "$backup_file" "gs://$BACKUP_BUCKET/pre-release/"
+          echo "Da sao luu Neon truoc phat hanh."
+
+      - name: Dang nhap Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build va day image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_uri="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker build --pull --tag "$image_uri" .
+          docker push "$image_uri"
+          echo "uri=$image_uri" >> "$GITHUB_OUTPUT"
+
+      - name: Tao revision ung vien va kiem tra truoc khi chuyen nguoi dung
+        id: deploy
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          PREVIOUS_REVISION: ${{ steps.current.outputs.previous_revision }}
+        run: |
+          set -euo pipefail
+          traffic_switched=0
+          rollback() {
+            if [[ "$traffic_switched" == "1" && -n "$PREVIOUS_REVISION" ]]; then
+              echo "Kiem tra that bai. Dang tu dong quay lai $PREVIOUS_REVISION"
+              gcloud run services update-traffic "$SERVICE" \
+                --project="$PROJECT_ID" --region="$REGION" \
+                --to-revisions="$PREVIOUS_REVISION=100" --quiet || true
+            fi
+          }
+          trap rollback ERR
+
+          suffix="r${GITHUB_SHA::7}"
+          gcloud run services update "$SERVICE" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --container="$CONTAINER" --image="$IMAGE_URI" \
+            --revision-suffix="$suffix" --no-traffic --tag=candidate --quiet
+
+          service_json="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format=json)"
+          new_revision="$(jq -r '.status.traffic[]? | select(.tag == "candidate") | .revisionName // empty' <<<"$service_json" | head -n1)"
+          candidate_url="$(jq -r '.status.traffic[]? | select(.tag == "candidate") | .url // empty' <<<"$service_json" | head -n1)"
+          [[ -n "$new_revision" && -n "$candidate_url" ]] || { echo "Khong tim thay revision ung vien"; exit 1; }
+
+          healthy=0
+          for attempt in {1..24}; do
+            if response="$(curl --fail --silent --show-error --max-time 20 "$candidate_url/api/health" 2>/dev/null)"; then
+              if jq -e '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true' <<<"$response" >/dev/null; then
+                healthy=1
+                break
+              fi
+            fi
+            echo "Cho revision ung vien san sang ($attempt/24)..."
+            sleep 5
+          done
+          [[ "$healthy" == "1" ]] || { echo "Revision ung vien khong dat health check"; exit 1; }
+
+          gcloud run services update-traffic "$SERVICE" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --to-revisions="$new_revision=100" --quiet
+          traffic_switched=1
+
+          production_ok=0
+          for attempt in {1..18}; do
+            if response="$(curl --fail --silent --show-error --max-time 20 "$FIXED_URL/api/health" 2>/dev/null)"; then
+              if jq -e '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true' <<<"$response" >/dev/null; then
+                production_ok=1
+                break
+              fi
+            fi
+            echo "Dang xac minh link co dinh ($attempt/18)..."
+            sleep 5
+          done
+          [[ "$production_ok" == "1" ]] || { echo "Link co dinh khong dat health check"; exit 1; }
+
+          trap - ERR
+          echo "new_revision=$new_revision" >> "$GITHUB_OUTPUT"
+          echo "Phat hanh thanh cong: $new_revision"
+
+      - name: Ghi bien ban phat hanh
+        shell: bash
+        env:
+          PREVIOUS_REVISION: ${{ steps.current.outputs.previous_revision }}
+          NEW_REVISION: ${{ steps.deploy.outputs.new_revision }}
+        run: |
+          {
+            echo "## Phat hanh KPI KHTC thanh cong"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Revision cu: \`${PREVIOUS_REVISION}\`"
+            echo "- Revision moi: \`${NEW_REVISION}\`"
+            echo "- Link co dinh: ${FIXED_URL}"
+            echo "- Neon: da ket noi va da sao luu truoc phat hanh"
+          } >> "$GITHUB_STEP_SUMMARY"
