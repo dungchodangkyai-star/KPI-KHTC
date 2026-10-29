@@ -1,0 +1,13 @@
+.git
+.github
+.aistudio
+node_modules
+dist
+coverage
+*.log
+.env*
+desktop.ini
+**/desktop.ini
+data/backups
+data/db-local-store.json
+public/assets/aistudio/backup_*.json

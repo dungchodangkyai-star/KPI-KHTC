@@ -3,6 +3,10 @@ build/
 dist/
 coverage/
 .DS_Store
+desktop.ini
+Thumbs.db
+.aistudio/
+data/backups/*.json
 *.log
 .env*
 !.env.example
