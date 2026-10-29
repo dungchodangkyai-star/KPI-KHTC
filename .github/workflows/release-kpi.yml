@@ -139,8 +139,8 @@ jobs:
           suffix="r${GITHUB_SHA::7}"
           gcloud run services update "$SERVICE" \
             --project="$PROJECT_ID" --region="$REGION" \
-            --container="$CONTAINER" --image="$IMAGE_URI" \
-            --revision-suffix="$suffix" --no-traffic --tag=candidate --quiet
+            --revision-suffix="$suffix" --no-traffic --tag=candidate --quiet \
+            --container="$CONTAINER" --image="$IMAGE_URI"
 
           service_json="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format=json)"
           new_revision="$(jq -r '.status.traffic[]? | select(.tag == "candidate") | .revisionName // empty' <<<"$service_json" | head -n1)"
