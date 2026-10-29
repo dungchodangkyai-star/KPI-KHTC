@@ -199,10 +199,10 @@ const MetricCard = ({
     <div 
       id={id}
       onClick={onClickDetail}
-      className={`group relative overflow-hidden rounded-2xl border p-4 flex flex-col justify-between min-h-[148px] transition-all duration-200 cursor-pointer shadow-xs ${
+      className={`group relative overflow-hidden rounded-[12px] border p-4 flex flex-col justify-between min-h-[152px] h-[152px] transition-all duration-200 cursor-pointer shadow-xs ${
         isActive 
           ? `${t.activeBg} shadow-md -translate-y-0.5` 
-          : `bg-white ${t.border} ${t.borderHover} hover:-translate-y-0.5 hover:shadow-sm`
+          : `bg-white ${t.border} ${t.borderHover} hover:-translate-y-0.5 hover:shadow-xs`
       }`}
     >
       {/* Top Left Accent bar when active */}
@@ -665,7 +665,7 @@ export default function Monitor() {
   return (
     <div className="max-w-[1400px] mx-auto flex flex-col gap-6 h-full pb-12 px-2 sm:px-4">
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-300 p-5 rounded-2xl bg-white shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-200/90 p-5 rounded-[12px] bg-white shadow-xs">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
             <Briefcase className="w-3.5 h-3.5" />
@@ -722,7 +722,7 @@ export default function Monitor() {
             id="btn-refresh-monitor"
             onClick={fetchData}
             disabled={isLoading}
-            className="flex items-center gap-2 bg-[#1F4E78] hover:bg-[#173a5a] text-white px-4 py-2.5 rounded-xl text-sm font-black shadow-sm transition-all active:scale-95 border border-blue-900"
+            className="btn-3d-primary flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold shadow-xs"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Cập nhật</span>
@@ -735,7 +735,7 @@ export default function Monitor() {
         {/* Banner 1: Tổng việc */}
         <div 
           onClick={() => handleCardClick('TOTAL')}
-          className="bg-gradient-to-br from-blue-500 to-[#1F4E78] text-white p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+          className="bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] text-white p-3.5 rounded-[12px] h-[96px] shadow-xs cursor-pointer hover:shadow-sm transition-all flex items-center justify-between border border-blue-900/30 group"
         >
           <div>
             <span className="text-xs font-extrabold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
@@ -747,18 +747,18 @@ export default function Monitor() {
             </div>
             <span className="text-[11px] text-blue-100 font-medium">Toàn phòng trong kỳ</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center border border-white/20">
-            <TrendingUp className="w-6 h-6 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center border border-white/20">
+            <TrendingUp className="w-5 h-5 text-white" />
           </div>
         </div>
 
         {/* Banner 2: Cảnh báo tiến độ */}
         <div 
           onClick={() => handleCardClick(workStats.overdue > 0 ? 'OVERDUE' : 'DUE_TODAY')}
-          className={`p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between border group ${
+          className={`p-3.5 rounded-[12px] h-[96px] shadow-xs cursor-pointer hover:shadow-sm transition-all flex items-center justify-between border group ${
             workStats.overdue > 0 
-              ? 'bg-red-50 border-red-200 text-red-950' 
-              : 'bg-white border-slate-200 text-slate-800'
+              ? 'bg-red-50/90 border-red-200 text-red-950'
+              : 'bg-white border-slate-200/90 text-slate-800'
           }`}
         >
           <div>
@@ -778,19 +778,19 @@ export default function Monitor() {
             </div>
             <span className="text-[11px] text-slate-600 font-medium">Cần đôn đốc xử lý ngay</span>
           </div>
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center border ${
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
             workStats.overdue > 0 
               ? 'bg-red-100 text-red-700 border-red-200 animate-pulse' 
               : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}>
-            <BellRing className="w-6 h-6" />
+            <BellRing className="w-5 h-5" />
           </div>
         </div>
 
         {/* Banner 3: Chờ duyệt */}
         <div 
           onClick={() => handleCardClick('PENDING_APPROVAL')}
-          className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+          className="bg-white border border-slate-200/90 p-3.5 rounded-[12px] h-[96px] shadow-xs cursor-pointer hover:shadow-sm transition-all flex items-center justify-between group"
         >
           <div>
             <span className="text-xs font-extrabold uppercase tracking-wider text-teal-800 flex items-center gap-1.5">
@@ -805,15 +805,15 @@ export default function Monitor() {
             </div>
             <span className="text-[11px] text-slate-600 font-medium">Cần thẩm định phê duyệt</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 flex items-center justify-center">
-            <CheckSquare className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 flex items-center justify-center">
+            <CheckSquare className="w-5 h-5" />
           </div>
         </div>
 
         {/* Banner 4: Làm thêm ngoài giờ */}
         <div 
           onClick={() => handleCardClick('OT_TOTAL')}
-          className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm cursor-pointer hover:shadow-md transition-all flex items-center justify-between group"
+          className="bg-white border border-slate-200/90 p-3.5 rounded-[12px] h-[96px] shadow-xs cursor-pointer hover:shadow-sm transition-all flex items-center justify-between group"
         >
           <div>
             <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
@@ -828,14 +828,14 @@ export default function Monitor() {
             </div>
             <span className="text-[11px] text-slate-600 font-medium">Hồ sơ đăng ký thực tế</span>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center">
-            <Clock className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center">
+            <Clock className="w-5 h-5" />
           </div>
         </div>
       </div>
 
       {/* SECTION 1: 13 Metric Cards - Báo cáo điều hành công việc */}
-      <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
+      <div className="bg-white border border-slate-200/90 rounded-[12px] p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center text-[#1F4E78] shadow-2xs">
@@ -1008,7 +1008,7 @@ export default function Monitor() {
       </div>
 
       {/* SECTION 2: 6 Metric Cards - Theo dõi làm thêm ngoài giờ */}
-      <div className="bg-white border border-slate-300 rounded-2xl p-4 sm:p-6 shadow-sm">
+      <div className="bg-white border border-slate-200/90 rounded-[12px] p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800 shadow-2xs">
@@ -1105,7 +1105,7 @@ export default function Monitor() {
       <div 
         ref={detailRef} 
         id="detail-table-section"
-        className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[450px]"
+        className="bg-white border border-slate-200/90 rounded-[12px] shadow-xs overflow-hidden flex flex-col min-h-[450px]"
       >
         {/* Table Header Controls */}
         <div className="p-4 sm:p-5 border-b border-slate-300 bg-gradient-to-r from-slate-100 to-blue-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1443,7 +1443,7 @@ export default function Monitor() {
       {/* SECTION 4: Detail & Edit Modal */}
       {selectedItem && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-[12px] shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 bg-[#1F4E78] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1663,14 +1663,14 @@ export default function Monitor() {
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold transition-colors"
+                className="btn-secondary px-4 py-2 rounded-lg text-sm font-semibold"
               >
                 Hủy bỏ
               </button>
               <button 
                 onClick={handleSaveModal}
                 disabled={isUpdating}
-                className="flex items-center gap-2 px-5 py-2 bg-[#1F4E78] hover:bg-[#15385b] text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                className="btn-3d-primary flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold shadow-xs disabled:opacity-50"
               >
                 {isUpdating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 <span>Lưu thay đổi</span>

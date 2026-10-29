@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+body {
+  background-color: #F4F7FA;
+  color: #0f2440;
+}
+
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -25,16 +30,130 @@
   }
 }
 
+/* ==========================================================================
+   STANDARDIZED UI DESIGN SYSTEM - BRAND #1F4E78 & BG #F4F7FA
+   ========================================================================== */
+
+/* Subtle 3D Primary Button: Gradient blue, 2-3px bottom shadow, hover +1px, active -2px */
+.btn-3d-primary {
+  background: linear-gradient(180deg, #255C8F 0%, #1F4E78 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border: 1px solid #163B5C;
+  box-shadow: 0 2px 0 0 #132E48, 0 3px 6px -1px rgba(31, 78, 120, 0.35);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-3d-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2C6CA5 0%, #1F4E78 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 0 #132E48, 0 5px 8px -1px rgba(31, 78, 120, 0.4);
+}
+
+.btn-3d-primary:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 #132E48, 0 1px 2px 0 rgba(31, 78, 120, 0.2);
+}
+
+.btn-3d-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Secondary Button: White bg, blue #1F4E78 border and text */
+.btn-secondary {
+  background-color: #ffffff;
+  color: #1F4E78;
+  border: 1px solid #1F4E78;
+  font-weight: 700;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #F0F4F9;
+  border-color: #173B5B;
+  color: #173B5B;
+}
+
+.btn-secondary:active:not(:disabled) {
+  background-color: #E2ECF6;
+  transform: translateY(1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Danger Button: Red, strictly reserved for Logout, Delete, and destructive actions */
+.btn-danger {
+  background: linear-gradient(180deg, #DC2626 0%, #B91C1C 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border: 1px solid #991B1B;
+  box-shadow: 0 2px 0 0 #7F1D1D, 0 2px 4px rgba(185, 28, 28, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(180deg, #EF4444 0%, #DC2626 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 0 #7F1D1D, 0 4px 6px rgba(185, 28, 28, 0.3);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 #7F1D1D, 0 1px 2px rgba(185, 28, 28, 0.2);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Standardized Statistic Card: 12px border radius, light border, subtle shadow, uniform height */
+.stat-card {
+  border-radius: 12px;
+  border: 1px solid #E2E8F0;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+}
+
 /* Subtle elevation for cards and high contrast */
 .app-card {
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
+  border-radius: 12px;
   box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.08);
 }
 
 .app-card-elevated {
   background-color: #ffffff;
   border: 1px solid #94a3b8;
+  border-radius: 12px;
   box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -2px rgba(15, 23, 42, 0.08);
 }
 
