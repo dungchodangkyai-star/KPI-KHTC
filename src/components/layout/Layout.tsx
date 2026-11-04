@@ -787,7 +787,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               >
                 <Bell className="w-4 h-4 text-slate-700" />
                 {pendingAssignmentsCount > 0 && (
-                  <span className="absolute 1 top-1 right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
                     {pendingAssignmentsCount}
                   </span>
                 )}
@@ -902,7 +902,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <span className="font-bold text-slate-900 text-xs sm:text-[13px] leading-tight group-hover:text-[#1F4E78] transition-colors max-w-[85px] sm:max-w-[150px] truncate">
                     {currentUser?.name || 'Đang tải...'}
                   </span>
-                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border shrink-0 hidden xs:inline ${
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border shrink-0 hidden sm:inline ${
                     isAdmin ? 'bg-purple-100 text-purple-900 border-purple-300' :
                     currentUser?.role === 'LEADER' ? 'bg-blue-100 text-blue-900 border-blue-300' :
                     'bg-slate-100 text-slate-700 border-slate-300'

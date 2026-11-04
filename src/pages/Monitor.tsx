@@ -799,23 +799,23 @@ export default function Monitor() {
             </span>
           </div>
 
-          {/* Đúng hạn / Hoàn thành */}
+          {/* Tổng công việc */}
           <div 
             onClick={() => handleCardClick('TOTAL')}
             className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
               monitorType === 'TOTAL' 
-                ? 'bg-emerald-100 border-emerald-500 ring-2 ring-emerald-400' 
-                : 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-400'
+                ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-400' 
+                : 'bg-slate-50 border-slate-200 hover:border-blue-400'
             }`}
           >
             <div>
-              <div className="text-[11px] font-black text-emerald-800 uppercase">4. Đúng hạn / Xong</div>
-              <div className="text-xl font-black text-emerald-900 mt-0.5">
-                {Math.max(0, workStats.total - workStats.overdue - workStats.dueToday - workStats.dueSoon)} việc
+              <div className="text-[11px] font-black text-[#1F4E78] uppercase">4. Tổng công việc</div>
+              <div className="text-xl font-black text-slate-900 mt-0.5">
+                {workStats.total} việc
               </div>
             </div>
-            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-              An toàn
+            <span className="text-[10px] font-bold text-[#1F4E78] bg-blue-100 px-2 py-0.5 rounded-full">
+              Tất cả
             </span>
           </div>
         </div>
