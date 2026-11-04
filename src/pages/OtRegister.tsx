@@ -216,7 +216,7 @@ export default function OtRegister() {
   return (
     <div className="max-w-[900px] mx-auto pb-12 px-2 sm:px-4">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6">
+      <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 bg-[#f4efe5] p-4 rounded-2xl">
         <div>
           <h2 className="text-2xl font-black text-[#0f2440] tracking-tight flex items-center gap-2">
             <Clock className="w-6 h-6 text-amber-600" />
@@ -261,7 +261,7 @@ export default function OtRegister() {
       )}
 
       {/* Main Form */}
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
+      <form onSubmit={handleSubmit} className="bg-[#b2e3d3] border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
         {/* Row 1: General */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -321,7 +321,7 @@ export default function OtRegister() {
         </div>
 
         {/* Row 2: Time Calculation */}
-        <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 sm:p-5">
+        <div className="bg-[#c8d4e0] border border-amber-200 rounded-2xl p-4 sm:p-5">
           <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Clock className="w-4 h-4 text-amber-700" />
             <span>Khung giờ thực hiện & Tổng thời gian</span>
@@ -418,7 +418,7 @@ export default function OtRegister() {
               value={formData.project}
               onChange={(e) => setFormData({ ...formData, project: e.target.value })}
               placeholder="VD: Dự án Đường vành đai phía Tây TP. Buôn Ma Thuột..."
-              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#1F4E78]"
+              className="w-full p-2.5 bg-[#ccdfe8] border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#1F4E78]"
             />
           </div>
         </div>

@@ -87,18 +87,18 @@ const LeaderNoteSection = memo(({
         value={localNote}
         onChange={handleChange}
         placeholder={placeholderText}
-        className="w-full text-xs p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78] transition-colors"
+        className="w-full text-xs p-3 bg-[#F7FAFC] border border-[#AFC0D0] text-[#102A43] rounded-xl outline-none focus:border-[#0F8B8D] focus:ring-1 focus:ring-[#0F8B8D] transition-colors"
       />
 
       {/* Quick suggestions chips */}
       <div className="flex flex-wrap gap-1.5 mt-2">
-        <span className="text-[10px] font-bold text-slate-400 self-center">Gợi ý nhanh:</span>
+        <span className="text-[10px] font-bold text-[#475569] self-center">Gợi ý nhanh:</span>
         {QUICK_LEADER_SUGGESTIONS.map((sug, i) => (
           <button
             key={i}
             type="button"
             onClick={() => handleSuggestionClick(sug)}
-            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer border border-slate-200 text-left"
+            className="text-[10px] bg-[#EDF3F8] hover:bg-[#E2ECF6] text-[#163A5F] px-2 py-1 rounded-md transition cursor-pointer border border-[#CBD5E1] text-left font-medium"
           >
             {sug}
           </button>
@@ -305,24 +305,24 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
   const calculatedBaseKpi = Math.round((Number(work.baseScore) || 10) * reviewApprovedCoef * 10) / 10;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 animate-fadeIn">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 animate-fadeIn">
+      <div className="bg-[#F2F6FA] rounded-2xl max-w-2xl w-full shadow-2xl border border-[#B8C7D6] flex flex-col max-h-[92vh] overflow-hidden">
         {/* Modal Header - Fixed Top */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex-shrink-0">
-          <div className="flex items-center gap-2 text-[#1F4E78] font-black text-base">
-            <CheckSquare className="w-5 h-5 text-[#1F4E78]" />
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#112c49] bg-[#163A5F] text-white flex-shrink-0">
+          <div className="flex items-center gap-2 text-white font-black text-base">
+            <CheckSquare className="w-5 h-5 text-teal-300" />
             <span>Thẩm định & Phê duyệt kết quả công việc</span>
           </div>
           <button 
             onClick={onClose} 
-            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+            className="text-blue-100 hover:text-white p-1 rounded-lg hover:bg-white/10 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body - Scrollable */}
-        <div className="px-5 py-4 overflow-y-auto flex-1 space-y-4">
+        <div className="px-5 py-4 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-950 text-xs font-bold flex items-center gap-2 animate-shake">
               <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
@@ -331,44 +331,44 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
           )}
 
           {/* Comprehensive Task Details Card */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200">
-              <div className="font-black text-[#1F4E78] text-sm flex items-center gap-1.5">
-                <span className="bg-blue-100 text-[#1F4E78] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
+          <div className="bg-[#EDF3F8] p-4 rounded-xl border border-[#CBD5E1] text-xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-[#CBD5E1]">
+              <div className="font-black text-[#163A5F] text-sm flex items-center gap-1.5">
+                <span className="bg-blue-100 text-[#163A5F] px-2 py-0.5 rounded text-xs font-bold border border-blue-200">
                   {work.taskCode || 'CV'}
                 </span>
                 <span>{work.taskName}</span>
               </div>
               {work.source === 'Giao việc' ? (
-                <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#1F4E78] border border-blue-300">
+                <span className="px-2.5 py-0.5 rounded text-[11px] font-black bg-blue-100 text-[#163A5F] border border-blue-300">
                   Việc Lãnh đạo giao
                 </span>
               ) : (
-                <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
+                <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-[#DCE5EE] text-[#102A43] border border-[#CBD5E1]">
                   Việc tự đăng ký
                 </span>
               )}
             </div>
 
             {/* 4-column inspection grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-700">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Nhân viên</span>
-                <span className="font-bold text-slate-900 text-xs">{work.user?.name}</span>
-                <div className="text-[10px] text-slate-500">{cleanPosition(work.user?.position)}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[#102A43]">
+              <div className="bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1]">
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Nhân viên</span>
+                <span className="font-bold text-[#102A43] text-xs">{work.user?.name}</span>
+                <div className="text-[10px] text-[#475569]">{cleanPosition(work.user?.position)}</div>
               </div>
 
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Tháng & Nhóm</span>
-                <span className="font-bold text-slate-900 text-xs">Tháng {work.month}</span>
-                <div className="text-[10px] text-slate-500 truncate" title={work.taskGroup || ''}>
+              <div className="bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1]">
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Tháng & Nhóm</span>
+                <span className="font-bold text-[#102A43] text-xs">Tháng {work.month}</span>
+                <div className="text-[10px] text-[#475569] truncate" title={work.taskGroup || ''}>
                   {work.taskGroup || 'Khác'}
                 </div>
               </div>
 
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Thời gian thực hiện</span>
-                <div className="font-bold text-slate-800 text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
+              <div className="bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1]">
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Thời gian thực hiện</span>
+                <div className="font-bold text-[#102A43] text-[11px]">{sched.startDateStr} → {sched.endDateStr}</div>
                 <div className="text-[10px] text-blue-700 font-semibold">{sched.daysCount} ngày làm</div>
                 {sched.actualEndDateStr && (
                   <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
@@ -376,25 +376,25 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   </div>
                 )}
                 {sched.isAbnormalDate && (
-                  <div className="text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded mt-1 flex items-center gap-1" title={sched.abnormalDateNote}>
-                    <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                  <div className="text-[9px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded mt-1 flex items-center gap-1" title={sched.abnormalDateNote}>
+                    <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" />
                     <span>Dữ liệu ngày bất thường</span>
                   </div>
                 )}
               </div>
 
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Đánh giá tiến độ</span>
-                <span className="font-bold text-slate-900 text-xs block">{work.status || 'Đang xử lý'}</span>
+              <div className="bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1]">
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Đánh giá tiến độ</span>
+                <span className="font-bold text-[#102A43] text-xs block">{work.status || 'Đang xử lý'}</span>
                 <span className={`inline-block text-[10px] font-black px-1.5 py-0.2 rounded mt-0.5 ${
                   sched.scheduleStatus === 'early' || sched.scheduleStatus === 'on_time'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                    : 'bg-rose-100 text-rose-900 border border-rose-300'
                 }`}>
                   {sched.scheduleText}
                 </span>
                 {sched.isAbnormalDate && (
-                  <div className="text-[9px] text-amber-700 font-semibold mt-0.5" title={sched.abnormalDateNote}>
+                  <div className="text-[9px] text-amber-800 font-semibold mt-0.5" title={sched.abnormalDateNote}>
                     ⚠ Ngày HT trước ngày BĐ
                   </div>
                 )}
@@ -402,26 +402,26 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
             </div>
 
             {/* Product Info Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-white p-2.5 rounded-lg border border-slate-200">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1]">
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Sản phẩm đầu ra</span>
-                <span className="font-bold text-slate-800">{work.productType || 'Báo cáo'}</span> ({work.productQty || 1} {work.unit || 'Sản phẩm'})
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Sản phẩm đầu ra</span>
+                <span className="font-bold text-[#102A43]">{work.productType || 'Báo cáo'}</span> ({work.productQty || 1} {work.unit || 'Sản phẩm'})
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Điểm chuẩn quy định</span>
-                <span className="font-black text-[#1F4E78] text-xs">{formatScore(work.baseScore || 10)} điểm</span>
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Điểm chuẩn quy định</span>
+                <span className="font-black text-[#163A5F] text-xs">{formatScore(work.baseScore || 10)} điểm</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-bold block uppercase">Tính chất đã đăng ký</span>
-                <span className="font-bold text-slate-800">{work.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(work.coef || 0.8)})
+                <span className="text-[10px] text-[#475569] font-bold block uppercase">Tính chất đã đăng ký</span>
+                <span className="font-bold text-[#102A43]">{work.proposedNature || 'Trung bình'}</span> (Hệ số {formatScore(work.coef || 0.8)})
               </div>
             </div>
 
             {/* Detail content */}
             {work.detail && (
               <div>
-                <span className="font-bold text-slate-700 block mb-1">Nội dung báo cáo chi tiết:</span>
-                <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
+                <span className="font-bold text-[#102A43] block mb-1">Nội dung báo cáo chi tiết:</span>
+                <p className="text-[#102A43] bg-[#F2F6FA] p-2.5 rounded-lg border border-[#CBD5E1] whitespace-pre-line leading-relaxed">
                   {work.detail}
                 </p>
               </div>
@@ -430,12 +430,12 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
             {/* Evidence */}
             {work.evidence && (
               <div>
-                <span className="font-bold text-slate-700 block mb-1">Minh chứng sản phẩm:</span>
+                <span className="font-bold text-[#102A43] block mb-1">Minh chứng sản phẩm:</span>
                 <a 
                   href={work.evidence.startsWith('http') ? work.evidence : `https://${work.evidence}`} 
                   target="_blank" 
                   rel="noreferrer"
-                  className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200"
+                  className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1.5 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200"
                 >
                   <ExternalLink className="w-4 h-4 shrink-0" />
                   <span className="break-all">{work.evidence}</span>
@@ -447,13 +447,13 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
           {/* Approval Decision Controls */}
           <div className="space-y-4 pt-1">
             {/* Nature of Work Approval Control */}
-            <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-200 space-y-2">
+            <div className="bg-[#EDF3F8] p-3.5 rounded-xl border border-[#B8C7D6] space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-[#1F4E78]" />
+                <label className="text-xs font-black text-[#163A5F] uppercase tracking-wide flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-[#163A5F]" />
                   <span>Tính chất nhiệm vụ duyệt (Lãnh đạo thẩm định)</span>
                 </label>
-                <span className="text-[10px] text-slate-500 font-semibold">Mặc định theo người dùng đã đăng ký</span>
+                <span className="text-[10px] text-[#475569] font-semibold">Mặc định theo người dùng đã đăng ký</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -461,7 +461,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   <select
                     value={selectedNatureKey}
                     onChange={(e) => handleSelectNatureOption(e.target.value)}
-                    className="w-full text-xs font-bold text-slate-800 p-2.5 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                    className="w-full text-xs font-bold text-[#102A43] p-2.5 bg-[#F7FAFC] border border-[#AFC0D0] rounded-xl outline-none focus:border-[#0F8B8D] focus:ring-1 focus:ring-[#0F8B8D]"
                   >
                     {natureOptions.map(opt => (
                       <option key={opt.key} value={opt.key}>
@@ -471,8 +471,8 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   </select>
                 </div>
 
-                <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
-                  <span className="text-slate-500 font-medium">Hệ số duyệt:</span>
+                <div className="flex items-center justify-between bg-[#F2F6FA] px-3 py-1.5 rounded-xl border border-[#CBD5E1] text-xs">
+                  <span className="text-[#475569] font-medium">Hệ số duyệt:</span>
                   <input
                     type="number"
                     step="0.05"
@@ -485,27 +485,27 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                         handleCoefChange(val);
                       }
                     }}
-                    className="w-18 text-center font-black text-[#1F4E78] text-sm bg-blue-50/60 border border-blue-300 rounded-lg py-1 px-1.5 outline-none focus:ring-2 focus:ring-[#1F4E78]"
+                    className="w-18 text-center font-black text-[#163A5F] text-sm bg-[#F7FAFC] border border-[#AFC0D0] rounded-lg py-1 px-1.5 outline-none focus:ring-2 focus:ring-[#0F8B8D]"
                     title="Lãnh đạo có thể điều chỉnh trực tiếp hệ số thẩm định"
                   />
-                  <span className="text-slate-300">|</span>
-                  <span className="text-slate-500 font-medium">Điểm chuẩn:</span>
-                  <span className="font-bold text-slate-800">{formatScore(work.baseScore || 10)}</span>
+                  <span className="text-[#CBD5E1]">|</span>
+                  <span className="text-[#475569] font-medium">Điểm chuẩn:</span>
+                  <span className="font-bold text-[#102A43]">{formatScore(work.baseScore || 10)}</span>
                 </div>
               </div>
 
               {/* Score formula explanation */}
-              <div className="text-[11px] text-[#1F4E78] font-medium bg-blue-100/60 p-2 rounded-lg flex items-center justify-between">
+              <div className="text-[11px] text-[#163A5F] font-medium bg-[#E2ECF6] p-2 rounded-lg border border-[#B8C7D6] flex items-center justify-between">
                 <span>Công thức tự tính: <strong>{formatScore(work.baseScore || 10)} (Điểm chuẩn)</strong> x <strong>{formatScore(reviewApprovedCoef)} (Hệ số)</strong></span>
-                <span className="font-black text-xs text-[#1F4E78]">= {formatScore(calculatedBaseKpi)} đ</span>
+                <span className="font-black text-xs text-[#163A5F]">= {formatScore(calculatedBaseKpi)} đ</span>
               </div>
             </div>
 
             {/* 3 Decision Action Buttons */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-slate-800">Quyết định phê duyệt:</label>
-                <span className="text-[11px] text-slate-500 italic">Nhấn đúp hoặc chọn và bấm lưu ở dưới</span>
+                <label className="block text-xs font-bold text-[#102A43]">Quyết định phê duyệt:</label>
+                <span className="text-[11px] text-[#475569] italic">Nhấn đúp hoặc chọn và bấm lưu ở dưới</span>
               </div>
               <div className="grid grid-cols-3 gap-2.5">
                 <button
@@ -513,8 +513,8 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   onClick={() => handleSelectDecision('Duyệt')}
                   className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
                     reviewDecision === 'Duyệt'
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-emerald-50/50 hover:border-emerald-300'
+                      ? 'bg-emerald-700 text-white border-emerald-800 shadow-md ring-2 ring-emerald-400/40'
+                      : 'bg-[#EDF3F8] text-[#102A43] border-[#B8C7D6] hover:bg-[#E2ECF6] hover:border-emerald-600'
                   }`}
                   title="Nhấn để chọn hoặc nhấn lại để duyệt & lưu ngay"
                 >
@@ -522,7 +522,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                     <Check className="w-4 h-4" />
                     <span>Duyệt đạt</span>
                   </div>
-                  <span className={`text-[10px] font-medium ${reviewDecision === 'Duyệt' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Duyệt' ? 'text-emerald-100' : 'text-[#475569]'}`}>
                     ({formatScore(calculatedBaseKpi)} điểm)
                   </span>
                 </button>
@@ -532,8 +532,8 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   onClick={() => handleSelectDecision('Cần bổ sung')}
                   className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
                     reviewDecision === 'Cần bổ sung'
-                      ? 'bg-orange-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-orange-50/50 hover:border-orange-300'
+                      ? 'bg-amber-600 text-white border-amber-700 shadow-md ring-2 ring-amber-400/40'
+                      : 'bg-[#EDF3F8] text-[#102A43] border-[#B8C7D6] hover:bg-[#E2ECF6] hover:border-amber-600'
                   }`}
                   title="Nhấn để chọn hoặc nhấn lại để gửi yêu cầu bổ sung"
                 >
@@ -541,7 +541,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                     <AlertTriangle className="w-4 h-4" />
                     <span>Cần bổ sung</span>
                   </div>
-                  <span className={`text-[10px] font-medium ${reviewDecision === 'Cần bổ sung' ? 'text-orange-100' : 'text-slate-500'}`}>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Cần bổ sung' ? 'text-amber-100' : 'text-[#475569]'}`}>
                     Yêu cầu làm lại
                   </span>
                 </button>
@@ -551,8 +551,8 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   onClick={() => handleSelectDecision('Không duyệt')}
                   className={`p-2.5 rounded-xl font-black text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
                     reviewDecision === 'Không duyệt'
-                      ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-300'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-red-50/50 hover:border-red-300'
+                      ? 'bg-red-700 text-white border-red-800 shadow-md ring-2 ring-red-400/40'
+                      : 'bg-[#EDF3F8] text-[#102A43] border-[#B8C7D6] hover:bg-[#E2ECF6] hover:border-red-600'
                   }`}
                   title="Nhấn để chọn hoặc nhấn lại để xác nhận không duyệt"
                 >
@@ -560,7 +560,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                     <X className="w-4 h-4" />
                     <span>Không duyệt</span>
                   </div>
-                  <span className={`text-[10px] font-medium ${reviewDecision === 'Không duyệt' ? 'text-red-100' : 'text-slate-500'}`}>
+                  <span className={`text-[10px] font-medium ${reviewDecision === 'Không duyệt' ? 'text-red-100' : 'text-[#475569]'}`}>
                     (0 điểm KPI)
                   </span>
                 </button>
@@ -570,7 +570,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
               <div className="mt-2.5">
                 {reviewDecision === 'Duyệt' && (
                   <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
-                    <div className="text-xs text-emerald-900 font-medium flex items-center gap-2">
+                    <div className="text-xs text-emerald-950 font-medium flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-700 shrink-0" />
                       <span>
                         Sẵn sàng <strong>Duyệt đạt</strong> với <strong>{formatScore(reviewScore || calculatedBaseKpi)} điểm</strong> KPI chính thức.
@@ -589,9 +589,9 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                 )}
 
                 {reviewDecision === 'Cần bổ sung' && (
-                  <div className="p-3 bg-orange-50 border border-orange-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
-                    <div className="text-xs text-orange-950 font-medium flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-orange-700 shrink-0" />
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+                    <div className="text-xs text-amber-950 font-medium flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
                       <span>
                         Yêu cầu nhân viên hoàn thiện lại hồ sơ. <strong>Chưa tính điểm KPI</strong> cho đến khi duyệt lại.
                       </span>
@@ -600,7 +600,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                       type="button"
                       onClick={() => handleSubmit('Cần bổ sung')}
                       disabled={isSubmitting}
-                      className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
+                      className="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>{isSubmitting ? 'Đang lưu...' : 'Gửi yêu cầu'}</span>
@@ -620,7 +620,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                       type="button"
                       onClick={() => handleSubmit('Không duyệt')}
                       disabled={isSubmitting}
-                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
+                      className="btn-danger px-3.5 py-1.5 text-xs font-bold rounded-lg shrink-0 shadow-xs flex items-center gap-1 cursor-pointer transition"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>{isSubmitting ? 'Đang lưu...' : 'Lưu không duyệt'}</span>
@@ -633,7 +633,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
             {/* Official Converted Score Input (only active when 'Duyệt') */}
             {reviewDecision === 'Duyệt' ? (
               <div className="animate-fadeIn">
-                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
+                <label className="block text-xs font-bold text-[#102A43] mb-1 flex items-center justify-between">
                   <span>Điểm quy đổi KPI chính thức</span>
                   <button
                     type="button"
@@ -641,7 +641,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                       const baseSc = Number(work.baseScore) || 10;
                       setReviewScore(Math.round(baseSc * reviewApprovedCoef * 10) / 10);
                     }}
-                    className="text-[10px] text-blue-700 hover:text-blue-900 font-bold bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 cursor-pointer transition-colors"
+                    className="text-[10px] text-[#163A5F] hover:text-[#0F8B8D] font-bold bg-[#EDF3F8] hover:bg-[#E2ECF6] px-2 py-0.5 rounded border border-[#CBD5E1] cursor-pointer transition-colors"
                     title="Nhấn để tự động tính lại điểm theo Điểm chuẩn x Hệ số duyệt"
                   >
                     Tự động tính theo Hệ số ({formatScore(work.baseScore || 10)} x {formatScore(reviewApprovedCoef)})
@@ -653,13 +653,13 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   value={reviewScore}
                   onChange={(e) => setReviewScore(e.target.value === '' ? '' : parseFloat(e.target.value))}
                   placeholder="Nhập điểm quy đổi chính thức"
-                  className="w-full text-sm font-black text-[#1F4E78] p-3 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#1F4E78] focus:ring-1 focus:ring-[#1F4E78]"
+                  className="w-full text-sm font-black text-[#163A5F] p-3 bg-[#F7FAFC] border border-[#AFC0D0] rounded-xl outline-none focus:border-[#0F8B8D] focus:ring-1 focus:ring-[#0F8B8D]"
                 />
               </div>
             ) : (
-              <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+              <div className="bg-[#EDF3F8] p-3 rounded-xl border border-[#CBD5E1] text-xs text-[#475569] flex items-center justify-between">
                 <span className="font-semibold">Điểm KPI quy đổi:</span>
-                <span className="font-bold text-slate-800">
+                <span className="font-bold text-[#102A43]">
                   {reviewDecision === 'Không duyệt' ? '0 điểm (Không duyệt)' : 'Chờ hoàn thiện (Chưa tính điểm)'}
                 </span>
               </div>
@@ -677,7 +677,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
         </div>
 
         {/* Modal Footer - Sticky Bottom (ALWAYS VISIBLE!) */}
-        <div className="border-t border-slate-200 bg-slate-50 flex-shrink-0">
+        <div className="border-t border-[#CBD5E1] bg-[#EDF3F8] flex-shrink-0">
           {errorMsg && (
             <div className="px-5 py-2.5 bg-red-100 border-b border-red-200 text-red-950 text-xs font-bold flex items-center justify-between gap-2 animate-shake">
               <div className="flex items-center gap-2">
@@ -703,8 +703,8 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                 </span>
               )}
               {reviewDecision === 'Cần bổ sung' && (
-                <span className="px-3 py-1.5 rounded-xl bg-orange-100 text-orange-950 border border-orange-300 font-bold text-xs flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-orange-700" />
+                <span className="px-3 py-1.5 rounded-xl bg-amber-100 text-amber-950 border border-amber-300 font-bold text-xs flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" />
                   <span>Yêu cầu bổ sung</span>
                 </span>
               )}
@@ -720,7 +720,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl cursor-pointer transition"
+                className="btn-secondary px-4 py-2 text-xs font-bold rounded-xl cursor-pointer"
               >
                 Đóng
               </button>
@@ -730,7 +730,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   type="button"
                   onClick={() => handleSubmit('Duyệt')}
                   disabled={isSubmitting}
-                  className="px-5 py-2.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                  className="px-5 py-2.5 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
                 >
                   <Check className="w-4 h-4" />
                   <span>{isSubmitting ? 'Đang lưu...' : `Xác nhận Duyệt đạt (${formatScore(reviewScore || calculatedBaseKpi)}đ)`}</span>
@@ -742,7 +742,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   type="button"
                   onClick={() => handleSubmit('Cần bổ sung')}
                   disabled={isSubmitting}
-                  className="px-5 py-2.5 text-xs font-black text-white bg-orange-600 hover:bg-orange-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                  className="px-5 py-2.5 text-xs font-black text-white bg-amber-700 hover:bg-amber-800 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
                 >
                   <AlertTriangle className="w-4 h-4" />
                   <span>{isSubmitting ? 'Đang lưu...' : 'Gửi yêu cầu cần bổ sung'}</span>
@@ -754,7 +754,7 @@ const WorkReviewModal = memo(({ work, currentUser, workNatures, onClose, onSucce
                   type="button"
                   onClick={() => handleSubmit('Không duyệt')}
                   disabled={isSubmitting}
-                  className="px-5 py-2.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
+                  className="btn-danger px-5 py-2.5 text-xs font-black rounded-xl shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition"
                 >
                   <X className="w-4 h-4" />
                   <span>{isSubmitting ? 'Đang lưu...' : 'Xác nhận Không duyệt'}</span>
@@ -1018,33 +1018,37 @@ export default function ApproveWork() {
   return (
     <div className="space-y-6 pb-12">
       {/* Header Banner */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-300">
+      <div className="bg-[#F2F6FA] rounded-xl p-5 sm:p-6 shadow-xs border border-[#B8C7D6]">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="px-3 py-1 rounded-full text-xs font-black bg-blue-100/80 text-[#1F4E78] uppercase tracking-wider border border-blue-200">
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-[#163A5F] uppercase tracking-wider border border-blue-200">
                 Điều hành & Phê duyệt
               </span>
-              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-md">Quy trình: DV-09</span>
+              <span className="text-xs font-bold text-[#475569] bg-[#EDF3F8] px-2.5 py-0.5 rounded-md border border-[#CBD5E1]">Quy trình: DV-09</span>
             </div>
-            <h1 className="text-2xl font-black text-[#0f2440] tracking-tight">Phê duyệt hồ sơ & Tiến độ công việc</h1>
-            <p className="text-sm font-medium text-slate-600 max-w-4xl mt-1 leading-relaxed">
+            <h1 className="text-2xl sm:text-3xl font-black text-[#163A5F] tracking-tight">
+              Phê duyệt hồ sơ & Tiến độ công việc
+            </h1>
+            <p className="text-sm font-medium text-[#475569] max-w-4xl mt-1 leading-relaxed">
               Lãnh đạo phòng xem xét kết quả thực hiện, thẩm định minh chứng sản phẩm, phê duyệt và chấm điểm KPI trực tiếp cho toàn bộ nhân sự trong phòng.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <button 
               onClick={fetchAll} 
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors shadow-2xs cursor-pointer"
+              className="btn-secondary flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl shadow-2xs h-10 shrink-0"
+              title="Đồng bộ lại danh sách công việc"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span>Đồng bộ</span>
             </button>
             <button 
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-colors shadow-2xs cursor-pointer"
+              className="btn-teal flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl shadow-2xs h-10 shrink-0"
+              title="Xuất bảng tổng hợp duyệt việc sang file Excel"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Xuất Excel</span>
@@ -1100,44 +1104,49 @@ export default function ApproveWork() {
         )}
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards - 5 Uniform Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-[#1F4E78] border-x border-b border-slate-300">
-          <div className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Tổng công việc</div>
-          <div className="text-2xl font-black text-[#1F4E78] mt-1">{totalCount}</div>
-          <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Tháng {selectedMonth}</div>
+        {/* Card 1: Tổng công việc */}
+        <div className="bg-[#F2F6FA] rounded-xl p-4 shadow-xs border-t-4 border-t-[#163A5F] border-x border-b border-[#B8C7D6] min-h-[108px] flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm">
+          <div className="text-[11px] font-black text-[#475569] uppercase tracking-wider">Tổng công việc</div>
+          <div className="text-2xl font-black text-[#163A5F] mt-1">{totalCount}</div>
+          <div className="text-[11px] font-semibold text-[#475569] mt-0.5">Tháng {selectedMonth}</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-amber-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-amber-50/50">
+        {/* Card 2: Đang chờ duyệt */}
+        <div className="bg-[#F2F6FA] rounded-xl p-4 shadow-xs border-t-4 border-t-[#D97706] border-x border-b border-[#B8C7D6] min-h-[108px] flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm">
           <div className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5" />
+            <Clock className="w-3.5 h-3.5 text-amber-700" />
             <span>Đang chờ duyệt</span>
           </div>
           <div className="text-2xl font-black text-amber-900 mt-1">{pendingCount}</div>
           <div className="text-[11px] text-amber-800 mt-0.5 font-bold">Cần thẩm định</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-emerald-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-emerald-50/50">
+        {/* Card 3: Đã phê duyệt */}
+        <div className="bg-[#F2F6FA] rounded-xl p-4 shadow-xs border-t-4 border-t-[#15803D] border-x border-b border-[#B8C7D6] min-h-[108px] flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm">
           <div className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
             <span>Đã phê duyệt</span>
           </div>
           <div className="text-2xl font-black text-emerald-900 mt-1">{approvedCount}</div>
           <div className="text-[11px] text-emerald-800 mt-0.5 font-bold">Đạt chuẩn KPI</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-orange-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-orange-50/50">
+        {/* Card 4: Cần bổ sung */}
+        <div className="bg-[#F2F6FA] rounded-xl p-4 shadow-xs border-t-4 border-t-[#D97706] border-x border-b border-[#B8C7D6] min-h-[108px] flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm">
           <div className="text-[11px] font-black text-orange-950 uppercase tracking-wider flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5" />
+            <AlertTriangle className="w-3.5 h-3.5 text-orange-700" />
             <span>Cần bổ sung</span>
           </div>
           <div className="text-2xl font-black text-orange-950 mt-1">{supplementCount}</div>
           <div className="text-[11px] text-orange-800 mt-0.5 font-bold">Yêu cầu hoàn thiện</div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 shadow-sm border-t-4 border-t-red-600 border-x border-b border-slate-300 bg-gradient-to-br from-white to-red-50/50">
+        {/* Card 5: Không duyệt */}
+        <div className="bg-[#F2F6FA] rounded-xl p-4 shadow-xs border-t-4 border-t-[#DC2626] border-x border-b border-[#B8C7D6] min-h-[108px] flex flex-col justify-between transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm">
           <div className="text-[11px] font-black text-red-950 uppercase tracking-wider flex items-center gap-1">
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5 text-red-700" />
             <span>Không duyệt</span>
           </div>
           <div className="text-2xl font-black text-red-950 mt-1">{rejectedCount}</div>
@@ -1146,14 +1155,14 @@ export default function ApproveWork() {
       </div>
 
       {/* Main Table Panel */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-300 overflow-hidden">
-        {/* Filters and Batch Actions */}
-        <div className="p-4 border-b border-slate-300 bg-slate-50/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-[#F2F6FA] rounded-xl shadow-xs border border-[#B8C7D6] overflow-hidden">
+        {/* Filters and Batch Actions Toolbar - Balanced Heights (~40-44px) */}
+        <div className="p-4 border-b border-[#B8C7D6] bg-[#E3ECF4] flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <CheckSquare className="w-4 h-4 text-[#1F4E78]" />
-            <h3 className="text-sm font-black text-[#1F4E78] uppercase tracking-wide">
+            <CheckSquare className="w-4 h-4 text-[#163A5F]" />
+            <h2 className="text-xs font-black text-[#163A5F] uppercase tracking-wide">
               Danh sách công việc cần xem xét duyệt ({filteredWorks.length})
-            </h3>
+            </h2>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1162,7 +1171,7 @@ export default function ApproveWork() {
               <button
                 onClick={handleBatchApprove}
                 disabled={isBatchApproving}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all border border-emerald-700 cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all border border-emerald-700 cursor-pointer h-10"
               >
                 <Check className="w-4 h-4" />
                 <span>{isBatchApproving ? 'Đang duyệt...' : `Duyệt nhanh (${selectedIds.length})`}</span>
@@ -1172,7 +1181,7 @@ export default function ApproveWork() {
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
+              className="bg-[#F7FAFC] border border-[#AFC0D0] text-xs font-black text-[#163A5F] rounded-xl px-3 py-2 outline-none shadow-2xs h-10 transition focus:border-[#0F8B8D]"
             >
               <option value="Tất cả">Tất cả tháng</option>
               {MONTH_GROUPS.map(group => (
@@ -1187,7 +1196,7 @@ export default function ApproveWork() {
             <select
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none max-w-[170px] shadow-2xs"
+              className="bg-[#F7FAFC] border border-[#AFC0D0] text-xs font-black text-[#163A5F] rounded-xl px-3 py-2 outline-none max-w-[170px] shadow-2xs h-10 transition focus:border-[#0F8B8D]"
             >
               <option value="all">Tất cả nhân viên</option>
               {users.map(u => (
@@ -1198,7 +1207,7 @@ export default function ApproveWork() {
             <select
               value={selectedApproval}
               onChange={(e) => setSelectedApproval(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
+              className="bg-[#F7FAFC] border border-[#AFC0D0] text-xs font-black text-[#163A5F] rounded-xl px-3 py-2 outline-none shadow-2xs h-10 transition focus:border-[#0F8B8D]"
             >
               <option value="all">Tất cả trạng thái duyệt</option>
               <option value="Chưa duyệt">Chưa duyệt</option>
@@ -1210,7 +1219,7 @@ export default function ApproveWork() {
             <select
               value={selectedSource}
               onChange={(e) => setSelectedSource(e.target.value)}
-              className="bg-white border border-slate-300 text-xs font-black text-slate-800 rounded-xl px-3 py-2 outline-none shadow-2xs"
+              className="bg-[#F7FAFC] border border-[#AFC0D0] text-xs font-black text-[#163A5F] rounded-xl px-3 py-2 outline-none shadow-2xs h-10 transition focus:border-[#0F8B8D]"
             >
               <option value="all">Tất cả nguồn việc</option>
               <option value="assigned">Được Lãnh đạo giao</option>
@@ -1223,9 +1232,9 @@ export default function ApproveWork() {
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 placeholder="Tìm mã, tên việc..."
-                className="w-40 bg-white border border-slate-300 text-xs font-bold text-slate-800 rounded-xl pl-8 pr-3 py-2 outline-none shadow-2xs"
+                className="w-40 bg-[#F7FAFC] border border-[#AFC0D0] text-xs font-bold text-[#102A43] placeholder:text-[#475569] rounded-xl pl-8 pr-3 py-2 outline-none shadow-2xs h-10 transition focus:border-[#0F8B8D]"
               />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-[#475569] absolute left-2.5 top-3.5" />
             </div>
           </div>
         </div>
@@ -1234,13 +1243,13 @@ export default function ApproveWork() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-[#1F4E78] text-white font-black text-xs uppercase tracking-wider border-b border-blue-950">
+              <tr className="bg-[#163A5F] text-white font-black text-xs uppercase tracking-wider border-b border-[#112c49] sticky top-0 z-10">
                 <th className="py-3 px-3 text-center w-10">
                   <input
                     type="checkbox"
                     checked={selectedIds.length === filteredWorks.length && filteredWorks.length > 0}
                     onChange={toggleSelectAll}
-                    className="rounded text-[#1F4E78] focus:ring-0"
+                    className="rounded text-[#163A5F] focus:ring-0"
                   />
                 </th>
                 <th className="py-3 px-3 min-w-[150px]">Nhân sự & Nguồn</th>
@@ -1253,10 +1262,10 @@ export default function ApproveWork() {
                 <th className="py-3 px-3 text-center min-w-[120px]">Thao tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-300 font-medium text-slate-700 bg-white">
+            <tbody className="divide-y divide-[#CBD5E1] font-medium text-[#102A43] bg-[#F5F8FB]">
               {filteredWorks.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-slate-400">
+                  <td colSpan={9} className="text-center py-10 text-[#475569] bg-[#F2F6FA]">
                     Không có công việc nào phù hợp với điều kiện lọc hiện tại.
                   </td>
                 </tr>
@@ -1277,45 +1286,45 @@ export default function ApproveWork() {
                   const isNatureModified = approvedNat && approvedNat !== proposedNat;
 
                   return (
-                    <tr key={w.id} className="hover:bg-blue-50/40 transition-colors">
+                    <tr key={w.id} className="even:bg-[#EDF3F8] hover:bg-[#E1EEF4] transition-colors">
                       {/* Checkbox */}
                       <td className="py-3 px-3 text-center">
                         <input
                           type="checkbox"
                           checked={selectedIds.includes(w.id)}
                           onChange={() => toggleSelectOne(w.id)}
-                          className="rounded text-[#1F4E78] focus:ring-0"
+                          className="rounded text-[#163A5F] focus:ring-0"
                         />
                       </td>
 
                       {/* Nhân sự & Nguồn */}
                       <td className="py-3 px-3">
-                        <div className="font-bold text-slate-900">{w.user?.name || '-'}</div>
-                        <div className="text-[11px] text-slate-500 font-medium">{cleanPosition(w.user?.position)}</div>
+                        <div className="font-bold text-[#102A43]">{w.user?.name || '-'}</div>
+                        <div className="text-[11px] text-[#475569] font-medium">{cleanPosition(w.user?.position)}</div>
                         <div className="flex items-center gap-1.5 mt-1">
                           {isAssigned ? (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-[#1F4E78] border border-blue-200">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-[#163A5F] border border-blue-200">
                               Lãnh đạo giao
                             </span>
                           ) : (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#DCE5EE] text-[#102A43] border border-[#CBD5E1]">
                               Tự đăng ký
                             </span>
                           )}
-                          <span className="font-bold text-[#1F4E78] text-[10px]">{w.taskCode || `CV-${w.id}`}</span>
+                          <span className="font-bold text-[#163A5F] text-[10px]">{w.taskCode || `CV-${w.id}`}</span>
                         </div>
                       </td>
 
                       {/* Tên nhiệm vụ / Hồ sơ & Nhóm */}
                       <td className="py-3 px-3">
-                        <div className="font-bold text-slate-800 line-clamp-2 leading-snug">{w.taskName}</div>
+                        <div className="font-bold text-[#102A43] line-clamp-2 leading-snug">{w.taskName}</div>
                         {w.taskGroup && (
-                          <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 mt-1">
+                          <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#EDF3F8] text-[#163A5F] border border-[#CBD5E1] mt-1">
                             {w.taskGroup}
                           </div>
                         )}
                         {w.detail && (
-                          <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5 italic">
+                          <div className="text-[10px] text-[#475569] line-clamp-1 mt-0.5 italic">
                             {w.detail}
                           </div>
                         )}
@@ -1323,22 +1332,22 @@ export default function ApproveWork() {
 
                       {/* Thời gian & Số ngày làm */}
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-1 text-[11px] text-slate-700">
-                          <span className="text-slate-400">Bắt đầu:</span>
+                        <div className="flex items-center gap-1 text-[11px] text-[#102A43]">
+                          <span className="text-[#475569]">Bắt đầu:</span>
                           <span className="font-bold">{sched.startDateStr}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[11px] text-slate-700 mt-0.5">
-                          <span className="text-slate-400">Kết thúc:</span>
+                        <div className="flex items-center gap-1 text-[11px] text-[#102A43] mt-0.5">
+                          <span className="text-[#475569]">Kết thúc:</span>
                           <span className="font-bold">{sched.endDateStr}</span>
                         </div>
                         {sched.actualEndDateStr && (
                           <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold mt-0.5">
-                            <span className="text-slate-400">Thực tế:</span>
+                            <span className="text-[#475569]">Thực tế:</span>
                             <span>{sched.actualEndDateStr}</span>
                           </div>
                         )}
                         <div className="mt-1 flex items-center gap-1 flex-wrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1F4E78] border border-blue-200">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#EDF3F8] text-[#163A5F] border border-[#CBD5E1]">
                             <Timer className="w-3 h-3" /> {sched.daysCount} ngày làm
                           </span>
                           {sched.isAbnormalDate && (
@@ -1346,7 +1355,7 @@ export default function ApproveWork() {
                               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
                               title={sched.abnormalDateNote}
                             >
-                              <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" /> Ngày bất thường
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" /> Ngày bất thường
                             </span>
                           )}
                         </div>
@@ -1374,27 +1383,27 @@ export default function ApproveWork() {
                         {/* Schedule Assessment */}
                         <div>
                           {sched.scheduleStatus === 'early' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-300 inline-block">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300 inline-block">
                               ⚡ {sched.scheduleText}
                             </span>
                           )}
                           {sched.scheduleStatus === 'on_time' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-block">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 inline-block">
                               ✓ {sched.scheduleText}
                             </span>
                           )}
                           {sched.scheduleStatus === 'late' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-300 inline-block">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-300 inline-block">
                               ⚠ {sched.scheduleText}
                             </span>
                           )}
                           {sched.scheduleStatus === 'overdue' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-50 text-red-700 border border-red-300 inline-block">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-900 border border-red-300 inline-block">
                               ✕ {sched.scheduleText}
                             </span>
                           )}
                           {sched.scheduleStatus === 'in_progress' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 inline-block">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#EDF3F8] text-[#475569] border border-[#CBD5E1] inline-block">
                               ⏳ {sched.scheduleText}
                             </span>
                           )}
@@ -1406,7 +1415,7 @@ export default function ApproveWork() {
                               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300"
                               title={sched.abnormalDateNote}
                             >
-                              <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" /> Ngày bất thường
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" /> Ngày bất thường
                             </span>
                           </div>
                         )}
@@ -1414,22 +1423,22 @@ export default function ApproveWork() {
 
                       {/* Tính chất & Điểm QĐ */}
                       <td className="py-3 px-3 text-center">
-                        <div className="text-[11px] font-bold text-slate-700">
-                          ĐK: {proposedNat} <span className="text-slate-500 font-semibold">({formatScore(w.coef || 0.8)})</span>
+                        <div className="text-[11px] font-bold text-[#102A43]">
+                          ĐK: {proposedNat} <span className="text-[#475569] font-semibold">({formatScore(w.coef || 0.8)})</span>
                         </div>
                         {w.leaderApproval === 'Duyệt' ? (
-                          <div className="text-[10px] font-black text-emerald-700 mt-0.5 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          <div className="text-[10px] font-black text-emerald-800 mt-0.5 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
                             Duyệt: {approvedNat || proposedNat} ({formatScore(w.coef || 0.8)})
                           </div>
                         ) : isNatureModified ? (
-                          <div className="text-[10px] font-black text-blue-700 mt-0.5 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
+                          <div className="text-[10px] font-black text-[#163A5F] mt-0.5 bg-blue-100 px-1 py-0.5 rounded border border-blue-200">
                             Duyệt: {approvedNat} ({formatScore(w.coef || 0.8)})
                           </div>
                         ) : null}
-                        <div className="text-sm font-black text-[#1F4E78] mt-1">
-                          {formatScore(w.convertedScore)} <span className="text-[10px] font-bold text-slate-500">đ</span>
+                        <div className="text-sm font-black text-[#163A5F] mt-1">
+                          {formatScore(w.convertedScore)} <span className="text-[10px] font-bold text-[#475569]">đ</span>
                         </div>
-                        <div className="text-[9px] text-slate-400 font-medium">
+                        <div className="text-[9px] text-[#475569] font-medium">
                           (Đc: {formatScore(w.baseScore || 10)}đ | {w.productQty || 1} {w.unit || 'SP'})
                         </div>
                       </td>
@@ -1441,13 +1450,13 @@ export default function ApproveWork() {
                             href={w.evidence.startsWith('http') ? w.evidence : `https://${w.evidence}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline max-w-[130px] truncate"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 hover:underline max-w-[130px] truncate"
                           >
                             <ExternalLink className="w-3 h-3 shrink-0" />
                             <span className="truncate">{w.evidence}</span>
                           </a>
                         ) : (
-                          <span className="text-[10px] text-slate-400 italic">Chưa có link</span>
+                          <span className="text-[10px] text-[#475569] italic">Chưa có link</span>
                         )}
                       </td>
 
@@ -1464,7 +1473,7 @@ export default function ApproveWork() {
                               <Check className="w-3 h-3 text-emerald-700" /> Đã duyệt
                             </span>
                             {w.leaderNote && (
-                              <div className="text-[10px] text-slate-600 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                              <div className="text-[10px] text-[#475569] line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
                             )}
                           </div>
                         )}
@@ -1474,7 +1483,7 @@ export default function ApproveWork() {
                               <AlertTriangle className="w-3 h-3 text-orange-700" /> Cần bổ sung
                             </span>
                             {w.leaderNote && (
-                              <div className="text-[10px] text-orange-700 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                              <div className="text-[10px] text-orange-900 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
                             )}
                           </div>
                         )}
@@ -1484,7 +1493,7 @@ export default function ApproveWork() {
                               <X className="w-3 h-3 text-red-700" /> Không duyệt
                             </span>
                             {w.leaderNote && (
-                              <div className="text-[10px] text-red-700 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
+                              <div className="text-[10px] text-red-900 line-clamp-1 mt-0.5 italic">"{w.leaderNote}"</div>
                             )}
                           </div>
                         )}
@@ -1494,7 +1503,7 @@ export default function ApproveWork() {
                       <td className="py-3 px-3 text-center">
                         <button
                           onClick={() => handleOpenReview(w)}
-                          className="px-3 py-1.5 bg-[#1F4E78] hover:bg-[#15385b] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1 w-full cursor-pointer"
+                          className="btn-3d-primary px-3 py-1.5 text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1 w-full cursor-pointer"
                         >
                           <Award className="w-3.5 h-3.5" />
                           <span>Thẩm định / Chấm điểm</span>
