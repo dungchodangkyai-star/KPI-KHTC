@@ -1,0 +1,52 @@
+name: Kiem tra dong bo AI Studio
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: verify-studio-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Xac minh ban dong bo san sang phat hanh
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Tai dung commit vua dong bo
+        uses: actions/checkout@v4
+
+      - name: Cai Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Kiem tra package-lock.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f package-lock.json ]]; then
+            echo "::error title=Ban dong bo chua san sang::Khong co package-lock.json. Khong duoc phat hanh commit nay."
+            exit 1
+          fi
+          echo "package-lock.json ton tai."
+
+      - name: Cai dung thu vien da khoa
+        run: npm ci
+
+      - name: Kiem tra TypeScript
+        run: npm run lint
+
+      - name: Chay 108 kiem tra hoi quy
+        run: npm test
+
+      - name: Build thu ban production
+        run: npm run build
+
+      - name: Xac nhan san sang phat hanh
+        run: echo "Commit ${GITHUB_SHA} da vuot qua toan bo kiem tra dong bo va san sang cho quy trinh phat hanh thu cong."

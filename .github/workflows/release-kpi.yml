@@ -42,6 +42,16 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Xac minh bo khoa thu vien bat buoc
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f package-lock.json ]]; then
+            echo "::error title=Thieu package-lock.json::AI Studio da dong bo thieu package-lock.json. Hay khoi phuc tep nay tu ban phat hanh tot truoc khi tiep tuc."
+            exit 1
+          fi
+          echo "Da tim thay package-lock.json. Tiep tuc kiem tra phien ban thu vien."
+
       - name: Cai thu vien
         run: npm ci
 
