@@ -84,6 +84,10 @@ interface BackupScheduleConfig {
   lastBackupAt?: string;
   lastBackupStatus?: 'success' | 'failed' | 'idle';
   lastBackupMessage?: string;
+  lastScheduledSlot?: string;
+  lastScheduledAt?: string;
+  lastScheduledStatus?: 'success' | 'failed';
+  lastScheduledMessage?: string;
 }
 
 export default function AdminDatabase() {
@@ -622,11 +626,15 @@ export default function AdminDatabase() {
     setNotice(null);
     try {
       const res = await fetchBackupAdmin(`/api/backups/sync-offsite/${encodeURIComponent(filename)}`, { method: 'POST' });
+      if (res.status === 401 || res.status === 403) {
+        setNotice({ type: 'error', text: `Phiên đăng nhập quản trị đã hết hạn (HTTP ${res.status}). Vui lòng đăng nhập lại.` });
+        return;
+      }
       const json = await res.json().catch(() => ({}));
       if (json.success) {
         setNotice({ type: 'success', text: json.message || 'Đã đồng bộ lên đám mây ngoại vi thành công!' });
       } else {
-        setNotice({ type: 'error', text: json.error || 'Đồng bộ ngoại vi thất bại. Kiểm tra lại cấu hình Webhook!' });
+        setNotice({ type: 'error', text: json.message || json.error || 'Đồng bộ ngoại vi thất bại. Kiểm tra lại cấu hình Webhook!' });
       }
     } catch (err: any) {
       setNotice({ type: 'error', text: `Lỗi: ${err?.message || String(err)}` });
@@ -654,6 +662,12 @@ export default function AdminDatabase() {
           authHeaderValue: backupConfig.offsite.authHeaderValue
         })
       });
+      if (resrest.status === 401 || resrest.status === 403) {
+        const authMsg = `Phiên đăng nhập quản trị đã hết hạn (HTTP ${resrest.status}). Vui lòng đăng nhập lại.`;
+        setWebhookTestResult({ success: false, message: authMsg });
+        setNotice({ type: 'error', text: authMsg });
+        return;
+      }
       const json = await resrest.json().catch(() => ({}));
       setWebhookTestResult(json);
       if (json.success) {
@@ -681,7 +695,7 @@ export default function AdminDatabase() {
           }
         } catch {}
       } else {
-        setNotice({ type: 'error', text: json.message || 'Kết nối Webhook thất bại!' });
+        setNotice({ type: 'error', text: json.message || json.error || 'Kết nối Webhook thất bại!' });
       }
     } catch (err: any) {
       setWebhookTestResult({ success: false, message: `Lỗi kết nối: ${err?.message || String(err)}` });
@@ -702,6 +716,10 @@ export default function AdminDatabase() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backupConfig)
       });
+      if (res.status === 401 || res.status === 403) {
+        setNotice({ type: 'error', text: `Phiên đăng nhập quản trị đã hết hạn (HTTP ${res.status}). Vui lòng đăng nhập lại.` });
+        return;
+      }
       const json = await res.json().catch(() => ({}));
       if (json.success) {
         setNotice({ type: 'success', text: 'Đã lưu cài đặt Lịch trình sao lưu & Đám mây Ngoại vi thành công!' });
@@ -717,7 +735,7 @@ export default function AdminDatabase() {
         }
         await fetchBackupData();
       } else {
-        setNotice({ type: 'error', text: json.error || 'Lỗi khi lưu cấu hình sao lưu!' });
+        setNotice({ type: 'error', text: json.message || json.error || 'Lỗi khi lưu cấu hình sao lưu!' });
       }
     } catch (err: any) {
       setNotice({ type: 'error', text: `Lỗi: ${err?.message || String(err)}` });
@@ -1879,7 +1897,7 @@ services:
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                            <span>Khung giờ chạy tự động:</span>
+                            <span>Khung giờ chạy tự động (Giờ Việt Nam):</span>
                             <span className="text-[10px] text-emerald-700 font-semibold">Khuyên dùng 23:30</span>
                           </label>
                           <input
@@ -1892,7 +1910,7 @@ services:
 
                         {backupConfig.frequency === 'weekly' && (
                           <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-700">Thứ trong tuần:</label>
+                            <label className="text-xs font-bold text-slate-700">Thứ trong tuần (Giờ VN):</label>
                             <select
                               value={backupConfig.weeklyDay ?? 0}
                               onChange={(e) => setBackupConfig(prev => ({ ...prev, weeklyDay: parseInt(e.target.value) }))}
@@ -1910,6 +1928,59 @@ services:
                         )}
                       </div>
                     )}
+
+                    {/* Timezone & Auto Run Status Banner */}
+                    <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200/80 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[#1F4E78] flex items-center gap-1.5 text-xs">
+                          <Clock className="w-3.5 h-3.5" />
+                          Múi giờ chuẩn hệ thống: Asia/Ho_Chi_Minh (UTC+7)
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          Chạy cả T7 &amp; Chủ Nhật
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Lịch sao lưu tự động theo giờ Việt Nam, tự kích hoạt lần đầu tiên sau giờ đặt trong ngày. Nếu container khởi động lại hoặc kích hoạt trễ, hệ thống tự động bù slot trong ngày mà không bị bỏ sót.
+                      </p>
+
+                      {/* Last Automatic Run Info */}
+                      <div className="pt-2 border-t border-blue-200/60 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div>
+                          <span className="text-slate-500 font-medium">Lần chạy tự động gần nhất: </span>
+                          <strong className="text-slate-900">
+                            {backupConfig.lastScheduledAt
+                              ? new Date(backupConfig.lastScheduledAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
+                              : (backupConfig.lastBackupAt ? new Date(backupConfig.lastBackupAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : 'Chưa chạy')}
+                          </strong>
+                          {backupConfig.lastScheduledSlot && (
+                            <span className="ml-1.5 font-mono text-[10px] bg-slate-200/80 text-slate-700 px-1.5 py-0.5 rounded">
+                              {backupConfig.lastScheduledSlot}
+                            </span>
+                          )}
+                        </div>
+
+                        {backupConfig.lastScheduledStatus ? (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            backupConfig.lastScheduledStatus === 'success' 
+                              ? 'bg-emerald-100 text-emerald-800' 
+                              : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {backupConfig.lastScheduledStatus === 'success' ? '✓ Thành công' : '✗ Cần thử lại'}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium">
+                            Sẵn sàng
+                          </span>
+                        )}
+                      </div>
+
+                      {backupConfig.lastScheduledMessage && (
+                        <div className="text-[10px] text-slate-500 italic">
+                          {backupConfig.lastScheduledMessage}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Auto Pruning / Retention Limit */}
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">

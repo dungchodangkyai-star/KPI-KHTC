@@ -12,6 +12,7 @@ import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
 import { backupRouter } from "./server/backupRoutes.ts";
 import { startBackupScheduler } from "./server/backupService.ts";
+import { handleSchedulerTickEndpoint } from "./server/backupScheduler.ts";
 import { ensureDatabaseSchema } from "./server/dbMigrate.ts";
 import { runSeeder } from "./server/seeder.ts";
 import { isCleanupLocked, incrementInFlightWrites, decrementInFlightWrites } from "./server/cleanupService.ts";
@@ -317,6 +318,10 @@ async function startServer() {
 
   // Database Router
   app.use("/api/database", databaseRouter);
+
+  // Google Cloud Scheduler wake-up endpoint (secured by BACKUP_SCHEDULER_TOKEN constant-time comparison)
+  app.post("/api/backups/scheduler-tick", handleSchedulerTickEndpoint);
+  app.get("/api/backups/scheduler-tick", handleSchedulerTickEndpoint);
 
   // Backup & Disaster Recovery Router
   app.use("/api/backups", requireStrictAdminSession, backupRouter);

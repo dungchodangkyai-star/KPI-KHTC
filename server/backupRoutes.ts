@@ -13,8 +13,13 @@ import {
   autoPruneBackups,
   pushExistingBackupToOffsite
 } from './backupService.ts';
+import { handleSchedulerTickEndpoint } from './backupScheduler.ts';
 
 export const backupRouter = Router();
+
+// POST & GET /api/backups/scheduler-tick (Cloud Scheduler wake-up endpoint)
+backupRouter.post('/scheduler-tick', handleSchedulerTickEndpoint);
+backupRouter.get('/scheduler-tick', handleSchedulerTickEndpoint);
 
 // GET /api/backups/config
 backupRouter.get('/config', async (req: Request, res: Response) => {

@@ -30,6 +30,10 @@ export interface BackupScheduleConfig {
   lastBackupAt?: string;
   lastBackupStatus?: 'success' | 'failed' | 'idle';
   lastBackupMessage?: string;
+  lastScheduledSlot?: string;
+  lastScheduledAt?: string;
+  lastScheduledStatus?: 'success' | 'failed';
+  lastScheduledMessage?: string;
 }
 
 export interface BackupMetadata {
@@ -1986,62 +1990,5 @@ export async function restoreFromBackup(
 }
 
 
-/**
- * Background runner checking schedule every minute
- */
-let schedulerInterval: any = null;
-
-export function startBackupScheduler() {
-  if (schedulerInterval) {
-    clearInterval(schedulerInterval);
-  }
-
-  // Check every 60 seconds
-  schedulerInterval = setInterval(async () => {
-    try {
-      const config = await getEffectiveBackupConfigAsync();
-      if (!config.enabled) return;
-
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const currentTimeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-
-      if (config.frequency === 'daily') {
-        const targetTime = config.dailyTime || '23:30';
-        if (currentTimeStr === targetTime) {
-          // Check if already backed up in last 5 minutes to prevent duplicate
-          const lastBackup = config.lastBackupAt ? new Date(config.lastBackupAt) : null;
-          const diffMs = lastBackup ? now.getTime() - lastBackup.getTime() : 99999999;
-          if (diffMs > 120000) {
-            console.log(`[BackupScheduler] Triggering scheduled daily backup at ${currentTimeStr}...`);
-            await performBackup('auto_scheduled');
-          }
-        }
-      } else if (config.frequency === 'hourly') {
-        if (now.getMinutes() === 0) {
-          const lastBackup = config.lastBackupAt ? new Date(config.lastBackupAt) : null;
-          const diffMs = lastBackup ? now.getTime() - lastBackup.getTime() : 99999999;
-          if (diffMs > 120000) {
-            console.log(`[BackupScheduler] Triggering scheduled hourly backup at ${currentTimeStr}...`);
-            await performBackup('auto_scheduled');
-          }
-        }
-      } else if (config.frequency === 'weekly') {
-        const targetDay = config.weeklyDay ?? 0; // 0 = Sunday
-        const targetTime = config.dailyTime || '23:30';
-        if (now.getDay() === targetDay && currentTimeStr === targetTime) {
-          const lastBackup = config.lastBackupAt ? new Date(config.lastBackupAt) : null;
-          const diffMs = lastBackup ? now.getTime() - lastBackup.getTime() : 99999999;
-          if (diffMs > 120000) {
-            console.log(`[BackupScheduler] Triggering scheduled weekly backup on day ${targetDay} at ${currentTimeStr}...`);
-            await performBackup('auto_scheduled');
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[BackupScheduler] Error running background schedule check:', err);
-    }
-  }, 60000);
-
-  console.log('[BackupScheduler] Backup Scheduler service initialized successfully.');
-}
+// Re-export hardened backup scheduler service
+export { startBackupScheduler, executeBackupSchedulerTick } from './backupScheduler.ts';
