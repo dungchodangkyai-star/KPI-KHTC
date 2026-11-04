@@ -15,10 +15,52 @@ jobs:
     name: Xac minh ban dong bo san sang phat hanh
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Tai dung commit vua dong bo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tu bao ve package-lock.json sau dong bo Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            echo "package-lock.json van duoc Studio giu nguyen."
+            exit 0
+          fi
+
+          echo "Studio da bo package-lock.json. Dang tim ban khoa gan nhat trong lich su GitHub..."
+          lock_commit=""
+          while IFS= read -r commit; do
+            if git cat-file -e "${commit}:package-lock.json" 2>/dev/null; then
+              lock_commit="$commit"
+              break
+            fi
+          done < <(git rev-list HEAD -- package-lock.json)
+
+          if [[ -z "$lock_commit" ]]; then
+            echo "::error title=Khong the tu phuc hoi::Khong tim thay package-lock.json hop le trong lich su GitHub."
+            exit 1
+          fi
+
+          git show "${lock_commit}:package.json" > "$RUNNER_TEMP/package-with-lock.json"
+          jq -S '{dependencies, devDependencies, optionalDependencies, peerDependencies, overrides}' package.json > "$RUNNER_TEMP/current-dependencies.json"
+          jq -S '{dependencies, devDependencies, optionalDependencies, peerDependencies, overrides}' "$RUNNER_TEMP/package-with-lock.json" > "$RUNNER_TEMP/locked-dependencies.json"
+
+          if ! cmp -s "$RUNNER_TEMP/current-dependencies.json" "$RUNNER_TEMP/locked-dependencies.json"; then
+            echo "::error title=Thu vien da thay doi::Studio da xoa package-lock.json dong thoi thay doi danh sach thu vien. Can tao lockfile moi co kiem soat; GitHub se khong tu phuc hoi ban cu."
+            exit 1
+          fi
+
+          git show "${lock_commit}:package-lock.json" > package-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: auto-restore release lockfile after Studio sync"
+          git push origin HEAD:main
+          echo "Da tu dong khoi phuc package-lock.json tu ${lock_commit}."
 
       - name: Cai Node.js
         uses: actions/setup-node@v4

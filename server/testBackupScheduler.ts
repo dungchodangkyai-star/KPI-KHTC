@@ -18,6 +18,8 @@ import {
   handleSchedulerTickEndpoint
 } from './backupScheduler.ts';
 import type { BackupScheduleConfig } from './backupService.ts';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 let passed = 0;
 let failed = 0;
@@ -310,8 +312,11 @@ export async function runBackupSchedulerTests(): Promise<{ passed: number; faile
   return { passed, failed };
 }
 
-// If executed directly via tsx
-if (import.meta.url === `file://${process.argv[1]}`) {
+// If executed directly via tsx. Use normalized filesystem paths so this also
+// works on Windows paths containing drive letters, spaces and Vietnamese text.
+const currentTestFile = path.resolve(fileURLToPath(import.meta.url));
+const invokedTestFile = process.argv[1] ? path.resolve(process.argv[1]) : '';
+if (invokedTestFile && currentTestFile === invokedTestFile) {
   runBackupSchedulerTests().then(results => {
     if (results.failed > 0) {
       process.exit(1);
