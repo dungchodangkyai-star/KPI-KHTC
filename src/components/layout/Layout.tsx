@@ -105,7 +105,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [userList, setUserList] = useState<any[]>([]);
   const [showSwitchMenu, setShowSwitchMenu] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('kpi_sidebar_open');
       return saved !== null ? saved === 'true' : true;
@@ -113,18 +113,41 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       return true;
     }
   });
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
   const toggleSidebar = () => {
-    setIsSidebarOpen(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('kpi_sidebar_open', String(next));
-      } catch (e) {
-        console.warn('Cannot persist sidebar state:', e);
-      }
-      return next;
-    });
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsMobileDrawerOpen(prev => !prev);
+    } else {
+      setIsDesktopSidebarOpen(prev => {
+        const next = !prev;
+        try {
+          localStorage.setItem('kpi_sidebar_open', String(next));
+        } catch (e) {
+          console.warn('Cannot persist sidebar state:', e);
+        }
+        return next;
+      });
+    }
   };
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setIsMobileDrawerOpen(false);
+  }, [location.pathname]);
+
+  // Close on ESC key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileDrawerOpen(false);
+        setShowNotificationMenu(false);
+        setShowSwitchMenu(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const [pendingAssignmentsCount, setPendingAssignmentsCount] = useState(0);
   const [pendingOvertimesCount, setPendingOvertimesCount] = useState(0);
@@ -550,12 +573,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen w-full bg-[#F4F7FA] font-sans text-slate-900 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block app-layout-root">
-      {/* Sidebar - strictly hidden when printing */}
+      {/* Mobile Drawer Backdrop */}
+      {isMobileDrawerOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 md:hidden transition-opacity duration-300"
+          onClick={() => setIsMobileDrawerOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar - fixed drawer on mobile (<768px), static collapsible on desktop (>=768px) */}
       <aside className={cn(
-        "flex-shrink-0 bg-white border-r border-slate-300 flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] z-20 print:hidden no-print transition-all duration-300 ease-in-out relative overflow-hidden",
-        isSidebarOpen ? "w-[285px] opacity-100" : "w-0 opacity-0 border-r-0 pointer-events-none"
+        "flex-shrink-0 bg-white flex flex-col h-full shadow-[2px_0_12px_-4px_rgba(15,23,42,0.12)] print:hidden no-print transition-all duration-300 ease-in-out overflow-hidden",
+        // Mobile drawer styling:
+        "fixed top-0 bottom-0 left-0 z-50 w-[min(85vw,285px)] max-w-[285px]",
+        isMobileDrawerOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full pointer-events-none md:pointer-events-auto",
+        // Desktop styling:
+        "md:static md:z-20 md:translate-x-0 md:border-r md:border-slate-300",
+        isDesktopSidebarOpen ? "md:w-[285px] md:opacity-100" : "md:w-0 md:opacity-0 md:border-r-0 md:pointer-events-none"
       )}>
-        <div className="w-[285px] flex flex-col h-full flex-shrink-0">
+        <div className="w-[min(85vw,285px)] md:w-[285px] flex flex-col h-full flex-shrink-0">
           {/* Sidebar Header Brand */}
           <div className="p-4 bg-gradient-to-br from-[#1F4E78] to-[#173a5a] text-white flex items-center justify-between gap-2 border-b border-[#173a5a] shadow-xs">
             <div className="flex items-center gap-3 min-w-0">
@@ -573,11 +610,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
             {/* Quick collapse button in sidebar header */}
             <button
-              onClick={toggleSidebar}
-              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition flex items-center justify-center shrink-0 cursor-pointer"
-              title="Ẩn thanh menu (mở rộng không gian làm việc)"
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                  setIsMobileDrawerOpen(false);
+                } else {
+                  toggleSidebar();
+                }
+              }}
+              className="min-h-[44px] min-w-[44px] p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition flex items-center justify-center shrink-0 cursor-pointer"
+              title="Đóng thanh menu"
             >
-              <PanelLeftClose className="w-4 h-4 text-blue-100 hover:text-white" />
+              <PanelLeftClose className="w-5 h-5 text-blue-100 hover:text-white" />
             </button>
           </div>
 
@@ -629,6 +672,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           <Link
                             key={item.name}
                             to={item.href}
+                            onClick={() => setIsMobileDrawerOpen(false)}
                             className={cn(
                               "flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border relative",
                               isActive 
@@ -681,44 +725,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
+      <main className="flex-1 flex flex-col min-w-0 w-full h-full overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
         {/* Top Header - strictly hidden when printing */}
-        <header className="flex-shrink-0 bg-[#F4F7FA] border-b-2 border-[#1F4E78] px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
+        <header className="flex-shrink-0 bg-[#F4F7FA] border-b-2 border-[#1F4E78] px-3 sm:px-6 py-2 flex items-center justify-between shadow-xs z-10 relative print:hidden no-print">
           <div className="absolute top-0 left-0 right-0 h-1 bg-[#1F4E78]" />
           
-          <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pr-2">
             {/* Toggle Sidebar Button */}
             <button
               onClick={toggleSidebar}
               className={cn(
-                "px-2.5 py-1.5 rounded-lg border transition-all shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer group",
-                isSidebarOpen
+                "min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg border transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer group",
+                isMobileDrawerOpen || isDesktopSidebarOpen
                   ? "bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-[#1F4E78]"
                   : "btn-3d-primary"
               )}
-              title={isSidebarOpen ? "Ẩn thanh menu để mở rộng không gian làm việc" : "Hiện thanh menu điều hướng"}
+              title="Menu điều hướng"
             >
-              {isSidebarOpen ? (
-                <>
-                  <PanelLeftClose className="w-4 h-4 text-slate-600 group-hover:text-[#1F4E78]" />
-                  <span className="text-xs font-bold hidden sm:inline text-slate-700 group-hover:text-[#1F4E78]">Ẩn Menu</span>
-                </>
-              ) : (
-                <>
-                  <PanelLeftOpen className="w-4 h-4 text-white" />
-                  <span className="text-xs font-black text-white">Hiện Menu</span>
-                </>
-              )}
+              <Menu className="w-5 h-5 text-slate-700 group-hover:text-[#1F4E78] md:hidden" />
+              <div className="hidden md:flex items-center gap-1.5">
+                {isDesktopSidebarOpen ? (
+                  <>
+                    <PanelLeftClose className="w-4 h-4 text-slate-600 group-hover:text-[#1F4E78]" />
+                    <span className="text-xs font-bold text-slate-700 group-hover:text-[#1F4E78]">Ẩn Menu</span>
+                  </>
+                ) : (
+                  <>
+                    <PanelLeftOpen className="w-4 h-4 text-white" />
+                    <span className="text-xs font-black text-white">Hiện Menu</span>
+                  </>
+                )}
+              </div>
             </button>
 
             <div className="flex flex-col pt-0.5 min-w-0">
-              <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 tracking-wide uppercase truncate">
+              <span className="hidden sm:block text-[10px] sm:text-[11px] font-bold text-slate-500 tracking-wide uppercase truncate">
                 {orgConfig.parentAgency || 'Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk'}
               </span>
-              <span className="text-base sm:text-lg md:text-xl font-black text-[#1F4E78] tracking-tight mt-0.5 truncate">
+              <span className="text-xs sm:text-base md:text-xl font-black text-[#1F4E78] tracking-tight leading-tight truncate">
                 {orgConfig.systemTitle || 'HỆ THỐNG QUẢN LÝ CÔNG VIỆC VÀ ĐÁNH GIÁ KPI'}
               </span>
-              <span className="text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1.5 truncate">
+              <span className="text-[11px] sm:text-xs font-semibold text-slate-700 mt-0.5 flex items-center gap-1.5 truncate">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0"></span>
                 <span className="truncate">{orgConfig.departmentName || 'Phòng Kế hoạch - Tài chính'}</span>
                 {orgConfig.shortName && (
@@ -730,17 +777,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           
-          <div className="relative flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-2xs shrink-0">
+          <div className="relative flex items-center gap-1.5 sm:gap-2 bg-white px-2 sm:px-2.5 py-1.5 rounded-xl border border-slate-200/90 shadow-2xs shrink-0">
             {/* Notification Bell */}
             <div className="relative">
               <button
                 onClick={() => setShowNotificationMenu(!showNotificationMenu)}
-                className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs cursor-pointer"
+                className="min-h-[44px] min-w-[44px] p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg relative text-slate-700 hover:text-[#1F4E78] transition shadow-2xs cursor-pointer flex items-center justify-center"
                 title="Thông báo & Nhắc việc"
               >
                 <Bell className="w-4 h-4 text-slate-700" />
                 {pendingAssignmentsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
+                  <span className="absolute 1 top-1 right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center animate-bounce">
                     {pendingAssignmentsCount}
                   </span>
                 )}
@@ -748,7 +795,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
               {/* Notification Menu Dropdown */}
               {showNotificationMenu && (
-                <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-300 p-3 z-50 animate-fadeIn text-xs">
+                <div className="absolute top-full right-0 mt-2 w-[calc(100vw-2rem)] max-w-sm sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-300 p-3 z-50 animate-fadeIn text-xs">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-2">
                     <span className="font-bold text-[#1F4E78] uppercase">Thông báo & Nhắc việc</span>
                     <span className="text-[10px] text-slate-500 font-bold">{notifications.length} tin</span>
@@ -844,18 +891,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div 
               onClick={() => setShowSwitchMenu(!showSwitchMenu)}
-              className="flex items-center gap-2 pl-1 cursor-pointer group hover:bg-slate-50 px-1.5 py-1 rounded-lg transition border border-transparent hover:border-slate-200"
+              className="min-h-[44px] flex items-center gap-1.5 sm:gap-2 pl-1 cursor-pointer group hover:bg-slate-50 px-1.5 py-1 rounded-lg transition border border-transparent hover:border-slate-200"
               title="Nhấn để xem / chuyển tài khoản"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1F4E78] to-[#2B6CB0] shadow-2xs flex items-center justify-center text-white font-black text-xs border border-blue-900 shrink-0">
                 {getInitials(currentUser?.name)}
               </div>
               <div className="flex flex-col justify-center min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-slate-900 text-xs sm:text-[13px] leading-tight group-hover:text-[#1F4E78] transition-colors max-w-[110px] sm:max-w-[150px] truncate">
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  <span className="font-bold text-slate-900 text-xs sm:text-[13px] leading-tight group-hover:text-[#1F4E78] transition-colors max-w-[85px] sm:max-w-[150px] truncate">
                     {currentUser?.name || 'Đang tải...'}
                   </span>
-                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border shrink-0 ${
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border shrink-0 hidden xs:inline ${
                     isAdmin ? 'bg-purple-100 text-purple-900 border-purple-300' :
                     currentUser?.role === 'LEADER' ? 'bg-blue-100 text-blue-900 border-blue-300' :
                     'bg-slate-100 text-slate-700 border-slate-300'
@@ -872,7 +919,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Switch User Dropdown */}
             {showSwitchMenu && userList.length > 0 && (
-              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-300 p-2 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute top-full right-0 mt-2 w-[calc(100vw-2rem)] max-w-xs sm:w-72 bg-white rounded-xl shadow-xl border border-slate-300 p-2 z-50 animate-in fade-in zoom-in-95">
                 <div className="text-xs font-black text-slate-500 px-3 py-1.5 uppercase tracking-wider">Chuyển đổi tài khoản</div>
                 <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1">
                   {userList.map(u => (
@@ -899,8 +946,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            <div className="h-6 w-px bg-slate-200 mx-0.5 shrink-0"></div>
-            <div className="flex items-center gap-1.5 shrink-0 pr-0.5">
+            <div className="h-6 w-px bg-slate-200 mx-0.5 shrink-0 hidden sm:block"></div>
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 pr-0.5">
               <button 
                 onClick={() => {
                   setPwdError('');
@@ -910,7 +957,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   setConfirmPasswordInput('');
                   setShowChangeModal(true);
                 }}
-                className="btn-secondary px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shrink-0"
+                className="btn-secondary min-h-[44px] min-w-[44px] px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1 shrink-0 cursor-pointer"
                 title="Đổi mật mã truy cập"
               >
                 <KeyRound className="w-3.5 h-3.5" />
@@ -918,7 +965,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </button>
               <button 
                 onClick={handleLogout}
-                className="btn-danger px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shrink-0"
+                className="btn-danger min-h-[44px] min-w-[44px] px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1 shrink-0 cursor-pointer"
                 title="Đăng xuất khỏi hệ thống"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -929,7 +976,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-auto p-4 md:p-6 custom-scrollbar print:overflow-visible print:p-0 print:m-0 print:h-auto print:max-w-none app-content-container">
+        <div className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 custom-scrollbar print:overflow-visible print:p-0 print:m-0 print:h-auto print:max-w-none app-content-container">
           <div className="max-w-[1400px] mx-auto print:max-w-none print:m-0 print:p-0 print:w-full">
             {children}
           </div>

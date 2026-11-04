@@ -485,7 +485,7 @@ export default function MyWorks() {
         <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={fetchWorks}
-            className="p-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 rounded-xl shadow-2xs transition-colors"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 rounded-xl shadow-2xs transition-colors cursor-pointer"
             title="Tải lại dữ liệu mới nhất"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -493,7 +493,7 @@ export default function MyWorks() {
 
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-black rounded-xl text-xs shadow-2xs transition-colors"
+            className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-black rounded-xl text-xs shadow-2xs transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
             <span>Xuất Excel / CSV</span>
@@ -501,7 +501,7 @@ export default function MyWorks() {
 
           <Link
             to="/input"
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95 border border-blue-900"
+            className="min-h-[44px] flex items-center gap-1.5 px-4 py-2.5 bg-[#1F4E78] hover:bg-[#15385b] text-white font-black rounded-xl text-xs shadow-md transition-all active:scale-95 border border-blue-900 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Thêm công việc mới</span>
@@ -801,9 +801,132 @@ export default function MyWorks() {
         </div>
       </div>
 
-      {/* Main Data Table */}
-      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      {/* Main Data Table & Mobile Cards */}
+      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden p-3 sm:p-0">
+        {/* Mobile Cards List (<768px) */}
+        <div className="md:hidden space-y-3">
+          {filteredWorks.length === 0 ? (
+            <div className="py-12 text-center text-slate-400">
+              <FileText className="w-10 h-10 text-slate-300 stroke-[1.5] mx-auto mb-2" />
+              <div className="text-sm font-bold text-slate-700">Không tìm thấy công việc phù hợp</div>
+              <p className="text-xs text-slate-400 mt-1">Hãy thử thay đổi điều kiện lọc tháng hoặc bấm Thêm công việc mới.</p>
+            </div>
+          ) : (
+            filteredWorks.map((w, idx) => {
+              const cleanCode = w.taskCode && !w.taskCode.includes('@') && !w.taskCode.toLowerCase().includes('.com') ? w.taskCode : null;
+              const isSelected = selectedIds.includes(w.id);
+              return (
+                <div 
+                  key={w.id}
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    isSelected ? 'bg-blue-50/60 border-blue-300 ring-1 ring-blue-300' : 'bg-white border-slate-200 shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span className="px-1.5 py-0.5 bg-slate-100 text-[#1F4E78] font-bold rounded text-[10px]">
+                        {formatMonth(w.month)}
+                      </span>
+                      {cleanCode && (
+                        <span className="px-1.5 py-0.5 bg-[#1F4E78] text-white font-black rounded text-[10px]">
+                          {cleanCode}
+                        </span>
+                      )}
+                      {(w.assignmentId || w.source === 'Giao việc') ? (
+                        <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded text-[10px]">
+                          Lãnh đạo giao
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 font-medium rounded text-[10px]">
+                          Tự lập
+                        </span>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full font-black text-[10px] shrink-0 ${
+                      w.leaderApproval === 'Duyệt' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                      w.leaderApproval === 'Cần bổ sung' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                      w.leaderApproval === 'Không duyệt' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                      'bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}>
+                      {w.leaderApproval || 'Chưa duyệt'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs mb-3">
+                    <div className="font-bold text-slate-900 leading-snug">
+                      {w.taskName}
+                    </div>
+                    {w.detail && (
+                      <div className="text-[11px] text-slate-600 line-clamp-2">
+                        {w.detail}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <span className="text-slate-500 font-medium truncate max-w-[160px]">{w.taskGroup}</span>
+                      <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {formatScore(w.convertedScore)} điểm (QĐ)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Hạn: {w.endDate ? formatDate(w.endDate) : '-'}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                        w.status === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-800' :
+                        w.status === 'Chậm' ? 'bg-rose-100 text-rose-800' :
+                        'bg-blue-50 text-blue-800'
+                      }`}>
+                        {w.status || 'Đang xử lý'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenView(w)}
+                      className="min-h-[44px] flex items-center justify-center gap-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 text-xs font-bold cursor-pointer"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Xem</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(w)}
+                      className="min-h-[44px] flex items-center justify-center gap-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 text-xs font-bold cursor-pointer"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      <span>Sửa</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (w.leaderApproval === 'Duyệt') {
+                          alert("Công việc này đã được Lãnh đạo phê duyệt chính thức. Bạn không thể tự xóa công việc đã duyệt. Vui lòng liên hệ Lãnh đạo phòng xử lý hoặc chuyển công việc về luồng chờ duyệt.");
+                          return;
+                        }
+                        setDeletingWork(w);
+                      }}
+                      className={`min-h-[44px] flex items-center justify-center gap-1 rounded-lg border text-xs font-bold cursor-pointer ${
+                        w.leaderApproval === 'Duyệt' 
+                          ? 'text-slate-300 border-slate-200 bg-slate-50 cursor-not-allowed' 
+                          : 'text-rose-600 border-rose-200 bg-rose-50 hover:bg-rose-100'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Xóa</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Data Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-[#1F4E78] text-white border-b-2 border-slate-300 uppercase tracking-wider font-black">

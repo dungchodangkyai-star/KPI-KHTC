@@ -667,7 +667,7 @@ export default function AssignTask() {
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button 
               onClick={() => setShowZaloModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors cursor-pointer"
+              className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5 text-blue-600" />
               <span>⚙️ Cấu hình Zalo & Mẫu tin</span>
@@ -676,7 +676,7 @@ export default function AssignTask() {
             <button 
               onClick={fetchAllData} 
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              className="min-h-[44px] flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span>Đồng bộ</span>
@@ -684,7 +684,7 @@ export default function AssignTask() {
             
             <button 
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+              className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
               <span>Xuất Excel (#1F4E78)</span>
@@ -1058,11 +1058,11 @@ export default function AssignTask() {
         </div>
 
         {/* Submit Bar */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-slate-200">
           <button
             type="button"
             onClick={handleResetForm}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            className="min-h-[44px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center"
           >
             Làm lại
           </button>
@@ -1070,7 +1070,7 @@ export default function AssignTask() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all cursor-pointer ${
+            className={`min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all cursor-pointer ${
               assignmentFlow === 'zalo'
                 ? 'bg-gradient-to-r from-[#1F4E78] to-blue-600 hover:from-blue-900 hover:to-blue-700 text-white'
                 : 'bg-[#1F4E78] hover:bg-[#153654] text-white'
@@ -1144,8 +1144,134 @@ export default function AssignTask() {
           </div>
         </div>
 
-        {/* Table Render */}
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
+        {/* Mobile Cards List (<768px) */}
+        <div className="md:hidden space-y-3">
+          {filteredAssignments.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+              Không tìm thấy nhiệm vụ giao việc nào trong bộ lọc hiện tại.
+            </div>
+          ) : (
+            filteredAssignments.map((a, idx) => {
+              const isReceived = a.receiveStatus?.includes('Đã nhận') || a.receiveStatus?.includes('hoàn thành');
+              return (
+                <div 
+                  key={a.id} 
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    editingId === a.id ? 'bg-amber-50/60 ring-2 ring-amber-300 border-amber-300' : 'bg-white border-slate-200 shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleItemClick(a)}
+                        className={`font-mono font-bold text-xs truncate ${
+                          isReceived ? 'text-emerald-700' : 'text-blue-700'
+                        }`}
+                      >
+                        {a.assignmentId}
+                      </button>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                      isReceived ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                      a.receiveStatus?.includes('Từ chối') ? 'bg-rose-100 text-rose-800 border border-rose-200' :
+                      'bg-amber-100 text-amber-800 border border-amber-200'
+                    }`}>
+                      {isReceived ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      ) : (
+                        <Clock className="w-3 h-3 text-amber-600" />
+                      )}
+                      <span>{a.receiveStatus || 'Chờ nhận việc'}</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs mb-3">
+                    <div className="font-bold text-slate-900 leading-snug">
+                      {a.taskCode && <span className="text-[#1F4E78] mr-1 font-bold">[{a.taskCode}]</span>}
+                      <span>{a.taskName}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1">
+                      <div>
+                        Nhận: <strong className="text-slate-800">{a.receiver?.name || '-'}</strong>
+                      </div>
+                      <div>
+                        Hạn: <strong className="text-slate-800">{formatDate(a.deadline)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>{a.productRequired || a.taskGroup}</span>
+                      <span>Điểm: <strong className="text-slate-800">{a.baseScore}</strong> (K: {a.suggestedCoef})</span>
+                    </div>
+                  </div>
+
+                  {/* Action buttons (min 44px touch targets) */}
+                  <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setViewingAssignment(a)}
+                      className="min-h-[44px] flex items-center justify-center gap-1 text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 text-xs font-bold cursor-pointer"
+                      title="Xem lại nội dung giao việc"
+                    >
+                      <Eye className="w-4 h-4 text-slate-600" />
+                      <span className="hidden xs:inline">Xem</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleInstantZalo(a)}
+                      className="min-h-[44px] flex items-center justify-center gap-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold border border-blue-200 cursor-pointer"
+                      title="Bắn lại thông báo Zalo"
+                    >
+                      <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                      <span>Zalo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isReceived) {
+                          setViewingAssignment(a);
+                          setSuccessMessage("Nhiệm vụ này đã được nhân viên tiếp nhận vào kế hoạch làm việc. Đang mở cửa sổ xem lại nội dung đã giao.");
+                          setTimeout(() => setSuccessMessage(""), 4500);
+                        } else {
+                          handleStartEdit(a);
+                        }
+                      }}
+                      className={`min-h-[44px] flex items-center justify-center gap-1 rounded-lg border text-xs font-bold cursor-pointer ${
+                        isReceived
+                          ? 'text-slate-400 border-slate-200 hover:text-emerald-700 hover:bg-emerald-50'
+                          : 'text-blue-600 border-blue-200 bg-blue-50/50 hover:bg-blue-100'
+                      }`}
+                      title={isReceived ? 'Đã nhận việc' : 'Sửa phiếu giao việc'}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      <span className="hidden xs:inline">Sửa</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRevoke(a)}
+                      className="min-h-[44px] flex items-center justify-center gap-1 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 text-xs font-bold cursor-pointer"
+                      title="Thu hồi việc"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span className="hidden xs:inline">Xóa</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table Render */}
+        <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-[#1F4E78] text-white font-bold text-[11px] uppercase tracking-wider">

@@ -665,30 +665,33 @@ export default function Monitor() {
   return (
     <div className="max-w-[1400px] mx-auto flex flex-col gap-6 h-full pb-12 px-2 sm:px-4">
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-200/90 p-5 rounded-[12px] bg-white shadow-xs">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-200/90 p-4 sm:p-5 rounded-[12px] bg-white shadow-xs">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 text-[#1F4E78] text-xs font-black mb-2 border border-blue-200">
             <Briefcase className="w-3.5 h-3.5" />
             <span>GIÁM SÁT TIẾN ĐỘ & ĐIỀU HÀNH</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#0f2440] tracking-tight">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-[#0f2440] tracking-tight">
             Theo dõi công việc
           </h2>
-          <p className="text-sm font-medium text-slate-600 mt-1">
+          <p className="text-xs sm:text-sm font-medium text-slate-600 mt-1">
             Hệ thống giám sát điều hành công việc, tiến độ thực hiện và làm thêm ngoài giờ toàn phòng.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
           {/* 12 Months Standard Dropdown */}
-          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs">
-            <Calendar className="w-4 h-4 text-[#1F4E78]" />
-            <label className="text-xs font-black text-slate-700 uppercase tracking-wider">Tháng:</label>
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs min-h-[44px]">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-[#1F4E78] shrink-0" />
+              <label className="text-xs font-black text-slate-700 uppercase tracking-wider shrink-0">Tháng:</label>
+            </div>
             <select 
               id="select-month-dropdown"
               value={selectedMonth} 
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-sm font-black text-[#1F4E78] outline-none cursor-pointer shadow-2xs"
+              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs sm:text-sm font-black text-[#1F4E78] outline-none cursor-pointer shadow-2xs flex-1 sm:flex-none"
             >
               <option value="Tất cả">Tất cả các tháng</option>
               {MONTH_GROUPS.map(group => (
@@ -702,14 +705,16 @@ export default function Monitor() {
           </div>
 
           {/* Employee Dropdown */}
-          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs">
-            <User className="w-4 h-4 text-[#1F4E78]" />
-            <label className="text-xs font-black text-slate-700 uppercase tracking-wider">Nhân sự:</label>
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 shadow-2xs min-h-[44px]">
+            <div className="flex items-center gap-1.5">
+              <User className="w-4 h-4 text-[#1F4E78] shrink-0" />
+              <label className="text-xs font-black text-slate-700 uppercase tracking-wider shrink-0">Nhân sự:</label>
+            </div>
             <select 
               id="select-employee-dropdown"
-              value={selectedEmployee}
+              value={selectedEmployee} 
               onChange={(e) => setSelectedEmployee(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-sm font-black text-slate-900 outline-none cursor-pointer max-w-[180px] truncate shadow-2xs"
+              className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs sm:text-sm font-black text-slate-900 outline-none cursor-pointer max-w-[180px] truncate shadow-2xs flex-1 sm:flex-none"
             >
               <option value="Tất cả">Tất cả nhân sự ({users.length})</option>
               {users.map(u => (
@@ -722,11 +727,97 @@ export default function Monitor() {
             id="btn-refresh-monitor"
             onClick={fetchData}
             disabled={isLoading}
-            className="btn-3d-primary flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold shadow-xs"
+            className="btn-3d-primary min-h-[44px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold shadow-xs cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Cập nhật</span>
           </button>
+        </div>
+      </div>
+
+      {/* Priority Progress Alert Pills (Sớm / Đúng hạn / Chậm / Quá hạn) */}
+      <div className="bg-white border border-slate-200/90 rounded-[12px] p-3.5 shadow-xs">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-xs font-black text-[#1F4E78] uppercase tracking-wide flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>Cảnh báo tiến độ trọng tâm</span>
+          </span>
+          <span className="text-[11px] text-slate-500 font-medium">Nhấn vào phân loại để lọc ngay</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {/* Quá hạn */}
+          <div 
+            onClick={() => handleCardClick('OVERDUE')}
+            className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+              monitorType === 'OVERDUE' 
+                ? 'bg-rose-100 border-rose-500 ring-2 ring-rose-400' 
+                : 'bg-rose-50/70 border-rose-200 hover:border-rose-400'
+            }`}
+          >
+            <div>
+              <div className="text-[11px] font-black text-rose-800 uppercase">1. Quá hạn</div>
+              <div className="text-xl font-black text-rose-900 mt-0.5">{workStats.overdue} việc</div>
+            </div>
+            <span className="text-[10px] font-bold text-rose-700 bg-rose-200/80 px-2 py-0.5 rounded-full">
+              Khẩn cấp
+            </span>
+          </div>
+
+          {/* Chậm / Đến hạn hôm nay */}
+          <div 
+            onClick={() => handleCardClick('DUE_TODAY')}
+            className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+              monitorType === 'DUE_TODAY' 
+                ? 'bg-amber-100 border-amber-500 ring-2 ring-amber-400' 
+                : 'bg-amber-50/70 border-amber-200 hover:border-amber-400'
+            }`}
+          >
+            <div>
+              <div className="text-[11px] font-black text-amber-800 uppercase">2. Đến hạn hôm nay</div>
+              <div className="text-xl font-black text-amber-900 mt-0.5">{workStats.dueToday} việc</div>
+            </div>
+            <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-full">
+              Trong ngày
+            </span>
+          </div>
+
+          {/* Sắp đến hạn (1-2 ngày) */}
+          <div 
+            onClick={() => handleCardClick('DUE_SOON')}
+            className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+              monitorType === 'DUE_SOON' 
+                ? 'bg-sky-100 border-sky-500 ring-2 ring-sky-400' 
+                : 'bg-sky-50/70 border-sky-200 hover:border-sky-400'
+            }`}
+          >
+            <div>
+              <div className="text-[11px] font-black text-sky-800 uppercase">3. Sắp đến hạn</div>
+              <div className="text-xl font-black text-sky-900 mt-0.5">{workStats.dueSoon} việc</div>
+            </div>
+            <span className="text-[10px] font-bold text-sky-800 bg-sky-200/80 px-2 py-0.5 rounded-full">
+              1-2 ngày
+            </span>
+          </div>
+
+          {/* Đúng hạn / Hoàn thành */}
+          <div 
+            onClick={() => handleCardClick('TOTAL')}
+            className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+              monitorType === 'TOTAL' 
+                ? 'bg-emerald-100 border-emerald-500 ring-2 ring-emerald-400' 
+                : 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-400'
+            }`}
+          >
+            <div>
+              <div className="text-[11px] font-black text-emerald-800 uppercase">4. Đúng hạn / Xong</div>
+              <div className="text-xl font-black text-emerald-900 mt-0.5">
+                {Math.max(0, workStats.total - workStats.overdue - workStats.dueToday - workStats.dueSoon)} việc
+              </div>
+            </div>
+            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
+              An toàn
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1660,17 +1751,17 @@ export default function Monitor() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3">
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="btn-secondary px-4 py-2 rounded-lg text-sm font-semibold"
+                className="btn-secondary min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold flex items-center justify-center cursor-pointer"
               >
                 Hủy bỏ
               </button>
               <button 
                 onClick={handleSaveModal}
                 disabled={isUpdating}
-                className="btn-3d-primary flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold shadow-xs disabled:opacity-50"
+                className="btn-3d-primary min-h-[44px] flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-sm font-bold shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {isUpdating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 <span>Lưu thay đổi</span>
