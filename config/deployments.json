@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "defaults": {
+    "projectId": "kpi-release-engine",
+    "projectNumber": "357878679052",
+    "region": "asia-southeast1",
+    "container": "app-container",
+    "artifactRepository": "kpi-release",
+    "imageName": "kpi-khtc",
+    "backupBucket": "kpi-release-engine-kpi-backups",
+    "workloadIdentityProvider": "projects/357878679052/locations/global/workloadIdentityPools/github-actions/providers/github-kpi-khtc",
+    "serviceAccount": "github-kpi-release@kpi-release-engine.iam.gserviceaccount.com"
+  },
+  "deployments": [
+    {
+      "code": "khtc",
+      "enabled": true,
+      "name": "Phòng Kế hoạch - Tài chính",
+      "shortName": "KHTC",
+      "service": "kpi-khtc",
+      "databaseSecret": "kpi-database-url",
+      "fixedUrl": "https://kpi-khtc.ai.studio",
+      "themeColor": "#1F4E78",
+      "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
+      "location": "Đắk Lắk"
+    }
+  ]
+}

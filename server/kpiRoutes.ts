@@ -15,8 +15,11 @@ import {
   getCurrentMonth
 } from '../src/utils.ts';
 import { ADMIN_EMAIL } from './auth.ts';
+import { getDeploymentOrgConfig, getDeploymentRuntimeConfig } from './deploymentConfig.ts';
 
 export const kpiRouter = express.Router();
+const DEPLOYMENT_ORG_CONFIG = getDeploymentOrgConfig(DEFAULT_ORG_CONFIG);
+const DEPLOYMENT = getDeploymentRuntimeConfig();
 
 export function validateAndSanitizeDetailsA(
   inputDetailsA: any,
@@ -229,25 +232,25 @@ export async function getEffectiveOrgConfig(): Promise<any> {
       where: (cat, { eq, and }) => and(eq(cat.code, 'SYSTEM_ORG_CONFIG'), eq(cat.type, 'SYSTEM_CONFIG'))
     });
     if (orgCat && orgCat.properties) {
-      return {
+      return getDeploymentOrgConfig({
         id: orgCat.id,
         ...DEFAULT_ORG_CONFIG,
         ...(orgCat.properties as any)
-      };
+      } as any);
     }
     const kpiCat = await db.query.categories.findFirst({
       where: (cat, { eq, and }) => and(eq(cat.code, 'KPI_GLOBAL_CONFIG'), eq(cat.type, 'KPI_CONFIG'))
     });
     if (kpiCat && kpiCat.properties && (kpiCat.properties as any).orgConfig) {
-      return {
+      return getDeploymentOrgConfig({
         ...DEFAULT_ORG_CONFIG,
         ...((kpiCat.properties as any).orgConfig)
-      };
+      });
     }
   } catch (err) {
     console.error("Error reading Org config from DB:", err);
   }
-  return DEFAULT_ORG_CONFIG;
+  return DEPLOYMENT_ORG_CONFIG;
 }
 
 export async function getEffectiveKpiConfig(): Promise<any> {
@@ -548,15 +551,15 @@ kpiRouter.post('/org-config', async (req, res) => {
     }
     const payload = req.body;
     const orgProperties = {
-      parentAgency: payload.parentAgency || DEFAULT_ORG_CONFIG.parentAgency,
-      departmentName: payload.departmentName || DEFAULT_ORG_CONFIG.departmentName,
-      shortName: payload.shortName || DEFAULT_ORG_CONFIG.shortName,
-      systemTitle: payload.systemTitle || DEFAULT_ORG_CONFIG.systemTitle,
-      location: payload.location || DEFAULT_ORG_CONFIG.location,
-      creatorTitle: payload.creatorTitle || DEFAULT_ORG_CONFIG.creatorTitle,
-      approverTitle: payload.approverTitle || DEFAULT_ORG_CONFIG.approverTitle,
-      leaderTitle: payload.leaderTitle || DEFAULT_ORG_CONFIG.leaderTitle,
-      footerNote: payload.footerNote || DEFAULT_ORG_CONFIG.footerNote,
+      parentAgency: payload.parentAgency || DEPLOYMENT_ORG_CONFIG.parentAgency,
+      departmentName: payload.departmentName || DEPLOYMENT_ORG_CONFIG.departmentName,
+      shortName: payload.shortName || DEPLOYMENT_ORG_CONFIG.shortName,
+      systemTitle: payload.systemTitle || DEPLOYMENT_ORG_CONFIG.systemTitle,
+      location: payload.location || DEPLOYMENT_ORG_CONFIG.location,
+      creatorTitle: payload.creatorTitle || DEPLOYMENT_ORG_CONFIG.creatorTitle,
+      approverTitle: payload.approverTitle || DEPLOYMENT_ORG_CONFIG.approverTitle,
+      leaderTitle: payload.leaderTitle || DEPLOYMENT_ORG_CONFIG.leaderTitle,
+      footerNote: payload.footerNote || DEPLOYMENT_ORG_CONFIG.footerNote,
       updatedAt: new Date().toISOString()
     };
 
@@ -612,7 +615,7 @@ kpiRouter.post('/org-config/reset', async (req, res) => {
       name: 'Cấu hình Cơ quan - Đơn vị mặc định',
       type: 'SYSTEM_CONFIG',
       properties: {
-        ...DEFAULT_ORG_CONFIG,
+        ...DEPLOYMENT_ORG_CONFIG,
         updatedAt: new Date().toISOString()
       },
       status: 'Đang áp dụng',
@@ -622,7 +625,7 @@ kpiRouter.post('/org-config/reset', async (req, res) => {
       set: {
         name: 'Cấu hình Cơ quan - Đơn vị mặc định',
         properties: {
-          ...DEFAULT_ORG_CONFIG,
+          ...DEPLOYMENT_ORG_CONFIG,
           updatedAt: new Date().toISOString()
         },
         status: 'Đang áp dụng'
@@ -673,7 +676,7 @@ kpiRouter.post('/config', async (req, res) => {
     const name = payload.name || 'Cấu hình phân bổ điểm KPI & Quy ước xếp loại';
     
     const configProperties = {
-      department: payload.department || 'Phòng Kế hoạch - Tài chính',
+      department: payload.department || DEPLOYMENT.name,
       applyMonth: payload.applyMonth || 'all',
       scoreAllocation: payload.scoreAllocation || DEFAULT_KPI_CONFIG.scoreAllocation,
       criteriaA: payload.criteriaA || DEFAULT_KPI_CONFIG.criteriaA,

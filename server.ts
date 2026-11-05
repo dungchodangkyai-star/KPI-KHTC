@@ -24,6 +24,7 @@ import {
   DEFAULT_ZALO_TEMPLATE 
 } from "./server/zaloService.ts";
 import { WORK_NATURE_COEFS, getNatureCoef, getWorkStatusFactor, parseExcelDateToISO } from "./src/utils.ts";
+import { getDeploymentRuntimeConfig } from "./server/deploymentConfig.ts";
 
 
 const webpush: any = (webPushModule as any).default || webPushModule;
@@ -103,18 +104,19 @@ async function sendPushToUser(userId: number, payload: PushPayload) {
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const deployment = getDeploymentRuntimeConfig();
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   app.get('/manifest.webmanifest', (_req, res) => {
     res.type('application/manifest+json').send({
-      name: 'Hệ thống Quản lý Công việc và Đánh giá KPI',
-      short_name: 'KPI KHTC',
+      name: `Hệ thống Quản lý Công việc và Đánh giá KPI — ${deployment.name}`,
+      short_name: `KPI ${deployment.shortName}`,
       start_url: '/',
       display: 'standalone',
       background_color: '#f1f5f9',
-      theme_color: '#1F4E78',
+      theme_color: deployment.themeColor,
       icons: [{ src: '/push-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }]
     });
   });
@@ -287,6 +289,7 @@ async function startServer() {
         return res.status(503).json({
           status: "degraded",
           ...health,
+          deployment,
           schemaInitialized,
           schemaError: schemaInitError
         });
@@ -295,6 +298,7 @@ async function startServer() {
         return res.status(503).json({
           status: "degraded",
           ...health,
+          deployment,
           schemaInitialized: false,
           schemaError: schemaInitError
         });
@@ -303,6 +307,7 @@ async function startServer() {
     res.json({
       status: "ok",
       ...health,
+      deployment,
       schemaInitialized: health.storageMode === 'postgres' ? schemaInitialized : true
     });
   });
