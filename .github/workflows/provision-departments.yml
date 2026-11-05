@@ -105,6 +105,9 @@ jobs:
     needs: [prepare, build_image]
     strategy:
       fail-fast: false
+      # Limit simultaneous Neon cold-start/schema work to avoid exhausting the
+      # small shared database compute during first-time provisioning.
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ubuntu-latest
     permissions:
