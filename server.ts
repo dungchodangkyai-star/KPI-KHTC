@@ -103,7 +103,8 @@ async function sendPushToUser(userId: number, payload: PushPayload) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Cloud Run injects PORT (normally 8080). Keep 3000 only for local use.
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
   const deployment = getDeploymentRuntimeConfig();
 
   app.use(express.json({ limit: "50mb" }));

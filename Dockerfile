@@ -22,6 +22,6 @@ COPY --from=build /app/data/backup-config.json ./data/backup-config.json
 RUN mkdir -p data/backups && chown -R node:node /app
 
 USER node
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["node", "dist/server.cjs"]

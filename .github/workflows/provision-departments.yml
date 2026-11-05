@@ -116,7 +116,7 @@ jobs:
           workload_identity_provider: ${{ matrix.workloadIdentityProvider }}
           service_account: ${{ matrix.serviceAccount }}
       - uses: google-github-actions/setup-gcloud@v3
-      - name: Xac minh Secret va service chua ton tai
+      - name: Xac minh Secret va trang thai service
         shell: bash
         env:
           PROJECT_ID: ${{ matrix.projectId }}
@@ -127,8 +127,9 @@ jobs:
           set -euo pipefail
           gcloud secrets versions access latest --secret="$DATABASE_SECRET" --project="$PROJECT_ID" >/dev/null
           if gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
-            echo "::error title=Service da ton tai::$SERVICE da ton tai; dung quy trinh phat hanh thay vi khoi tao."
-            exit 1
+            echo "::notice title=Tiep tuc khoi tao::$SERVICE da duoc tao mot phan; quy trinh se cap nhat revision va tiep tuc xac minh."
+          else
+            echo "Service $SERVICE chua ton tai; se tao moi."
           fi
       - name: Tao Cloud Run service va khoi tao schema
         id: deploy
