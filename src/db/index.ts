@@ -217,7 +217,10 @@ function getOrCreatePostgresPool(): pg.Pool | null {
       ssl: isSslRequired ? { rejectUnauthorized: false } : undefined,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      // Neon can need more than 10 seconds when several Cloud Run revisions
+      // cold-start together. A longer timeout prevents a transient wake-up from
+      // permanently marking the deployment as degraded.
+      connectionTimeoutMillis: 30000,
       keepAlive: true,
     });
 

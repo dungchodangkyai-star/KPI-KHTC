@@ -171,6 +171,18 @@ jobs:
           [[ "$healthy" == "1" ]] || { echo "Service moi khong ket noi dung CSDL hoac khoi tao schema that bai"; exit 1; }
           gcloud run services update "$SERVICE" --project="$PROJECT_ID" --region="$REGION" \
             --update-env-vars="APP_URL=$service_url" --quiet
+          # Updating APP_URL creates the final revision. Verify that revision as
+          # well; otherwise a transient database startup failure can be hidden.
+          final_healthy=0
+          for attempt in {1..30}; do
+            if response="$(curl --fail --silent --show-error --max-time 20 "$service_url/api/health" 2>/dev/null)"; then
+              if jq -e --arg code "$DEPLOYMENT_CODE" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code' \
+                <<<"$response" >/dev/null; then final_healthy=1; break; fi
+            fi
+            sleep 5
+          done
+          [[ "$final_healthy" == "1" ]] || { echo "Revision cuoi sau khi cap nhat APP_URL khong san sang"; exit 1; }
           echo "service_url=$service_url" >> "$GITHUB_OUTPUT"
       - name: Ghi ket qua khoi tao
         shell: bash

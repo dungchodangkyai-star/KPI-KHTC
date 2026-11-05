@@ -215,8 +215,16 @@ async function startServer() {
         return;
       }
 
-      // 1. ensureDatabaseSchema MUST run before seeder
-      const migResult = await ensureDatabaseSchema();
+      // 1. ensureDatabaseSchema MUST run before seeder. Neon may briefly time
+      // out while several isolated departments cold-start at once, so retry
+      // transient startup failures instead of leaving health degraded forever.
+      let migResult = await ensureDatabaseSchema();
+      for (let attempt = 2; !migResult.success && attempt <= 3; attempt += 1) {
+        const retryDelayMs = attempt * 3000;
+        console.warn(`[Startup] Schema sync attempt ${attempt - 1} failed; retrying in ${retryDelayMs}ms:`, migResult.message);
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        migResult = await ensureDatabaseSchema();
+      }
       if (migResult.success) {
         schemaInitialized = true;
         schemaInitError = null;
