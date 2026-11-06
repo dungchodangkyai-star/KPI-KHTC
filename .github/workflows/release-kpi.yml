@@ -27,6 +27,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Chan du lieu that va cau hinh sao luu khoi ban phat hanh
+        run: node scripts/check-no-live-data.mjs
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

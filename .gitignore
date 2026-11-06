@@ -7,6 +7,9 @@ desktop.ini
 Thumbs.db
 .aistudio/
 data/backups/*.json
+data/db-local-store.json
+data/backup-config.json
+public/assets/aistudio/backup_*.json
 *.log
 .env*
 !.env.example

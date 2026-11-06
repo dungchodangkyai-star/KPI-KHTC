@@ -18,7 +18,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
-COPY --from=build /app/data/backup-config.json ./data/backup-config.json
+# Chỉ đóng cấu hình mặc định an toàn vào image dùng chung. Cấu hình thật của
+# từng phòng được đọc từ PostgreSQL (SYSTEM_BACKUP_CONFIG), không lấy từ Studio.
+COPY --from=build /app/data/backup-config.default.json ./data/backup-config.json
 RUN mkdir -p data/backups && chown -R node:node /app
 
 USER node

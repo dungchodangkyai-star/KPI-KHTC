@@ -22,6 +22,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Chan du lieu that va cau hinh sao luu khoi GitHub
+        run: node scripts/check-no-live-data.mjs
+
       - name: Tu bao ve package-lock.json sau dong bo Studio
         shell: bash
         run: |
@@ -84,7 +87,7 @@ jobs:
       - name: Kiem tra TypeScript
         run: npm run lint
 
-      - name: Chay 108 kiem tra hoi quy
+      - name: Chay cac kiem tra hoi quy
         run: npm test
 
       - name: Build thu ban production

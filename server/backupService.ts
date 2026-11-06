@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { sql } from 'drizzle-orm';
-import { db, pool } from '../src/db/index.ts';
+import { db, pool, getStorageMode } from '../src/db/index.ts';
 import { users, works, assignments, overtimes, categories, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 import { 
   ensureDatabaseSchema, 
@@ -118,6 +118,14 @@ export async function getEffectiveBackupConfigAsync(): Promise<BackupScheduleCon
     console.error('Error reading backup config from DB:', err);
   }
 
+  // Production PostgreSQL must never inherit a local/Studio configuration.
+  // If this department has not saved SYSTEM_BACKUP_CONFIG yet, fail safe with
+  // offsite disabled and an empty destination URL.
+  if (getStorageMode() === 'postgres') {
+    cachedBackupConfig = { ...DEFAULT_BACKUP_CONFIG, offsite: { ...DEFAULT_BACKUP_CONFIG.offsite } };
+    return cachedBackupConfig;
+  }
+
   // 2. Fallback to cached memory or local JSON file
   if (cachedBackupConfig) {
     return cachedBackupConfig;
@@ -143,6 +151,9 @@ export async function getEffectiveBackupConfigAsync(): Promise<BackupScheduleCon
 export function getBackupConfig(): BackupScheduleConfig {
   if (cachedBackupConfig) {
     return cachedBackupConfig;
+  }
+  if (getStorageMode() === 'postgres') {
+    return { ...DEFAULT_BACKUP_CONFIG, offsite: { ...DEFAULT_BACKUP_CONFIG.offsite } };
   }
   try {
     ensureDir(path.dirname(CONFIG_FILE));

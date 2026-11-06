@@ -40,7 +40,6 @@ import {
   validateBackupPayload,
   runRestoreDryRun,
   executeRestoreApply,
-  getBackupContent,
   computeCanonicalBackupRowHash
 } from './backupService.ts';
 
@@ -973,27 +972,24 @@ async function runAllTests() {
   console.log('');
 
   // ----------------------------------------------------
-  // TEST 17: Testing Real Backup File Validation (backup_20261019_163013.json)
+  // TEST 17: Safe distributable backup configuration (no production data/URL)
   // ----------------------------------------------------
-  console.log('[17/17] Testing Real Backup File Validation (backup_20261019_163013.json):');
-  const realBackupContent = getBackupContent('backup_20261019_163013.json');
-  assert(realBackupContent !== null, 'getBackupContent successfully located backup_20261019_163013.json');
-  if (realBackupContent) {
-    const realValRes = validateBackupPayload(realBackupContent);
-    assert(realValRes.valid, 'backup_20261019_163013.json validated as valid: true');
-    assert(realValRes.counts.users === 21, 'Exact 21 users in backup');
-    assert(realValRes.counts.categories === 77, 'Exact 77 categories in backup');
-    assert(realValRes.counts.works === 736, 'Exact 736 works in backup');
-    assert(realValRes.counts.assignments === 52, 'Exact 52 assignments in backup');
-    assert(realValRes.counts.overtimes === 116, 'Exact 116 overtimes in backup');
-    assert(realValRes.counts.kpiResults === 113, 'Exact 113 kpiResults in backup');
-    assert(realValRes.counts.notifications === 814, 'Exact 814 notifications in backup');
-    assert(realValRes.counts.logs === 12, 'Exact 12 logs in backup');
-    assert(realValRes.technicalDuplicates.length === 0, 'Zero duplicate keys in real backup');
-    assert(realValRes.orphanRecords.length === 0, 'Zero orphan foreign keys in real backup');
-    assert(realValRes.kpiAudit.zeroScoresPreserved > 0, 'Zero scores preserved across all 113 KPI records');
-    assert(realValRes.kpiAudit.nanOrNullAnomalies === 0, 'Zero NaN scores across all 113 KPI records');
-  }
+  console.log('[17/20] Testing Safe Distributable Backup Configuration:');
+  const defaultConfigPath = 'data/backup-config.default.json';
+  assert(fs.existsSync(defaultConfigPath), 'Safe default backup configuration exists');
+  const defaultConfigRaw = fs.readFileSync(defaultConfigPath, 'utf8');
+  const defaultConfig = JSON.parse(defaultConfigRaw);
+  assert(defaultConfig.enabled === false, 'Automatic backup is disabled by default');
+  assert(defaultConfig.offsite && typeof defaultConfig.offsite === 'object', 'Offsite configuration object exists');
+  assert(defaultConfig.offsite.enabled === false, 'Offsite synchronization is disabled by default');
+  assert(defaultConfig.offsite.destinationUrl === '', 'Offsite destination URL is empty');
+  assert(defaultConfig.offsite.authHeaderName === '', 'Authentication header name is empty');
+  assert(defaultConfig.offsite.authHeaderValue === '', 'Authentication header value is empty');
+  assert(!defaultConfigRaw.includes('script.google.com'), 'No Google Apps Script URL is embedded');
+  assert(!defaultConfigRaw.includes('/exec'), 'No executable webhook URL is embedded');
+  assert(defaultConfig.lastBackupAt === '', 'No runtime backup timestamp is embedded');
+  assert(defaultConfig.lastBackupStatus === 'idle', 'Default backup status is idle');
+  assert(!Object.keys(defaultConfig).some((key) => key.startsWith('lastScheduled')), 'No scheduled runtime state is embedded');
   // ----------------------------------------------------
   // TEST 18: Testing Identity Preservation for Two Users With Emails Differing Only by Case (ID 14 & ID 27)
   // ----------------------------------------------------
