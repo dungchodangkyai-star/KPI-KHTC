@@ -37,7 +37,7 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchOrgConfig = async () => {
     try {
-      const res = await safeFetch('/api/org-config');
+      const res = await safeFetch('/api/public/org-identity');
       const json = await safeParseResponse(res);
       if (json.success && json.data) {
         const merged = { ...DEFAULT_ORG_CONFIG, ...json.data };

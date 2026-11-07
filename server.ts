@@ -115,7 +115,7 @@ async function startServer() {
   // Login must know the immutable deployment identity before a session exists.
   // Keep this route before every authenticated API router and do not depend on
   // database state: each Cloud Run service owns its identity through env vars.
-  app.get("/api/org-config", (_req, res) => {
+  const sendPublicOrgIdentity = (_req: express.Request, res: express.Response) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       success: true,
@@ -125,7 +125,9 @@ async function startServer() {
         buildCommit: String(process.env.BUILD_COMMIT || 'local')
       }
     });
-  });
+  };
+  app.get("/api/public/org-identity", sendPublicOrgIdentity);
+  app.get("/api/org-config", sendPublicOrgIdentity);
 
   app.get('/manifest.webmanifest', (_req, res) => {
     res.type('application/manifest+json').send({

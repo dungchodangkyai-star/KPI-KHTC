@@ -219,7 +219,7 @@ jobs:
             sleep 5
           done
           [[ "$healthy" == "1" ]] || { echo "Revision ung vien khong dung phong ban hoac CSDL chua san sang"; exit 1; }
-          identity="$(curl --fail --silent --show-error --max-time 20 "$candidate_url/api/org-config?release=$GITHUB_SHA")"
+          identity="$(curl --fail --silent --show-error --max-time 20 "$candidate_url/api/public/org-identity?release=$GITHUB_SHA")"
           jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" \
             '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .data.departmentName == $name' \
             <<<"$identity" >/dev/null || { echo "Revision ung vien khong tra ve dung nhan dien cong khai/commit"; exit 1; }
@@ -235,7 +235,7 @@ jobs:
             sleep 5
           done
           [[ "$production_ok" == "1" ]] || { echo "Link co dinh khong tra ve dung deployment"; exit 1; }
-          identity="$(curl --fail --silent --show-error --max-time 20 "$FIXED_URL/api/org-config?release=$GITHUB_SHA")"
+          identity="$(curl --fail --silent --show-error --max-time 20 "$FIXED_URL/api/public/org-identity?release=$GITHUB_SHA")"
           jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" \
             '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .data.departmentName == $name' \
             <<<"$identity" >/dev/null || { echo "Link co dinh khong tra ve dung nhan dien cong khai/commit"; exit 1; }
