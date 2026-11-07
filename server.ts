@@ -6,7 +6,7 @@ import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } f
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
-import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
+import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin, getEffectiveOrgConfig } from "./server/kpiRoutes.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
@@ -356,9 +356,19 @@ async function startServer() {
     req.url = '/org-config/reset';
     kpiRouter(req, res, next);
   });
-    app.get("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
-    req.url = '/org-config';
-    kpiRouter(req, res, next);
+  // Public read-only organization identity is required on the login screen.
+  // Only this GET is public; every write/reset operation remains authenticated.
+  // getEffectiveOrgConfig always reapplies the immutable deployment identity
+  // (department name and short code) over any legacy value stored in the DB.
+  app.get("/api/org-config", async (_req, res) => {
+    try {
+      const data = await getEffectiveOrgConfig();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('Error reading public organization identity:', error);
+      res.status(500).json({ success: false, error: 'Không thể đọc cấu hình nhận diện đơn vị.' });
+    }
   });
     app.post("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
