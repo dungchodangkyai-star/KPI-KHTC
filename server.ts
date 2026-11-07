@@ -6,7 +6,9 @@ import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } f
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken, ADMIN_EMAIL } from "./server/auth.ts";
-import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin, getEffectiveOrgConfig } from "./server/kpiRoutes.ts";
+import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
+import { getDeploymentOrgConfig } from "./server/deploymentConfig.ts";
+import { DEFAULT_ORG_CONFIG } from "./src/utils.ts";
 import { syncRouter } from "./server/syncRoutes.ts";
 import { onlineRouter } from "./server/onlineRoutes.ts";
 import { databaseRouter } from "./server/databaseRoutes.ts";
@@ -109,6 +111,21 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  // Login must know the immutable deployment identity before a session exists.
+  // Keep this route before every authenticated API router and do not depend on
+  // database state: each Cloud Run service owns its identity through env vars.
+  app.get("/api/org-config", (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      success: true,
+      data: getDeploymentOrgConfig(DEFAULT_ORG_CONFIG),
+      deployment: {
+        code: deployment.code,
+        buildCommit: String(process.env.BUILD_COMMIT || 'local')
+      }
+    });
+  });
 
   app.get('/manifest.webmanifest', (_req, res) => {
     res.type('application/manifest+json').send({
@@ -317,6 +334,7 @@ async function startServer() {
       status: "ok",
       ...health,
       deployment,
+      buildCommit: String(process.env.BUILD_COMMIT || 'local'),
       schemaInitialized: health.storageMode === 'postgres' ? schemaInitialized : true
     });
   });
@@ -355,20 +373,6 @@ async function startServer() {
     app.post("/api/system-config/reset", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config/reset';
     kpiRouter(req, res, next);
-  });
-  // Public read-only organization identity is required on the login screen.
-  // Only this GET is public; every write/reset operation remains authenticated.
-  // getEffectiveOrgConfig always reapplies the immutable deployment identity
-  // (department name and short code) over any legacy value stored in the DB.
-  app.get("/api/org-config", async (_req, res) => {
-    try {
-      const data = await getEffectiveOrgConfig();
-      res.setHeader('Cache-Control', 'no-store');
-      res.json({ success: true, data });
-    } catch (error) {
-      console.error('Error reading public organization identity:', error);
-      res.status(500).json({ success: false, error: 'Không thể đọc cấu hình nhận diện đơn vị.' });
-    }
   });
     app.post("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
     req.url = '/org-config';
