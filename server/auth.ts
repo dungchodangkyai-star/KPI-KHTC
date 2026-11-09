@@ -4,6 +4,7 @@ import { db, getStorageMode, isPostgresConfigured } from '../src/db/index.ts';
 import { users } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import { logActivity, removeSession, getClientIp } from './onlineTracker.ts';
+import { getDeploymentRuntimeConfig } from './deploymentConfig.ts';
 
 export const DEFAULT_INITIAL_PASSWORD = '123456@';
 // Quyền quản trị chỉ dựa trên role lưu trong CSDL của từng phòng.
@@ -634,7 +635,7 @@ authRouter.get('/session', async (req, res) => {
 // 5. REGISTER ACCOUNT REQUEST (For new employees)
 authRouter.post('/register-request', async (req, res) => {
   try {
-    const { name, email, phone, zalo, position, group, note } = req.body;
+    const { name, email, phone, zalo, position, note } = req.body;
     
     if (!name || !name.trim()) {
       const msg = 'Vui lòng nhập họ và tên đầy đủ.';
@@ -651,6 +652,11 @@ authRouter.post('/register-request', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
+    const allowedPositions = new Set(['Trưởng phòng', 'Phó phòng', 'Chuyên viên', 'Khác']);
+    const cleanPosition = allowedPositions.has(String(position || '').trim())
+      ? String(position).trim()
+      : 'Chuyên viên';
+    const deployment = getDeploymentRuntimeConfig();
 
     // Check if email already exists
     const existingUser = await db.query.users.findFirst({
@@ -681,8 +687,10 @@ authRouter.post('/register-request', async (req, res) => {
       email: cleanEmail,
       phone: phone.trim(),
       zalo: (zalo || phone).trim(),
-      position: position?.trim() || 'Chuyên viên',
-      group: group?.trim() || 'Kế hoạch - Tài chính',
+      position: cleanPosition,
+      // Không cho biểu mẫu đăng ký mang tổ/nhóm mẫu của KHTC sang phòng khác.
+      // Quản trị viên có thể phân nhóm nội bộ sau khi phê duyệt nếu thực sự cần.
+      group: deployment.name,
       role: 'STAFF',
       status: 'Chờ duyệt',
       permissions: JSON.stringify([]),

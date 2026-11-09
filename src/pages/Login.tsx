@@ -32,7 +32,6 @@ export default function Login() {
     phone: '',
     zalo: '',
     position: 'Chuyên viên',
-    group: 'Kế hoạch vốn',
     note: ''
   });
 
@@ -197,7 +196,6 @@ export default function Login() {
       phone: '',
       zalo: '',
       position: 'Chuyên viên',
-      group: 'Kế hoạch vốn',
       note: ''
     });
   };
@@ -706,41 +704,20 @@ export default function Login() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Chức danh / Vị trí đề xuất
+                      Vị trí
                     </label>
                     <select
                       value={registerForm.position}
                       onChange={(e) => setRegisterForm({ ...registerForm, position: e.target.value })}
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:border-[#1F4E78] focus:ring-2 focus:ring-blue-100 outline-none font-medium"
                     >
-                      <option value="Chuyên viên">Chuyên viên</option>
-                      <option value="Kế toán viên">Kế toán viên</option>
-                      <option value="Kỹ sư">Kỹ sư</option>
-                      <option value="Cán sự">Cán sự</option>
-                      <option value="Phó Trưởng phòng">Phó Trưởng phòng</option>
                       <option value="Trưởng phòng">Trưởng phòng</option>
-                      <option value="Khác">Vị trí khác</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Tổ / Nhóm công tác đề xuất
-                    </label>
-                    <select
-                      value={registerForm.group}
-                      onChange={(e) => setRegisterForm({ ...registerForm, group: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:border-[#1F4E78] focus:ring-2 focus:ring-blue-100 outline-none font-medium"
-                    >
-                      <option value="Kế hoạch vốn">Nhóm Kế hoạch vốn</option>
-                      <option value="Quyết toán">Nhóm Quyết toán</option>
-                      <option value="Lựa chọn nhà thầu">Nhóm Lựa chọn nhà thầu</option>
-                      <option value="Giám sát & Đánh giá ĐT">Nhóm Giám sát & Đánh giá ĐT</option>
-                      <option value="Tài chính - Kế toán">Nhóm Tài chính - Kế toán</option>
-                      <option value="Tổng hợp">Nhóm Tổng hợp</option>
+                      <option value="Phó phòng">Phó phòng</option>
+                      <option value="Chuyên viên">Chuyên viên</option>
+                      <option value="Khác">Khác</option>
                     </select>
                   </div>
                 </div>

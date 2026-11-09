@@ -69,6 +69,13 @@ if (!/if \(isSystemAccount\(u\)\) return false;/.test(kpiRoutesSource)) {
   sourceViolations.push('server/kpiRoutes.ts: phép tính KPI chưa loại tài khoản quản trị hệ thống ẩn');
 }
 
+// Regression guard: biểu mẫu đăng ký dùng chung không được mang danh sách tổ/
+// nhóm nghiệp vụ riêng của KHTC sang các phòng khác.
+const loginSource = readFileSync('src/pages/Login.tsx', 'utf8');
+if (/registerForm\.group|Tổ \/ Nhóm công tác đề xuất|Nhóm Kế hoạch vốn/.test(loginSource)) {
+  sourceViolations.push('src/pages/Login.tsx: biểu mẫu đăng ký vẫn chứa tổ/nhóm mẫu riêng của KHTC');
+}
+
 if (violations.length || sourceViolations.length) {
   console.error('PHÁT HIỆN DỮ LIỆU THẬT/CẤU HÌNH RUNTIME ĐANG ĐƯỢC GIT THEO DÕI:');
   for (const file of violations) console.error(`- ${file}`);
