@@ -1,0 +1,199 @@
+name: Khoi tao phong ban moi
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_target:
+        description: "Nhap ma phong ban chua bat, hoac all-new"
+        required: true
+        type: string
+        default: "all-new"
+      confirm_provision:
+        description: "Xac nhan tao Cloud Run service va khoi tao CSDL moi"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: kpi-provision-${{ inputs.deployment_target }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Kiem tra va chon phong ban
+    if: ${{ inputs.confirm_provision == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+      project_id: ${{ steps.config.outputs.project_id }}
+      region: ${{ steps.config.outputs.region }}
+      artifact_repository: ${{ steps.config.outputs.artifact_repository }}
+      image_name: ${{ steps.config.outputs.image_name }}
+      workload_identity_provider: ${{ steps.config.outputs.workload_identity_provider }}
+      service_account: ${{ steps.config.outputs.service_account }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run validate:deployments
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - id: config
+        name: Doc danh sach phong ban moi
+        shell: bash
+        env:
+          TARGET: ${{ inputs.deployment_target }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('config/deployments.json', 'utf8'));
+          const target = String(process.env.TARGET || '').trim().toLowerCase();
+          const pending = config.deployments.filter((item) => item.enabled === false);
+          const selected = target === 'all-new' ? pending : pending.filter((item) => item.code === target);
+          if (!selected.length) throw new Error('Khong tim thay phong ban dang cho khoi tao: ' + target);
+          const include = selected.map((item) => Object.assign({}, config.defaults, item));
+          const lines = [
+            'matrix=' + JSON.stringify({ include }),
+            'project_id=' + config.defaults.projectId,
+            'region=' + config.defaults.region,
+            'artifact_repository=' + config.defaults.artifactRepository,
+            'image_name=' + config.defaults.imageName,
+            'workload_identity_provider=' + config.defaults.workloadIdentityProvider,
+            'service_account=' + config.defaults.serviceAccount
+          ];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join('\n') + '\n');
+          console.log('Se khoi tao: ' + selected.map((item) => item.code).join(', '));
+          NODE
+
+  build_image:
+    name: Build mot image dung chung
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_uri: ${{ steps.image.outputs.uri }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ needs.prepare.outputs.workload_identity_provider }}
+          service_account: ${{ needs.prepare.outputs.service_account }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Dang nhap Artifact Registry
+        run: gcloud auth configure-docker "${{ needs.prepare.outputs.region }}-docker.pkg.dev" --quiet
+      - name: Build va day image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_uri="${{ needs.prepare.outputs.region }}-docker.pkg.dev/${{ needs.prepare.outputs.project_id }}/${{ needs.prepare.outputs.artifact_repository }}/${{ needs.prepare.outputs.image_name }}:$GITHUB_SHA"
+          docker build --pull --tag "$image_uri" .
+          docker push "$image_uri"
+          echo "uri=$image_uri" >> "$GITHUB_OUTPUT"
+
+  provision:
+    name: Khoi tao ${{ matrix.code }}
+    needs: [prepare, build_image]
+    strategy:
+      fail-fast: false
+      # Limit simultaneous Neon cold-start/schema work to avoid exhausting the
+      # small shared database compute during first-time provisioning.
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ matrix.workloadIdentityProvider }}
+          service_account: ${{ matrix.serviceAccount }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Xac minh Secret va trang thai service
+        shell: bash
+        env:
+          PROJECT_ID: ${{ matrix.projectId }}
+          REGION: ${{ matrix.region }}
+          SERVICE: ${{ matrix.service }}
+          DATABASE_SECRET: ${{ matrix.databaseSecret }}
+        run: |
+          set -euo pipefail
+          gcloud secrets versions access latest --secret="$DATABASE_SECRET" --project="$PROJECT_ID" >/dev/null
+          if gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
+            echo "::notice title=Tiep tuc khoi tao::$SERVICE da duoc tao mot phan; quy trinh se cap nhat revision va tiep tuc xac minh."
+          else
+            echo "Service $SERVICE chua ton tai; se tao moi."
+          fi
+      - name: Tao Cloud Run service va khoi tao schema
+        id: deploy
+        shell: bash
+        env:
+          PROJECT_ID: ${{ matrix.projectId }}
+          REGION: ${{ matrix.region }}
+          SERVICE: ${{ matrix.service }}
+          IMAGE_URI: ${{ needs.build_image.outputs.image_uri }}
+          DATABASE_SECRET: ${{ matrix.databaseSecret }}
+          DEPLOYMENT_CODE: ${{ matrix.code }}
+          DEPLOYMENT_NAME: ${{ matrix.name }}
+          DEPLOYMENT_SHORT_NAME: ${{ matrix.shortName }}
+          PARENT_AGENCY: ${{ matrix.parentAgency }}
+          ORG_LOCATION: ${{ matrix.location }}
+          THEME_COLOR: ${{ matrix.themeColor }}
+        run: |
+          set -euo pipefail
+          jq -n --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg short "$DEPLOYMENT_SHORT_NAME" \
+            --arg agency "$PARENT_AGENCY" --arg location "$ORG_LOCATION" --arg color "$THEME_COLOR" \
+            '{DEPLOYMENT_CODE:$code,DEPLOYMENT_NAME:$name,DEPLOYMENT_SHORT_NAME:$short,PARENT_AGENCY:$agency,ORG_LOCATION:$location,THEME_COLOR:$color}' \
+            > "$RUNNER_TEMP/deployment-env.json"
+          gcloud run deploy "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --platform=managed \
+            --image="$IMAGE_URI" --allow-unauthenticated --port=8080 --cpu=1 --memory=1Gi \
+            --min-instances=0 --max-instances=3 --concurrency=80 --timeout=300 \
+            --env-vars-file="$RUNNER_TEMP/deployment-env.json" \
+            --set-secrets="DATABASE_URL=$DATABASE_SECRET:latest" --quiet
+          service_url="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')"
+          [[ "$service_url" == https://* ]] || { echo "Khong doc duoc URL cua $SERVICE"; exit 1; }
+          healthy=0
+          for attempt in {1..30}; do
+            if response="$(curl --fail --silent --show-error --max-time 20 "$service_url/api/health" 2>/dev/null)"; then
+              if jq -e --arg code "$DEPLOYMENT_CODE" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code' \
+                <<<"$response" >/dev/null; then healthy=1; break; fi
+            fi
+            sleep 5
+          done
+          [[ "$healthy" == "1" ]] || { echo "Service moi khong ket noi dung CSDL hoac khoi tao schema that bai"; exit 1; }
+          gcloud run services update "$SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+            --update-env-vars="APP_URL=$service_url" --quiet
+          # Updating APP_URL creates the final revision. Verify that revision as
+          # well; otherwise a transient database startup failure can be hidden.
+          final_healthy=0
+          for attempt in {1..30}; do
+            if response="$(curl --fail --silent --show-error --max-time 20 "$service_url/api/health" 2>/dev/null)"; then
+              if jq -e --arg code "$DEPLOYMENT_CODE" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code' \
+                <<<"$response" >/dev/null; then final_healthy=1; break; fi
+            fi
+            sleep 5
+          done
+          [[ "$final_healthy" == "1" ]] || { echo "Revision cuoi sau khi cap nhat APP_URL khong san sang"; exit 1; }
+          echo "service_url=$service_url" >> "$GITHUB_OUTPUT"
+      - name: Ghi ket qua khoi tao
+        shell: bash
+        run: |
+          {
+            echo "## Da khoi tao ${{ matrix.name }}"
+            echo "- Ma phong: ${{ matrix.code }}"
+            echo "- Cloud Run service: ${{ matrix.service }}"
+            echo "- Database Secret: ${{ matrix.databaseSecret }}"
+            echo "- Link: ${{ steps.deploy.outputs.service_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

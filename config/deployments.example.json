@@ -1,0 +1,12 @@
+{
+  "code": "kythuat",
+  "enabled": true,
+  "name": "Phòng Kỹ thuật và Thẩm định",
+  "shortName": "KTTĐ",
+  "service": "kpi-kythuat",
+  "databaseSecret": "kpi-kythuat-database-url",
+  "fixedUrl": "https://kpi-kythuat.example.gov.vn",
+  "themeColor": "#0F766E",
+  "parentAgency": "Tên cơ quan chủ quản",
+  "location": "Đắk Lắk"
+}

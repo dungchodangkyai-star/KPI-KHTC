@@ -1,0 +1,18 @@
+{
+  "enabled": false,
+  "frequency": "daily",
+  "dailyTime": "23:30",
+  "weeklyDay": 0,
+  "maxCopies": 30,
+  "offsite": {
+    "enabled": false,
+    "provider": "google_drive",
+    "destinationUrl": "",
+    "authHeaderName": "",
+    "authHeaderValue": "",
+    "sendAsMultipart": false
+  },
+  "lastBackupAt": "",
+  "lastBackupStatus": "idle",
+  "lastBackupMessage": "Chưa cấu hình sao lưu cho phòng này"
+}

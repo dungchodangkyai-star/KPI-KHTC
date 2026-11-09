@@ -1,0 +1,299 @@
+import { Router, Request, Response } from 'express';
+import { 
+  getBackupConfig, 
+  getEffectiveBackupConfigAsync,
+  saveBackupConfig, 
+  saveBackupConfigAsync,
+  performBackup, 
+  listBackups, 
+  deleteBackupFile, 
+  getBackupContent, 
+  restoreFromBackup,
+  runRestoreDryRun,
+  autoPruneBackups,
+  pushExistingBackupToOffsite
+} from './backupService.ts';
+import { handleSchedulerTickEndpoint } from './backupScheduler.ts';
+
+export const backupRouter = Router();
+
+// POST & GET /api/backups/scheduler-tick (Cloud Scheduler wake-up endpoint)
+backupRouter.post('/scheduler-tick', handleSchedulerTickEndpoint);
+backupRouter.get('/scheduler-tick', handleSchedulerTickEndpoint);
+
+// GET /api/backups/config
+backupRouter.get('/config', async (req: Request, res: Response) => {
+  try {
+    const config = await getEffectiveBackupConfigAsync();
+    res.json({ success: true, data: config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/config
+backupRouter.post('/config', async (req: Request, res: Response) => {
+  try {
+    const saved = await saveBackupConfigAsync(req.body);
+    res.json({ success: true, data: saved, message: 'Đã lưu cấu hình tự động sao lưu thành công!' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/test-webhook
+backupRouter.post('/test-webhook', async (req: Request, res: Response) => {
+  try {
+    const { destinationUrl, provider, authHeaderName, authHeaderValue } = req.body;
+    if (!destinationUrl) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập Địa chỉ Webhook / URL Web App.' });
+    }
+
+    const testPayload = {
+      id: 'test_connection_' + Date.now(),
+      filename: 'test_connection.json',
+      createdAt: new Date().toISOString(),
+      provider: provider || 'google_drive',
+      metadata: {
+        id: 'test_connection',
+        filename: 'test_connection.json',
+        createdAt: new Date().toISOString(),
+        sizeBytes: 120,
+        recordCounts: { users: 1, works: 1, assignments: 1, overtimes: 0, categories: 1 },
+        triggerType: 'manual'
+      },
+      contentBase64: Buffer.from(JSON.stringify({ test: true, message: 'Kiểm tra kết nối Google Drive Webhook từ hệ thống PMO1' }), 'utf-8').toString('base64'),
+      contentJson: { test: true, message: 'Kiểm tra kết nối Google Drive Webhook từ hệ thống PMO1' }
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-backup-id': testPayload.id,
+      'x-backup-filename': testPayload.filename
+    };
+    if (authHeaderName && authHeaderValue) {
+      headers[authHeaderName] = authHeaderValue;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const startMs = Date.now();
+
+    const fetchRes = await fetch(destinationUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(testPayload),
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    const latencyMs = Date.now() - startMs;
+
+    const rawText = await fetchRes.text().catch(() => '');
+    let responseJson: any = null;
+    try {
+      responseJson = JSON.parse(rawText);
+    } catch {}
+
+    if (fetchRes.ok) {
+      if (responseJson && responseJson.success === false) {
+        return res.json({
+          success: false,
+          message: `Google Apps Script thực thi bị lỗi: ${responseJson.error || 'Kiểm tra lại quyền truy cập Drive'}`
+        });
+      }
+
+      if (!responseJson && rawText.includes('<html')) {
+        return res.json({
+          success: false,
+          message: `Google Apps Script trả về trang web HTML thay vì JSON. Nguyên nhân chính: Đoạn mã doPost(e) đang bị lồng bên trong function myFunction() { ... } hoặc Web App chưa được cấp quyền 'Bất kỳ ai' (Anyone).`
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: `Kết nối thành công tới Google Drive Webhook (HTTP ${fetchRes.status})! ${responseJson?.message ? responseJson.message : 'Đã nhận và lưu file thử nghiệm.'}`,
+        latencyMs,
+        response: responseJson
+      });
+    } else {
+      return res.json({
+        success: false,
+        message: `Máy chủ Google trả về mã lỗi HTTP ${fetchRes.status}: ${rawText.slice(0, 150)}`
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: `Lỗi kết nối Webhook: ${err?.message || String(err)}`
+    });
+  }
+});
+
+// GET /api/backups/list
+backupRouter.get('/list', (req: Request, res: Response) => {
+  try {
+    const list = listBackups();
+    res.json({ success: true, data: list });
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/run
+backupRouter.post('/run', async (req: Request, res: Response) => {
+  try {
+    const result = await performBackup('manual');
+    if (result.success) {
+      res.json({ 
+        success: true, 
+        message: 'Đã thực hiện sao lưu toàn bộ dữ liệu thành công!',
+        data: result.metadata 
+      });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// GET /api/backups/download/:filename
+backupRouter.get('/download/:filename', (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const content = getBackupContent(filename);
+    if (!content) {
+      return res.status(404).json({ success: false, error: 'Không tìm thấy file sao lưu' });
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(content, null, 2));
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// DELETE /api/backups/:filename
+backupRouter.delete('/:filename', (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const ok = deleteBackupFile(filename);
+    if (ok) {
+      res.json({ success: true, message: 'Đã xóa bản sao lưu thành công!' });
+    } else {
+      res.status(404).json({ success: false, error: 'Không tìm thấy file để xóa' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/prune
+backupRouter.post('/prune', async (req: Request, res: Response) => {
+  try {
+    const maxCopies = parseInt(req.body.maxCopies) || 30;
+    const prunedCount = await autoPruneBackups(maxCopies);
+    res.json({ success: true, message: `Đã dọn dẹp ${prunedCount} bản sao lưu cũ để giải phóng bộ nhớ!`, prunedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/sync-offsite/:filename
+backupRouter.post('/sync-offsite/:filename', async (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const result = await pushExistingBackupToOffsite(filename);
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ success: false, error: result.message });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: String(error) });
+  }
+});
+
+// POST /api/backups/dry-run
+backupRouter.post('/dry-run', async (req: Request, res: Response) => {
+  try {
+    const { filename, backupPayload } = req.body;
+    let dataToRestore = backupPayload;
+
+    if (filename && !dataToRestore) {
+      dataToRestore = getBackupContent(filename);
+    }
+
+    if (!dataToRestore) {
+      return res.status(400).json({ 
+        success: false, 
+        errorStage: 'PREFLIGHT',
+        error: `Không tìm thấy file sao lưu '${filename || 'unknown'}' để thực hiện Dry-Run.` 
+      });
+    }
+
+    const result = await runRestoreDryRun(dataToRestore);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ 
+      success: false, 
+      errorStage: 'DRY_RUN',
+      error: `Lỗi khi thực hiện Dry-Run phục hồi: ${error?.message || String(error)}` 
+    });
+  }
+});
+
+// POST /api/backups/restore
+backupRouter.post('/restore', async (req: Request, res: Response) => {
+  try {
+    const { filename, backupPayload, mode } = req.body;
+    let dataToRestore = backupPayload;
+
+    if (filename && !dataToRestore) {
+      dataToRestore = getBackupContent(filename);
+    }
+
+    if (!dataToRestore) {
+      return res.status(400).json({ 
+        success: false, 
+        errorStage: 'PREFLIGHT',
+        error: `Không tìm thấy dữ liệu sao lưu '${filename || 'unknown'}' để phục hồi.` 
+      });
+    }
+
+    if (mode !== 'apply') {
+      return res.status(400).json({
+        success: false,
+        errorStage: 'RESTORE_MODE',
+        error: "Yêu cầu khôi phục ghi thật phải gửi mode='apply'. Kiểm tra thử phải dùng endpoint /api/backups/dry-run."
+      });
+    }
+
+    console.log(`[RestoreRoute] APPLY requested for ${filename || 'uploaded-payload'}`);
+    const result = await restoreFromBackup(dataToRestore, { 
+      mode: 'apply', 
+      adminUser: (req as any).authUser 
+    });
+    console.log(`[RestoreRoute] APPLY result success=${result.success}, stage=${result.errorStage || 'COMPLETED'}`);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(result.statusCode || 500).json({
+        success: false,
+        errorStage: result.errorStage || 'RESTORE',
+        table: result.table,
+        error: result.error || 'Khôi phục thất bại',
+        details: result.details
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({ 
+      success: false, 
+      errorStage: 'INTERNAL',
+      error: `Lỗi hệ thống khi khôi phục: ${error?.message || String(error)}` 
+    });
+  }
+});
+

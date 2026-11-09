@@ -1,0 +1,1884 @@
+import express from "express";
+import webPushModule from "web-push";
+import path from "path";
+import { createServer as createViteServer } from "vite";
+import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } from "./src/db/index.ts";
+import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
+import { eq, desc, asc, and, or } from "drizzle-orm";
+import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken } from "./server/auth.ts";
+import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
+import { getDeploymentOrgConfig } from "./server/deploymentConfig.ts";
+import { DEFAULT_ORG_CONFIG } from "./src/utils.ts";
+import { syncRouter } from "./server/syncRoutes.ts";
+import { onlineRouter } from "./server/onlineRoutes.ts";
+import { databaseRouter } from "./server/databaseRoutes.ts";
+import { backupRouter } from "./server/backupRoutes.ts";
+import { startBackupScheduler } from "./server/backupService.ts";
+import { handleSchedulerTickEndpoint } from "./server/backupScheduler.ts";
+import { ensureDatabaseSchema } from "./server/dbMigrate.ts";
+import { runSeeder } from "./server/seeder.ts";
+import { isCleanupLocked, incrementInFlightWrites, decrementInFlightWrites } from "./server/cleanupService.ts";
+import { 
+  getZaloConfig, 
+  saveZaloConfig, 
+  sendZaloNotification, 
+  formatZaloMessage, 
+  DEFAULT_ZALO_TEMPLATE 
+} from "./server/zaloService.ts";
+import { WORK_NATURE_COEFS, getNatureCoef, getWorkStatusFactor, parseExcelDateToISO } from "./src/utils.ts";
+import { getDeploymentRuntimeConfig } from "./server/deploymentConfig.ts";
+
+
+const webpush: any = (webPushModule as any).default || webPushModule;
+
+type PushPayload = { title: string; body: string; url: string; assignmentId?: string; tag?: string };
+
+const PUSH_SW_SOURCE = "self.addEventListener('push', function(event) {\n  var data = {};\n  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }\n  event.waitUntil(self.registration.showNotification(data.title || 'Thông báo giao việc', {\n    body: data.body || 'Bạn có nhiệm vụ mới.',\n    icon: '/push-icon.svg',\n    badge: '/push-icon.svg',\n    tag: data.tag || ('assignment-' + (data.assignmentId || Date.now())),\n    renotify: true,\n    data: { url: data.url || '/my-works', assignmentId: data.assignmentId || null }\n  }));\n});\nself.addEventListener('notificationclick', function(event) {\n  event.notification.close();\n  var target = (event.notification.data && event.notification.data.url) || '/my-works';\n  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {\n    for (var i = 0; i < list.length; i++) {\n      if ('focus' in list[i]) { list[i].navigate(target); return list[i].focus(); }\n    }\n    if (clients.openWindow) return clients.openWindow(target);\n  }));\n});";
+
+let cachedVapidSettings: any = null;
+
+async function getVapidSettings() {
+  if (cachedVapidSettings) return cachedVapidSettings;
+  try {
+    const existing = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+    if (existing.rows[0]) {
+      cachedVapidSettings = existing.rows[0];
+      return cachedVapidSettings;
+    }
+    const generated = webpush.generateVAPIDKeys();
+    await pool.query(
+      `INSERT INTO push_settings (id, vapid_public_key, vapid_private_key, subject)
+       VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+      [generated.publicKey, generated.privateKey, 'mailto:admin@kpi.internal']
+    );
+    const current = await pool.query('SELECT vapid_public_key, vapid_private_key, subject FROM push_settings WHERE id = 1');
+    if (current.rows[0]) {
+      cachedVapidSettings = current.rows[0];
+      return cachedVapidSettings;
+    }
+  } catch (err) {
+    console.warn("Notice checking VAPID settings:", err);
+  }
+  const generated = webpush.generateVAPIDKeys();
+  cachedVapidSettings = {
+    vapid_public_key: generated.publicKey,
+    vapid_private_key: generated.privateKey,
+    subject: 'mailto:admin@kpi.internal'
+  };
+  return cachedVapidSettings;
+}
+
+async function sendPushToUser(userId: number, payload: PushPayload) {
+  try {
+    const settings = await getVapidSettings();
+    webpush.setVapidDetails(settings.subject, settings.vapid_public_key, settings.vapid_private_key);
+    const subscriptions = await pool.query(
+      'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1 AND active = TRUE',
+      [userId]
+    );
+    let sent = 0;
+    let failed = 0;
+    await Promise.all(subscriptions.rows.map(async (sub: any) => {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify(payload),
+          { TTL: 86400, urgency: 'high' }
+        );
+        sent += 1;
+        await pool.query('UPDATE push_subscriptions SET last_seen_at = NOW(), updated_at = NOW() WHERE id = $1', [sub.id]);
+      } catch (error: any) {
+        failed += 1;
+        if (error?.statusCode === 404 || error?.statusCode === 410) {
+          await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE id = $1', [sub.id]);
+        }
+        console.warn('Web Push delivery notice:', error?.message || error);
+      }
+    }));
+    console.log('[WebPush] user=' + userId + ' attempted=' + subscriptions.rows.length + ' sent=' + sent + ' failed=' + failed);
+    return { attempted: subscriptions.rows.length, sent, failed };
+  } catch (error: any) {
+    console.warn('Web Push skipped; assignment remains saved:', error?.message || error);
+    return { attempted: 0, sent: 0, failed: 1, error: error?.message || String(error) };
+  }
+}
+
+async function startServer() {
+  const app = express();
+  // Cloud Run injects PORT (normally 8080). Keep 3000 only for local use.
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+  const deployment = getDeploymentRuntimeConfig();
+
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  // Login must know the immutable deployment identity before a session exists.
+  // Keep this route before every authenticated API router and do not depend on
+  // database state: each Cloud Run service owns its identity through env vars.
+  const sendPublicOrgIdentity = (_req: express.Request, res: express.Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      success: true,
+      data: getDeploymentOrgConfig(DEFAULT_ORG_CONFIG),
+      deployment: {
+        code: deployment.code,
+        buildCommit: String(process.env.BUILD_COMMIT || 'local')
+      }
+    });
+  };
+  app.get("/api/public/org-identity", sendPublicOrgIdentity);
+  app.get("/api/org-config", sendPublicOrgIdentity);
+
+  app.get('/manifest.webmanifest', (_req, res) => {
+    res.type('application/manifest+json').send({
+      name: `Hệ thống Quản lý Công việc và Đánh giá KPI — ${deployment.name}`,
+      short_name: `KPI ${deployment.shortName}`,
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#f1f5f9',
+      theme_color: deployment.themeColor,
+      icons: [{ src: '/push-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }]
+    });
+  });
+
+  app.get('/push-icon.svg', (_req, res) => {
+    res.type('image/svg+xml').send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#1F4E78"/><path d="M64 22a30 30 0 0 0-30 30v19L23 87h82L94 71V52a30 30 0 0 0-30-30Zm0 88a16 16 0 0 0 15-11H49a16 16 0 0 0 15 11Z" fill="white"/></svg>');
+  });
+
+  app.get('/push-sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.type('application/javascript').send(PUSH_SW_SOURCE);
+  });
+
+  app.get('/api/push/public-key', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const settings = await getVapidSettings();
+      const userId = (req as any).authUser.id;
+      const status = await pool.query('SELECT COUNT(*)::int AS count FROM push_subscriptions WHERE user_id = $1 AND active = TRUE', [userId]);
+      res.json({ success: true, publicKey: settings.vapid_public_key, subscribed: Number(status.rows[0]?.count || 0) > 0 });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/push/subscribe', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).authUser.id;
+      const { endpoint, keys, deviceLabel } = req.body || {};
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ success: false, message: 'Thông tin đăng ký thiết bị không hợp lệ.' });
+      }
+      await pool.query(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device_label, active, last_seen_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
+         ON CONFLICT (endpoint) DO UPDATE SET
+           user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth,
+           device_label = EXCLUDED.device_label, active = TRUE, last_seen_at = NOW(), updated_at = NOW()`,
+        [userId, String(endpoint), String(keys.p256dh), String(keys.auth), String(deviceLabel || req.headers['user-agent'] || 'Thiết bị')]
+      );
+      res.json({ success: true, message: 'Đã bật thông báo giao việc trên thiết bị này.' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/push/test', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).authUser;
+      const delivery = await sendPushToUser(Number(user.id), {
+        title: 'Kiểm tra thông báo giao việc',
+        body: 'Thiết bị này đã nhận Web Push thành công.',
+        url: '/my-works',
+        tag: 'push-test-' + user.id + '-' + Date.now()
+      });
+      res.json({
+        success: delivery.sent > 0,
+        delivery,
+        message: delivery.sent > 0
+          ? 'Đã gửi thử thành công tới ' + delivery.sent + '/' + delivery.attempted + ' thiết bị.'
+          : delivery.attempted === 0
+            ? 'Tài khoản chưa có thiết bị đăng ký nhận thông báo.'
+            : 'Máy chủ đã thử gửi nhưng thiết bị từ chối hoặc endpoint đã hết hạn.'
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+  app.delete('/api/push/unsubscribe', requireSessionAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).authUser.id;
+      const endpoint = String(req.body?.endpoint || '');
+      if (endpoint) {
+        await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE user_id = $1 AND endpoint = $2', [userId, endpoint]);
+      } else {
+        await pool.query('UPDATE push_subscriptions SET active = FALSE, updated_at = NOW() WHERE user_id = $1', [userId]);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error?.message || String(error) });
+    }
+  });
+
+
+  let schemaInitialized = false;
+  let schemaInitError: string | null = null;
+
+  // Migrate schema and seed data on startup
+  setTimeout(async () => {
+    try {
+      const mode = getStorageMode();
+      if (mode === 'postgres' && !isPostgresConfigured()) {
+        schemaInitError = 'DATABASE_URL chưa được cấu hình trong Secrets';
+        console.warn('[Startup] Fail-Closed: DATABASE_URL is not set. Real write operations locked.');
+        return;
+      }
+
+      // 1. ensureDatabaseSchema MUST run before seeder. Neon may briefly time
+      // out while several isolated departments cold-start at once, so retry
+      // transient startup failures instead of leaving health degraded forever.
+      let migResult = await ensureDatabaseSchema();
+      for (let attempt = 2; !migResult.success && attempt <= 3; attempt += 1) {
+        const retryDelayMs = attempt * 3000;
+        console.warn(`[Startup] Schema sync attempt ${attempt - 1} failed; retrying in ${retryDelayMs}ms:`, migResult.message);
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        migResult = await ensureDatabaseSchema();
+      }
+      if (migResult.success) {
+        schemaInitialized = true;
+        schemaInitError = null;
+        console.log("Schema sync result:", migResult.message || "OK");
+        
+        // 2. Seeder is idempotent, only seeds if empty
+        const seedResult = await runSeeder();
+        console.log("Init seed result:", seedResult?.message || "OK");
+        startBackupScheduler();
+      } else {
+        schemaInitialized = false;
+        schemaInitError = migResult.message || 'Lỗi đồng bộ cấu trúc bảng CSDL';
+        console.error("Schema sync failed:", schemaInitError);
+      }
+    } catch (e: any) {
+      schemaInitialized = false;
+      schemaInitError = e?.message || String(e);
+      console.warn("Startup background sync notice:", e);
+    }
+  }, 2000);
+
+  // --- API Routes ---
+
+  // Maintenance check for active cleanup lock (blocks concurrent write operations)
+  // and Fail-Closed protection when in PostgreSQL mode without DATABASE_URL
+  app.use("/api", (req, res, next) => {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+      const url = req.originalUrl || req.url;
+      const isExempt = url.includes('/auth/') || url.includes('/database/') || url.includes('/backups/');
+
+      // Fail-closed write lock if in postgres mode but not configured
+      if (!isExempt && getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Ứng dụng đang ở chế độ Fail-Closed để bảo vệ an toàn dữ liệu.',
+          storageMode: 'postgres',
+          connected: false
+        });
+      }
+
+      if (!url.includes('/database/clean') && !url.includes('/auth/login') && !url.includes('/auth/logout') && !url.includes('/auth/session')) {
+        const lockStatus = isCleanupLocked();
+        if (lockStatus.locked) {
+          return res.status(423).json({
+            success: false,
+            error: 'Hệ thống đang trong quá trình bảo trì và làm sạch dữ liệu. Mọi thao tác ghi tạm thời bị khóa trong vài giây, vui lòng thử lại sau ít phút.'
+          });
+        }
+
+        // Increment in-flight write counter for non-cleanup write operations
+        incrementInFlightWrites();
+        let decremented = false;
+        const onFinishOrClose = () => {
+          if (!decremented) {
+            decremented = true;
+            decrementInFlightWrites();
+          }
+        };
+        res.once('finish', onFinishOrClose);
+        res.once('close', onFinishOrClose);
+      }
+    }
+    next();
+  });
+
+  // Health check endpoint - real SELECT 1 ping, never fakes OK on failure
+  app.get("/api/health", async (_req, res) => {
+    const health = await checkDatabaseHealth();
+    if (health.storageMode === 'postgres') {
+      if (!health.connected) {
+        return res.status(503).json({
+          status: "degraded",
+          ...health,
+          deployment,
+          schemaInitialized,
+          schemaError: schemaInitError
+        });
+      }
+      if (!schemaInitialized && schemaInitError) {
+        return res.status(503).json({
+          status: "degraded",
+          ...health,
+          deployment,
+          schemaInitialized: false,
+          schemaError: schemaInitError
+        });
+      }
+    }
+    res.json({
+      status: "ok",
+      ...health,
+      deployment,
+      buildCommit: String(process.env.BUILD_COMMIT || 'local'),
+      schemaInitialized: health.storageMode === 'postgres' ? schemaInitialized : true
+    });
+  });
+
+  // Seeder endpoint
+  app.get("/api/seed", requireStrictAdminSession, async (req, res) => {
+    const result = await runSeeder();
+    res.json(result);
+  });
+
+  // Auth Router
+  app.use("/api/auth", authRouter);
+
+  // Database Router
+  app.use("/api/database", databaseRouter);
+
+  // Google Cloud Scheduler wake-up endpoint (secured by BACKUP_SCHEDULER_TOKEN constant-time comparison)
+  app.post("/api/backups/scheduler-tick", handleSchedulerTickEndpoint);
+  app.get("/api/backups/scheduler-tick", handleSchedulerTickEndpoint);
+
+  // Backup & Disaster Recovery Router
+  app.use("/api/backups", requireStrictAdminSession, backupRouter);
+
+  // KPI Router
+  app.use("/api/kpi", requireSessionAuthenticated, kpiRouter);
+
+  // System & Org Config route aliases for convenience
+    app.get("/api/system-config", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+    app.post("/api/system-config", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+    app.post("/api/system-config/reset", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/org-config/reset';
+    kpiRouter(req, res, next);
+  });
+    app.post("/api/org-config", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/org-config';
+    kpiRouter(req, res, next);
+  });
+    app.post("/api/org-config/reset", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/org-config/reset';
+    kpiRouter(req, res, next);
+  });
+
+  // KPI Config route aliases for compatibility
+  app.get("/api/kpi-config", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/kpi-config", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/config';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/kpi-config/reset", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/config/reset';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/kpi-config/recalculate-all", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/recalculate-all';
+    kpiRouter(req, res, next);
+  });
+  app.post("/api/kpi-config/recalculate", requireSessionAuthenticated, (req, res, next) => {
+    req.url = '/recalculate';
+    kpiRouter(req, res, next);
+  });
+
+  // 1. Works APIs
+  app.get("/api/works", async (req, res) => {
+    try {
+      const allWorks = await db.query.works.findMany({
+        with: { user: true },
+        orderBy: (w, { desc }) => [desc(w.createdAt)],
+      });
+      res.json({ success: true, data: allWorks });
+    } catch (error) {
+      console.error("Error fetching works:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/works", requireSessionAuthenticated, async (req, res) => {
+    try {
+      const p = req.body;
+      const authUser = (req as any).authUser;
+      const isLeader = isKpiLeaderOrAdmin(authUser);
+
+      let userId = authUser?.id || 1;
+      if (isLeader) {
+        // Chỉ Lãnh đạo hoặc Admin mới có quyền tạo việc hộ / giao việc cho nhân sự khác
+        let targetUser = null;
+        if (p.userId && Number(p.userId) > 0) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.id, Number(p.userId)),
+          });
+        }
+        if (!targetUser && p.userEmail) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.email, String(p.userEmail).trim().toLowerCase()),
+          });
+        }
+        if (!targetUser && p.userName) {
+          targetUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.name, String(p.userName).trim()),
+          });
+        }
+        userId = targetUser ? targetUser.id : (p.userId && Number(p.userId) > 0 ? Number(p.userId) : (authUser?.id || 1));
+      } else {
+        // Nhân viên thông thường TUYỆT ĐỐI chỉ được tạo công việc cho chính mình
+        userId = authUser.id;
+      }
+
+      const parsedStart = parseExcelDateToISO(p.startDate);
+      const parsedEnd = parseExcelDateToISO(p.endDate);
+      const parsedActualEnd = parseExcelDateToISO(p.actualEndDate);
+
+      const dbStartDate = parsedStart ? new Date(parsedStart) : (p.startDate && !isNaN(new Date(p.startDate).getTime()) && new Date(p.startDate).getFullYear() >= 1990 ? new Date(p.startDate) : null);
+      const dbEndDate = parsedEnd ? new Date(parsedEnd) : (p.endDate && !isNaN(new Date(p.endDate).getTime()) && new Date(p.endDate).getFullYear() >= 1990 ? new Date(p.endDate) : null);
+      const dbActualEndDate = parsedActualEnd ? new Date(parsedActualEnd) : (p.actualEndDate && !isNaN(new Date(p.actualEndDate).getTime()) && new Date(p.actualEndDate).getFullYear() >= 1990 ? new Date(p.actualEndDate) : null);
+
+      const proposedNature = p.proposedNature || p.nature || "Trung bình";
+      const defaultNatureObj = WORK_NATURE_COEFS[proposedNature] || WORK_NATURE_COEFS["Trung bình"];
+      const resolvedCoef = p.coef !== undefined && p.coef !== null && String(p.coef).trim() !== '' 
+        ? String(p.coef) 
+        : String(defaultNatureObj?.coef ?? "0.8");
+
+      const dbBaseScore = p.baseScore !== undefined && p.baseScore !== null && String(p.baseScore).trim() !== ''
+        ? String(p.baseScore)
+        : (p.score !== undefined && p.score !== null && String(p.score).trim() !== '' ? String(p.score) : "0");
+
+      const initBaseScore = parseFloat(dbBaseScore) || 10;
+      const initCoef = parseFloat(resolvedCoef) || 0.8;
+      const initStandardApprovedScore = String(Math.round(initBaseScore * initCoef * 10) / 10);
+
+      // Phân quyền tạo việc: Chỉ Lãnh đạo hoặc Quản trị viên mới được tạo công việc ở trạng thái đã Duyệt
+      let initialLeaderApproval = "Chưa duyệt";
+      let initialApproverId: number | null = null;
+      let initialApprovalDate: Date | null = null;
+      let initialApprovedScore: string | null = null;
+      let initialLeaderNote = "";
+
+      if (isLeader && p.leaderApproval && (p.leaderApproval === 'Duyệt' || p.leaderApproval === 'Không duyệt' || p.leaderApproval === 'Cần bổ sung')) {
+        initialLeaderApproval = p.leaderApproval;
+        initialApproverId = authUser?.id || null;
+        initialApprovalDate = new Date();
+        initialLeaderNote = p.leaderNote || (p.leaderApproval === 'Duyệt' ? 'Đã phê duyệt đạt khi tạo việc.' : '');
+
+        if (p.leaderApproval === 'Duyệt') {
+          if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+            const parsedScore = parseFloat(String(p.approvedConvertedScore));
+            if (!isNaN(parsedScore) && parsedScore >= 0) {
+              initialApprovedScore = String(Math.round(parsedScore * 10) / 10);
+            }
+          }
+          if (!initialApprovedScore) {
+            initialApprovedScore = initStandardApprovedScore;
+          }
+        } else if (p.leaderApproval === 'Không duyệt') {
+          initialApprovedScore = '0';
+        }
+      } else {
+        // Nhân viên thông thường tạo việc: bắt buộc khởi tạo là Chưa duyệt, không có điểm duyệt
+        initialLeaderApproval = "Chưa duyệt";
+        initialApprovedScore = null;
+      }
+
+      const newWork = await db.insert(works).values({
+        workId: p.workId || `W8-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        month: p.month || "08-2026",
+        userId: userId,
+        taskGroup: p.taskGroup || p.group,
+        taskName: p.taskName || p.task,
+        taskCode: p.taskCode || p.code,
+        detail: p.detail,
+        startDate: dbStartDate,
+        startTime: p.startTime || "07:30",
+        endDate: dbEndDate,
+        endTime: p.endTime || "17:00",
+        actualEndDate: dbActualEndDate,
+        hours: String(p.hours || "8"),
+        days: parseInt(p.days || "1"),
+        proposedNature: proposedNature,
+        approvedNature: p.approvedNature || (initialLeaderApproval === 'Duyệt' ? proposedNature : ""),
+        coef: resolvedCoef,
+        baseScore: dbBaseScore,
+        convertedScore: initialApprovedScore || (p.convertedScore !== undefined && p.convertedScore !== null && String(p.convertedScore).trim() !== '' ? String(p.convertedScore) : null),
+        selfConvertedScore: p.selfConvertedScore !== undefined && p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '' ? String(p.selfConvertedScore) : null,
+        approvedConvertedScore: initialApprovedScore,
+        status: p.status || "Chưa cập nhật",
+        evidence: p.evidence || "",
+        productType: p.productType || "Báo cáo",
+        productQty: parseInt(p.productQty || "1"),
+        unit: p.unit || "Sản phẩm",
+        project: p.project || "",
+        relatedUnit: p.relatedUnit || "",
+        lateReason: p.lateReason || "",
+        penaltyExemption: p.penaltyExemption || "Không",
+        editNote: p.editNote || "",
+        leaderApproval: initialLeaderApproval,
+        leaderNote: initialLeaderNote,
+        approverId: initialApproverId,
+        approvalDate: initialApprovalDate,
+        source: p.source || "WEBAPP",
+      }).returning();
+
+      let kpiRecalcResult: any = null;
+      if (newWork[0]) {
+        try {
+          kpiRecalcResult = await recalculateAffectedMonths([newWork[0].month]);
+          if (kpiRecalcResult && !kpiRecalcResult.success) {
+            console.warn("Notice: KPI recalculation had partial failures on work creation:", kpiRecalcResult.failedUsers);
+          }
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after work creation:", kpiErr);
+        }
+      }
+
+      const responsePayload: any = { 
+        success: true, 
+        data: newWork[0], 
+        message: "Đã lưu công việc thành công!" 
+      };
+
+      if (kpiRecalcResult && !kpiRecalcResult.success && kpiRecalcResult.failedUsers?.length > 0) {
+        responsePayload.warning = `Đã lưu công việc, nhưng tự động cập nhật bảng KPI của ${kpiRecalcResult.failedUsers.length} nhân sự chưa hoàn tất: ${kpiRecalcResult.failedUsers.map((f: any) => f.name).join(', ')}`;
+        responsePayload.failedRecalcs = kpiRecalcResult.failedUsers;
+      }
+
+      res.json(responsePayload);
+    } catch (error) {
+      console.error("Error creating work:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.put("/api/works/:id", requireSessionAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const p = req.body;
+      const authUser = (req as any).authUser;
+      const updateData: any = { updatedAt: new Date() };
+
+      const oldWork = await db.query.works.findFirst({
+        where: eq(works.id, id)
+      });
+
+      if (!oldWork) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
+      }
+
+      const isLeader = isKpiLeaderOrAdmin(authUser);
+
+      // 1. Phân quyền và kiểm tra quyền sở hữu công việc (Object-Level Authorization)
+      if (!isLeader) {
+        // Nhân viên thông thường CHỈ ĐƯỢC PHÉP sửa công việc của chính mình
+        if (oldWork.userId !== authUser.id) {
+          return res.status(403).json({
+            success: false,
+            error: "Bạn không có quyền chỉnh sửa công việc của nhân sự khác."
+          });
+        }
+
+        // Nhân viên thông thường TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP can thiệp vào các trường thẩm định/phê duyệt của Lãnh đạo
+        const hasLeaderFields = 
+          p.isLeaderAction !== undefined ||
+          p.leaderApproval !== undefined ||
+          p.approvedConvertedScore !== undefined ||
+          p.approvedNature !== undefined ||
+          p.approverId !== undefined ||
+          p.approvalDate !== undefined ||
+          p.leaderNote !== undefined ||
+          (p.userId !== undefined && Number(p.userId) !== Number(oldWork.userId));
+
+        if (hasLeaderFields) {
+          return res.status(403).json({
+            success: false,
+            error: "Bạn không có quyền Lãnh đạo để phê duyệt, chỉnh sửa điểm KPI duyệt hoặc thay đổi quyền sở hữu công việc."
+          });
+        }
+      } else {
+        // Lãnh đạo/Admin có quyền chuyển giao việc cho nhân sự khác
+        if (p.userId !== undefined && Number(p.userId) > 0) {
+          updateData.userId = parseInt(p.userId);
+        }
+      }
+
+      if (p.taskGroup !== undefined) updateData.taskGroup = p.taskGroup;
+      if (p.taskName !== undefined) updateData.taskName = p.taskName;
+      if (p.taskCode !== undefined) updateData.taskCode = p.taskCode;
+      if (p.detail !== undefined) updateData.detail = p.detail;
+      if (p.startDate !== undefined) updateData.startDate = p.startDate ? new Date(p.startDate) : null;
+      if (p.startTime !== undefined) updateData.startTime = p.startTime;
+      if (p.endDate !== undefined) updateData.endDate = p.endDate ? new Date(p.endDate) : null;
+      if (p.endTime !== undefined) updateData.endTime = p.endTime;
+      if (p.actualEndDate !== undefined) updateData.actualEndDate = p.actualEndDate ? new Date(p.actualEndDate) : null;
+      if (p.hours !== undefined) updateData.hours = String(p.hours);
+      if (p.days !== undefined) updateData.days = parseInt(p.days);
+      if (p.status !== undefined) updateData.status = p.status;
+      if (p.evidence !== undefined) updateData.evidence = p.evidence;
+      if (p.productType !== undefined) updateData.productType = p.productType;
+      if (p.productQty !== undefined) updateData.productQty = parseInt(p.productQty);
+      if (p.unit !== undefined) updateData.unit = p.unit;
+      if (p.project !== undefined) updateData.project = p.project;
+      if (p.relatedUnit !== undefined) updateData.relatedUnit = p.relatedUnit;
+      if (p.proposedNature !== undefined) {
+        updateData.proposedNature = p.proposedNature;
+        if (p.coef === undefined) {
+          updateData.coef = String(getNatureCoef(p.proposedNature));
+        }
+      }
+      if (p.coef !== undefined) updateData.coef = String(p.coef);
+      if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
+
+      // 1. Tính toán selfConvertedScore theo công thức: Điểm chuẩn × Hệ số tính chất × Hệ số tiến độ
+      const baseScoreNum = parseFloat(updateData.baseScore ?? p.baseScore ?? oldWork.baseScore ?? '10') || 10;
+      const natureStr = updateData.proposedNature ?? p.proposedNature ?? oldWork.proposedNature ?? 'Trung bình';
+      const coefNum = parseFloat(updateData.coef ?? p.coef ?? oldWork.coef ?? String(getNatureCoef(natureStr))) || 0.8;
+      const statusStr = updateData.status ?? p.status ?? oldWork.status ?? 'Đang xử lý';
+      const statusFactor = getWorkStatusFactor(statusStr);
+      const computedSelfScore = String(Math.round(baseScoreNum * coefNum * statusFactor * 10) / 10);
+
+      if (p.selfConvertedScore !== undefined) {
+        updateData.selfConvertedScore = (p.selfConvertedScore !== null && String(p.selfConvertedScore).trim() !== '') 
+          ? String(p.selfConvertedScore) 
+          : computedSelfScore;
+      } else if (p.baseScore !== undefined || p.proposedNature !== undefined || p.coef !== undefined || p.status !== undefined) {
+        updateData.selfConvertedScore = computedSelfScore;
+      }
+
+      if (p.convertedScore !== undefined) {
+        updateData.convertedScore = (p.convertedScore !== null && String(p.convertedScore).trim() !== '') 
+          ? String(p.convertedScore) 
+          : computedSelfScore;
+      } else if (p.baseScore !== undefined || p.proposedNature !== undefined || p.coef !== undefined || p.status !== undefined) {
+        updateData.convertedScore = computedSelfScore;
+      }
+
+      // 2. Điểm thẩm định & Phê duyệt của Lãnh đạo trên máy chủ:
+      // Chỉ Lãnh đạo/Admin mới có quyền can thiệp vào khối này
+      if (isLeader) {
+        if (p.leaderApproval !== undefined) {
+          updateData.leaderApproval = p.leaderApproval;
+          if (p.leaderApproval === 'Duyệt') {
+            const approvedBase = parseFloat(updateData.baseScore ?? p.baseScore ?? oldWork.baseScore ?? '10') || 10;
+            const approvedNature = updateData.approvedNature ?? p.approvedNature ?? updateData.proposedNature ?? p.proposedNature ?? oldWork.approvedNature ?? oldWork.proposedNature ?? 'Trung bình';
+            const approvedCoef = parseFloat(updateData.coef ?? p.coef ?? oldWork.coef ?? String(getNatureCoef(approvedNature))) || 0.8;
+            
+            const serverStandardApprovedScore = Math.round(approvedBase * approvedCoef * 10) / 10;
+
+            // Tôn trọng điểm số Lãnh đạo đã nhập; nếu không truyền hoặc không hợp lệ thì mặc định theo Điểm chuẩn × Hệ số
+            let finalApprovedScore = serverStandardApprovedScore;
+            if (p.approvedConvertedScore !== undefined && p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+              const clientScore = parseFloat(String(p.approvedConvertedScore));
+              if (!isNaN(clientScore) && clientScore >= 0) {
+                finalApprovedScore = Math.round(clientScore * 10) / 10;
+              }
+            }
+
+            updateData.approvedConvertedScore = String(finalApprovedScore);
+            updateData.convertedScore = String(finalApprovedScore);
+            updateData.approverId = authUser.id; // Luôn luôn gắn định danh người duyệt từ phiên an toàn
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          } else if (p.leaderApproval === 'Không duyệt') {
+            updateData.approvedConvertedScore = '0';
+            updateData.convertedScore = '0';
+            updateData.approverId = authUser.id;
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          } else if (p.leaderApproval === 'Cần bổ sung') {
+            updateData.approvedConvertedScore = null;
+            updateData.approverId = authUser.id;
+            updateData.approvalDate = p.approvalDate ? new Date(p.approvalDate) : new Date();
+          }
+        } else if (p.approvedConvertedScore !== undefined) {
+          // Lãnh đạo chủ động sửa điểm duyệt trực tiếp (khi việc đã duyệt)
+          if (p.approvedConvertedScore !== null && String(p.approvedConvertedScore).trim() !== '') {
+            const clientScore = parseFloat(String(p.approvedConvertedScore));
+            if (!isNaN(clientScore) && clientScore >= 0) {
+              const finalScore = String(Math.round(clientScore * 10) / 10);
+              updateData.approvedConvertedScore = finalScore;
+              updateData.convertedScore = finalScore;
+              updateData.approverId = authUser.id;
+              updateData.approvalDate = new Date();
+            }
+          }
+        }
+
+        if (p.approvedNature !== undefined) updateData.approvedNature = p.approvedNature;
+        if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
+      }
+
+      if (p.lateReason !== undefined) updateData.lateReason = p.lateReason;
+      if (p.penaltyExemption !== undefined) updateData.penaltyExemption = p.penaltyExemption;
+      if (p.editNote !== undefined) updateData.editNote = p.editNote;
+      if (p.month !== undefined) updateData.month = p.month;
+      if (p.dataStatus !== undefined) updateData.dataStatus = p.dataStatus;
+      if (p.sysNote !== undefined) updateData.sysNote = p.sysNote;
+
+      // 2. Chỉ chuyển công việc đã duyệt về Chưa duyệt khi thay đổi trường thực sự ảnh hưởng KPI: baseScore, coef, proposedNature, status, month, userId hoặc dữ liệu làm thay đổi điểm D. Sửa ghi chú, minh chứng hoặc nội dung không ảnh hưởng điểm thì vẫn giữ trạng thái Duyệt.
+      const isPreviouslyApproved = oldWork.leaderApproval === 'Duyệt';
+      const isExplicitLeaderAction = p.isLeaderAction === true || p.leaderApproval === 'Duyệt' || p.leaderApproval === 'Cần bổ sung' || p.leaderApproval === 'Không duyệt';
+
+      const isKpiFieldModified = 
+        (p.baseScore !== undefined && String(p.baseScore) !== String(oldWork.baseScore)) ||
+        (p.coef !== undefined && String(p.coef) !== String(oldWork.coef)) ||
+        (p.proposedNature !== undefined && p.proposedNature !== oldWork.proposedNature) ||
+        (p.status !== undefined && p.status !== oldWork.status) ||
+        (p.month !== undefined && p.month !== oldWork.month) ||
+        (p.userId !== undefined && Number(p.userId) !== Number(oldWork.userId)) ||
+        p.leaderApproval === 'Chưa duyệt';
+
+      if (isPreviouslyApproved && !isExplicitLeaderAction && isKpiFieldModified) {
+        updateData.leaderApproval = 'Chưa duyệt';
+        updateData.approvedConvertedScore = null;
+        updateData.approvalDate = null;
+        updateData.approverId = null;
+
+        const noteSuffix = 'Đã sửa sau duyệt - chuyển về Chưa duyệt để thẩm định lại';
+        updateData.editNote = p.editNote && String(p.editNote).trim() 
+          ? String(p.editNote).trim() 
+          : (oldWork.editNote ? `${oldWork.editNote}; ${noteSuffix}` : noteSuffix);
+
+        const logEntry = `[${new Date().toISOString()}] Đã tự động chuyển về 'Chưa duyệt' và xóa điểm duyệt do nhân viên sửa trường ảnh hưởng KPI (ĐÃ TỪNG DUYỆT)`;
+        updateData.sysNote = oldWork.sysNote ? `${oldWork.sysNote} | ${logEntry}` : logEntry;
+      }
+
+      const updated = await db.update(works).set(updateData).where(eq(works.id, id)).returning();
+      const updatedWork = updated[0];
+
+      let kpiRecalcResult: any = null;
+
+      // Tự động tính lại KPI toàn bộ nhân sự đúng phòng và tháng bị ảnh hưởng khi duyệt, sửa, chuyển việc
+      if (updatedWork) {
+        const isRelevantChange = 
+          isPreviouslyApproved ||
+          p.leaderApproval !== undefined ||
+          p.approvedConvertedScore !== undefined ||
+          p.convertedScore !== undefined ||
+          p.selfConvertedScore !== undefined ||
+          p.approvedNature !== undefined ||
+          p.proposedNature !== undefined ||
+          p.coef !== undefined ||
+          p.baseScore !== undefined ||
+          p.hours !== undefined ||
+          p.days !== undefined ||
+          p.status !== undefined ||
+          p.dataStatus !== undefined ||
+          p.month !== undefined ||
+          p.userId !== undefined;
+
+        if (isRelevantChange) {
+          try {
+            const affectedMonths = [oldWork?.month, updatedWork.month];
+            kpiRecalcResult = await recalculateAffectedMonths(affectedMonths);
+            if (kpiRecalcResult && !kpiRecalcResult.success) {
+              console.warn("Notice: KPI recalculation had partial failures:", kpiRecalcResult.failedUsers);
+            }
+          } catch (kpiErr) {
+            console.error("Error auto recalculating KPI after work update:", kpiErr);
+          }
+        }
+
+        // Tạo thông báo cho nhân viên khi Lãnh đạo phê duyệt, yêu cầu bổ sung hoặc từ chối duyệt
+        if (p.leaderApproval && p.leaderApproval !== oldWork.leaderApproval && updatedWork.userId) {
+          try {
+            let notifyTitle = '';
+            let notifyContent = '';
+            let notifyType = 'Phê duyệt việc';
+
+            const workTitle = updatedWork.taskName || 'Nhiệm vụ';
+            if (p.leaderApproval === 'Duyệt') {
+              notifyType = 'Phê duyệt việc';
+              notifyTitle = `Lãnh đạo đã phê duyệt công việc: ${workTitle}`;
+              notifyContent = `Công việc "${workTitle}" (Tháng ${updatedWork.month}) đã được phê duyệt đạt. Điểm KPI: ${updatedWork.approvedConvertedScore || updatedWork.convertedScore || 0} điểm.${updatedWork.leaderNote ? ' Ghi chú: ' + updatedWork.leaderNote : ''}`;
+            } else if (p.leaderApproval === 'Cần bổ sung') {
+              notifyType = 'Yêu cầu bổ sung';
+              notifyTitle = `Yêu cầu bổ sung hồ sơ: ${workTitle}`;
+              notifyContent = `Lãnh đạo yêu cầu bổ sung/hoàn thiện công việc "${workTitle}". Ý kiến chỉ đạo: ${updatedWork.leaderNote || 'Vui lòng kiểm tra và hoàn thiện hồ sơ nộp lại.'}`;
+            } else if (p.leaderApproval === 'Không duyệt') {
+              notifyType = 'Từ chối phê duyệt';
+              notifyTitle = `Lãnh đạo không duyệt công việc: ${workTitle}`;
+              notifyContent = `Công việc "${workTitle}" không được phê duyệt đạt (0 điểm KPI). Lý do: ${updatedWork.leaderNote || 'Không đạt yêu cầu quy định.'}`;
+            }
+
+            if (notifyTitle) {
+              await db.insert(notifications).values({
+                notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                senderId: updateData.approverId || null,
+                receiverId: updatedWork.userId,
+                type: notifyType,
+                title: notifyTitle,
+                content: notifyContent,
+                relatedTarget: String(updatedWork.id),
+                status: 'Chưa xem'
+              }).onConflictDoNothing();
+            }
+          } catch (nErr) {
+            console.error("Error creating review notification:", nErr);
+          }
+        }
+      }
+
+      const responsePayload: any = { 
+        success: true, 
+        data: updatedWork, 
+        message: "Đã cập nhật công việc thành công!" 
+      };
+
+      if (kpiRecalcResult && !kpiRecalcResult.success && kpiRecalcResult.failedUsers?.length > 0) {
+        responsePayload.warning = `Đã lưu công việc, nhưng tự động cập nhật bảng KPI của ${kpiRecalcResult.failedUsers.length} nhân sự chưa hoàn tất: ${kpiRecalcResult.failedUsers.map((f: any) => f.name).join(', ')}`;
+        responsePayload.failedRecalcs = kpiRecalcResult.failedUsers;
+      }
+
+      res.json(responsePayload);
+    } catch (error) {
+      console.error("Error updating work:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/works/:id", requireSessionAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const authUser = (req as any).authUser;
+      const oldWork = await db.query.works.findFirst({
+        where: eq(works.id, id)
+      });
+
+      if (!oldWork) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy công việc!" });
+      }
+
+      const isLeaderOrAdmin = isKpiLeaderOrAdmin(authUser);
+
+      // 1. Kiểm tra quyền sở hữu: Nhân viên chỉ được phép xóa công việc của chính mình
+      if (!isLeaderOrAdmin && oldWork.userId !== authUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: "Bạn không có quyền xóa công việc của nhân sự khác."
+        });
+      }
+
+      // 2. Kiểm tra công việc đã duyệt hoặc đã từng duyệt
+      const isApprovedOrEverApproved = 
+        oldWork.leaderApproval === 'Duyệt' || 
+        Boolean(oldWork.approvedConvertedScore && String(oldWork.approvedConvertedScore).trim() !== '') ||
+        Boolean(oldWork.approverId) ||
+        Boolean(oldWork.approvalDate) ||
+        String(oldWork.sysNote || '').includes('ĐÃ TỪNG DUYỆT') ||
+        String(oldWork.sysNote || '').includes('Đã sửa sau duyệt');
+
+      // Nhân viên không được phép xóa công việc đã duyệt hoặc từng được duyệt
+      if (!isLeaderOrAdmin && isApprovedOrEverApproved) {
+        return res.status(403).json({ 
+          success: false, 
+          error: "Công việc này đã được phê duyệt (hoặc từng được phê duyệt)! Nhân viên không có quyền xóa. Chỉ Lãnh đạo hoặc Quản trị viên mới có quyền xử lý xóa công việc này." 
+        });
+      }
+
+      const updated = await db.update(works).set({
+        dataStatus: "Đã xóa mềm",
+        sysNote: `Xóa mềm lúc ${new Date().toISOString()} bởi ${authUser?.name || 'Người dùng'}${req.body?.reason ? ` - Lý do: ${req.body.reason}` : ''}`,
+        updatedAt: new Date(),
+      }).where(eq(works.id, id)).returning();
+
+      if (oldWork) {
+        try {
+          await recalculateAffectedMonths([oldWork.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after work deletion:", kpiErr);
+        }
+      }
+
+      res.json({ success: true, data: updated[0], message: "Đã xóa mềm công việc thành công!" });
+    } catch (error) {
+      console.error("Error deleting work:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // 2. Users APIs
+  app.get("/api/users", async (req, res) => {
+    try {
+      const allUsers = await db.query.users.findMany({
+        orderBy: (u, { asc }) => [asc(u.name)],
+      });
+      res.json({ success: true, data: allUsers });
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/users", async (req, res) => {
+    try {
+      const p = req.body;
+      const newUser = await db.insert(users).values({
+        name: p.name,
+        email: p.email || `${Date.now()}@kpi.local`,
+        phone: p.phone,
+        zalo: p.zalo,
+        position: p.position || "Chuyên viên",
+        group: p.group || "Nhân viên",
+        role: p.role || "STAFF",
+        status: p.status || "Đang làm",
+        permissions: p.permissions || "",
+      }).onConflictDoUpdate({
+        target: users.email,
+        set: {
+          name: p.name,
+          phone: p.phone,
+          zalo: p.zalo,
+          position: p.position,
+          group: p.group,
+          role: p.role,
+          status: p.status,
+          permissions: p.permissions,
+          updatedAt: new Date(),
+        },
+      }).returning();
+      res.json({ success: true, data: newUser[0], message: "Đã lưu người dùng!" });
+    } catch (error) {
+      console.error("Error creating/updating user:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.put("/api/users/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const p = req.body;
+      const updated = await db.update(users).set({
+        name: p.name,
+        email: p.email,
+        phone: p.phone,
+        zalo: p.zalo,
+        position: p.position,
+        group: p.group,
+        role: p.role,
+        status: p.status,
+        permissions: p.permissions,
+        updatedAt: new Date(),
+      }).where(eq(users.id, id)).returning();
+      res.json({ success: true, data: updated[0], message: "Đã cập nhật người dùng!" });
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/users/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(users).where(eq(users.id, id));
+      res.json({ success: true, message: "Đã xóa nhân sự" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // --- Zalo Integration APIs ---
+  app.get("/api/zalo/config", (req, res) => {
+    try {
+      const config = getZaloConfig();
+      res.json({ success: true, data: config });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/config", (req, res) => {
+    try {
+      const saved = saveZaloConfig(req.body);
+      if (saved) {
+        res.json({ success: true, message: "Đã lưu cấu hình Zalo thành công!", data: getZaloConfig() });
+      } else {
+        res.status(500).json({ success: false, error: "Không thể lưu cấu hình Zalo" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/send", async (req, res) => {
+    try {
+      const params = req.body;
+      const result = await sendZaloNotification(params);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/zalo/test", async (req, res) => {
+    try {
+      const { phone, name, customMessage } = req.body;
+      const config = getZaloConfig();
+      const testResult = await sendZaloNotification({
+        receiverName: name || "Cán bộ thử nghiệm",
+        receiverPhone: phone || config.senderPhone || "0988888888",
+        assignerName: config.senderName || "Lãnh đạo Phòng",
+        taskName: "Nhiệm vụ thử nghiệm kết nối Zalo",
+        taskCode: "TEST-01",
+        taskGroup: "Thử nghiệm hệ thống",
+        score: 10,
+        coef: 1.0,
+        deadline: new Date().toLocaleDateString("vi-VN"),
+        leaderNote: customMessage || "Kiểm tra tính năng phát thông báo Zalo 1-Chạm hoạt động hoàn hảo",
+        role: "Chủ trì"
+      });
+      res.json(testResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err?.message || String(err) });
+    }
+  });
+
+  // 3. Assignments APIs
+  app.get("/api/assignments", async (req, res) => {
+    try {
+      const all = await db.query.assignments.findMany({
+        with: {
+          assigner: true,
+          receiver: true,
+          work: true,
+        },
+        orderBy: (a, { desc }) => [desc(a.assignDate)],
+      });
+      res.json({ success: true, data: all });
+    } catch (error) {
+      console.error("Error fetching assignments:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/assignments", async (req, res) => {
+    try {
+      const p = req.body;
+      let assigner = null;
+      if (p.assignerId) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(p.assignerId)),
+        });
+      }
+      if (!assigner && p.assignerEmail) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.email, String(p.assignerEmail)),
+        });
+      }
+      if (!assigner && p.assignerName) {
+        assigner = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(p.assignerName)),
+        });
+      }
+      const assignerId = assigner ? assigner.id : (p.assignerId ? Number(p.assignerId) : 1);
+      const assignerName = assigner ? assigner.name : (p.assignerName || "Lãnh đạo Phòng");
+
+      // Check if multi-receiver payload is provided
+      const receiversList: Array<{ userId: number; userName?: string; userEmail?: string; userPhone?: string; role?: string; coef?: number }> = 
+        (Array.isArray(p.receivers) && p.receivers.length > 0)
+          ? p.receivers
+          : [{ userId: p.receiverId || 1, userName: p.receiverName, userEmail: p.receiverEmail, userPhone: p.receiverPhone, role: p.role || "Chủ trì", coef: Number(p.suggestedCoef || 0.8) }];
+
+      const createdAssignments: any[] = [];
+      const zaloResults: any[] = [];
+      const pushResults: any[] = [];
+
+      for (const rec of receiversList) {
+        let receiverUser = null;
+        if (rec.userId) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.id, Number(rec.userId)),
+          });
+        }
+        if (!receiverUser && rec.userEmail) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.email, String(rec.userEmail)),
+          });
+        }
+        if (!receiverUser && rec.userName) {
+          receiverUser = await db.query.users.findFirst({
+            where: (u, { eq }) => eq(u.name, String(rec.userName)),
+          });
+        }
+
+        const effectiveReceiverId = receiverUser ? receiverUser.id : (rec.userId ? Number(rec.userId) : 1);
+        const effectiveReceiverName = receiverUser ? receiverUser.name : (rec.userName || "Cán bộ");
+        const effectiveReceiverPhone = receiverUser ? receiverUser.phone : rec.userPhone;
+
+        const role = rec.role || "Chủ trì";
+        const coef = rec.coef !== undefined ? String(rec.coef) : String(p.suggestedCoef || "0.8");
+        const baseScore = String(p.baseScore || p.score || "10");
+        const expectedConvertedScore = String(Math.round(Number(baseScore) * Number(coef) * 10) / 10);
+
+        const newAssignment = await db.transaction(async (tx) => {
+          const inserted = await tx.insert(assignments).values({
+          assignmentId: `A8-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          month: p.month || "08-2026",
+          assignerId: assignerId,
+          receiverId: effectiveReceiverId,
+          taskGroup: p.taskGroup || p.group,
+          taskName: p.taskName || p.task,
+          taskCode: p.taskCode || p.code,
+          baseScore: baseScore,
+          suggestedNature: p.suggestedNature || p.nature || "Trung bình",
+          suggestedCoef: coef,
+          expectedConvertedScore: expectedConvertedScore,
+          detail: p.detail || "",
+          startDate: p.startDate ? new Date(p.startDate) : new Date(),
+          deadline: p.deadline ? new Date(p.deadline) : new Date(),
+          productRequired: p.productRequired || "",
+          productType: p.productType || "Báo cáo",
+          productQty: parseInt(p.productQty || "1"),
+          unit: p.unit || "Sản phẩm",
+          priority: p.priority || "Bình thường",
+          receiveStatus: "Chờ nhận việc",
+          leaderNote: `${role === "Phối hợp" ? "[Phối hợp] " : ""}${p.note || p.leaderNote || ""}`.trim(),
+          }).returning();
+
+          // Assignment and internal notification are committed atomically.
+          await tx.insert(notifications).values({
+          notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          senderId: assignerId,
+          receiverId: effectiveReceiverId,
+          type: "Giao việc",
+          title: `Lãnh đạo giao nhiệm vụ (${role}): ${p.taskName || p.task || ""}`,
+          content: `[${p.taskCode || "NV"}] ${p.taskName || p.task || ""} - Vai trò: ${role} - Hạn chót: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
+          relatedTarget: inserted[0].assignmentId,
+          status: "Chưa xem",
+          }).onConflictDoNothing();
+          return inserted;
+        });
+
+        createdAssignments.push(newAssignment[0]);
+
+        // External notification runs only after the database transaction commits.
+        const pushResult = await sendPushToUser(effectiveReceiverId, {
+          title: `Nhiệm vụ mới: ${p.taskName || p.task || ""}`,
+          body: `[${p.taskCode || "NV"}] Vai trò: ${role}. Hạn: ${p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Trong tháng"}`,
+          url: `/my-works?assignmentId=${encodeURIComponent(newAssignment[0].assignmentId)}`,
+          assignmentId: newAssignment[0].assignmentId,
+          tag: `assignment-${newAssignment[0].assignmentId}`
+        });
+        pushResults.push({ receiverId: effectiveReceiverId, ...pushResult });
+
+        // If Flow 2 (Auto Send Zalo requested)
+        if (p.sendZalo || p.flow === 'zalo' || p.sendZaloDirect) {
+          const zaloRes = await sendZaloNotification({
+            receiverName: effectiveReceiverName,
+            receiverPhone: effectiveReceiverPhone,
+            assignerName: assignerName,
+            taskName: p.taskName || p.task,
+            taskCode: p.taskCode || p.code,
+            taskGroup: p.taskGroup || p.group,
+            score: baseScore,
+            coef: coef,
+            productRequired: p.productRequired || p.productType,
+            deadline: p.deadline ? new Date(p.deadline).toLocaleDateString("vi-VN") : "Theo hạn chót",
+            leaderNote: p.note || p.leaderNote || "Thực hiện đúng tiến độ",
+            role: role
+          });
+          zaloResults.push({ receiverId: effectiveReceiverId, name: effectiveReceiverName, phone: effectiveReceiverPhone, zalo: zaloRes });
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        data: createdAssignments[0], 
+        all: createdAssignments, 
+        zaloResults,
+        pushResults,
+        message: `Đã giao việc thành công cho ${createdAssignments.length} nhân sự!` 
+      });
+    } catch (error) {
+      console.error("Error creating assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.put("/api/assignments/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const p = req.body;
+      const updateData: any = { updatedAt: new Date() };
+
+      if (p.receiverId !== undefined) updateData.receiverId = parseInt(p.receiverId);
+      if (p.taskGroup !== undefined) updateData.taskGroup = p.taskGroup;
+      if (p.taskName !== undefined) updateData.taskName = p.taskName;
+      if (p.taskCode !== undefined) updateData.taskCode = p.taskCode;
+      if (p.baseScore !== undefined) updateData.baseScore = String(p.baseScore);
+      if (p.suggestedNature !== undefined) updateData.suggestedNature = p.suggestedNature;
+      if (p.suggestedCoef !== undefined) updateData.suggestedCoef = String(p.suggestedCoef);
+      if (p.expectedConvertedScore !== undefined) updateData.expectedConvertedScore = String(p.expectedConvertedScore);
+      if (p.detail !== undefined) updateData.detail = p.detail;
+      if (p.startDate !== undefined) updateData.startDate = p.startDate ? new Date(p.startDate) : null;
+      if (p.deadline !== undefined) updateData.deadline = p.deadline ? new Date(p.deadline) : null;
+      if (p.productRequired !== undefined) updateData.productRequired = p.productRequired;
+      if (p.productType !== undefined) updateData.productType = p.productType;
+      if (p.productQty !== undefined) updateData.productQty = parseInt(p.productQty);
+      if (p.unit !== undefined) updateData.unit = p.unit;
+      if (p.priority !== undefined) updateData.priority = p.priority;
+      if (p.receiveStatus !== undefined) updateData.receiveStatus = p.receiveStatus;
+      if (p.viewDate !== undefined) updateData.viewDate = p.viewDate ? new Date(p.viewDate) : new Date();
+      if (p.receiveDate !== undefined) updateData.receiveDate = p.receiveDate ? new Date(p.receiveDate) : new Date();
+      if (p.workId !== undefined) updateData.workId = p.workId;
+      if (p.receiverNote !== undefined) updateData.receiverNote = p.receiverNote;
+      if (p.leaderNote !== undefined) updateData.leaderNote = p.leaderNote;
+      if (p.month !== undefined) updateData.month = p.month;
+
+      const updated = await db.update(assignments).set(updateData).where(eq(assignments.id, id)).returning();
+      const updatedAssignment = updated[0];
+
+      if (updatedAssignment && updatedAssignment.workId) {
+        // Đồng bộ dữ liệu sang bảng works tương ứng
+        const workUpdates: any = { updatedAt: new Date() };
+        if (p.receiverId !== undefined) workUpdates.userId = parseInt(p.receiverId);
+        if (p.taskName !== undefined) workUpdates.taskName = p.taskName;
+        if (p.taskGroup !== undefined) workUpdates.taskGroup = p.taskGroup;
+        if (p.taskCode !== undefined) workUpdates.taskCode = p.taskCode;
+        if (p.baseScore !== undefined) workUpdates.baseScore = String(p.baseScore);
+        if (p.suggestedNature !== undefined) {
+          workUpdates.proposedNature = p.suggestedNature;
+          workUpdates.approvedNature = p.suggestedNature;
+        }
+        if (p.suggestedCoef !== undefined) workUpdates.coef = String(p.suggestedCoef);
+        if (p.expectedConvertedScore !== undefined) {
+          workUpdates.convertedScore = String(p.expectedConvertedScore);
+          workUpdates.selfConvertedScore = String(p.expectedConvertedScore);
+        }
+        if (p.month !== undefined) workUpdates.month = p.month;
+
+        await db.update(works).set(workUpdates).where(eq(works.id, updatedAssignment.workId));
+
+        try {
+          await recalculateAffectedMonths([p.month || updatedAssignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment update:", kpiErr);
+        }
+      }
+
+      res.json({ success: true, data: updatedAssignment, message: "Đã cập nhật giao việc!" });
+    } catch (error) {
+      console.error("Error updating assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/assignments/:id/accept", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const assignment = await db.query.assignments.findFirst({
+        where: (a, { eq }) => eq(a.id, id),
+        with: { receiver: true, assigner: true },
+      });
+
+      if (!assignment) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy nhiệm vụ giao việc!" });
+      }
+
+      let createdWorkId = assignment.workId;
+      let workData: any = null;
+
+      if (!createdWorkId) {
+        const sDate = assignment.startDate ? new Date(assignment.startDate) : new Date();
+        const eDate = assignment.deadline ? new Date(assignment.deadline) : new Date();
+        sDate.setHours(0, 0, 0, 0);
+        eDate.setHours(0, 0, 0, 0);
+        const diffMs = eDate.getTime() - sDate.getTime();
+        const calculatedDays = Math.max(1, Math.round(diffMs / 86400000) + 1);
+
+        const newWork = await db.insert(works).values({
+          workId: `W-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          month: assignment.month,
+          userId: assignment.receiverId,
+          taskGroup: assignment.taskGroup || "Công việc được giao",
+          taskName: assignment.taskName || "Nhiệm vụ theo chỉ đạo",
+          taskCode: assignment.taskCode || "GV",
+          detail: assignment.detail || "",
+          startDate: assignment.startDate || new Date(),
+          startTime: "08:00",
+          endDate: assignment.deadline || new Date(),
+          endTime: "17:00",
+          hours: String(calculatedDays * 8),
+          days: calculatedDays,
+          proposedNature: assignment.suggestedNature || "Trung bình",
+          approvedNature: assignment.suggestedNature || "Trung bình",
+          coef: assignment.suggestedCoef || "0.8",
+          baseScore: assignment.baseScore || "10",
+          convertedScore: null,
+          selfConvertedScore: null,
+          approvedConvertedScore: null,
+          status: "Đang xử lý",
+          productType: assignment.productType || "Báo cáo",
+          productQty: assignment.productQty || 1,
+          unit: assignment.unit || "Sản phẩm",
+          project: assignment.productRequired || "Nhiệm vụ được Lãnh đạo giao",
+          source: "Giao việc",
+          leaderApproval: "Chưa duyệt",
+          sysNote: `Giao bởi Lãnh đạo (Mã GV: ${assignment.assignmentId})`,
+        }).returning();
+
+        createdWorkId = newWork[0].id;
+        workData = newWork[0];
+      }
+
+      const updated = await db.update(assignments).set({
+        receiveStatus: "Đã nhận - đang triển khai",
+        receiveDate: new Date(),
+        workId: createdWorkId,
+        updatedAt: new Date(),
+      }).where(eq(assignments.id, id)).returning();
+
+      if (assignment.month) {
+        try {
+          await recalculateAffectedMonths([assignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment acceptance:", kpiErr);
+        }
+      }
+
+      if (assignment.assignerId) {
+        await db.insert(notifications).values({
+          notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          senderId: assignment.receiverId,
+          receiverId: assignment.assignerId,
+          type: "Nhận việc",
+          title: "Nhân viên đã tiếp nhận nhiệm vụ",
+          content: `${assignment.receiver?.name || "Nhân sự"} đã tiếp nhận: [${assignment.taskCode || ""}] ${assignment.taskName}`,
+          relatedTarget: assignment.assignmentId,
+          status: "Chưa xem",
+        }).onConflictDoNothing();
+      }
+
+      res.json({
+        success: true,
+        data: updated[0],
+        work: workData,
+        message: "Đã tiếp nhận công việc thành công! Công việc đã được đưa vào danh sách cá nhân để thực hiện.",
+      });
+    } catch (error) {
+      console.error("Error accepting assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/assignments/:id/decline", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason } = req.body;
+
+      const assignment = await db.query.assignments.findFirst({
+        where: (a, { eq }) => eq(a.id, id),
+        with: { receiver: true, assigner: true },
+      });
+
+      if (!assignment) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy nhiệm vụ!" });
+      }
+
+      const updated = await db.update(assignments).set({
+        receiveStatus: "Từ chối",
+        receiverNote: reason || "Nhân viên phản hồi không thể tiếp nhận",
+        updatedAt: new Date(),
+      }).where(eq(assignments.id, id)).returning();
+
+      if (assignment.assignerId) {
+        await db.insert(notifications).values({
+          notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          senderId: assignment.receiverId,
+          receiverId: assignment.assignerId,
+          type: "Từ chối việc",
+          title: "Nhân viên phản hồi/từ chối nhiệm vụ",
+          content: `${assignment.receiver?.name || "Nhân sự"} từ chối: [${assignment.taskCode || ""}] ${assignment.taskName} - Lý do: ${reason || "Không nêu lý do"}`,
+          relatedTarget: assignment.assignmentId,
+          status: "Chưa xem",
+        }).onConflictDoNothing();
+      }
+
+      res.json({ success: true, data: updated[0], message: "Đã gửi phản hồi từ chối nhiệm vụ tới Lãnh đạo!" });
+    } catch (error) {
+      console.error("Error declining assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/assignments/:id/remind", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { message } = req.body;
+
+      const assignment = await db.query.assignments.findFirst({
+        where: (a, { eq }) => eq(a.id, id),
+        with: { receiver: true, assigner: true },
+      });
+
+      if (!assignment) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy nhiệm vụ!" });
+      }
+
+      await db.insert(notifications).values({
+        notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        senderId: assignment.assignerId,
+        receiverId: assignment.receiverId,
+        type: "Nhắc việc",
+        title: "⚠️ LÃNH ĐẠO NHẮC VIỆC KHẨN",
+        content: message || `Lãnh đạo nhắc nhở nhiệm vụ: [${assignment.taskCode || ""}] ${assignment.taskName}. Vui lòng khẩn trương tiếp nhận và báo cáo tiến độ!`,
+        relatedTarget: assignment.assignmentId,
+        status: "Chưa xem",
+      }).onConflictDoNothing();
+
+      res.json({ success: true, message: `Đã gửi thông báo nhắc việc tới ${assignment.receiver?.name || "nhân viên"}!` });
+    } catch (error) {
+      console.error("Error reminding assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/assignments/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const assignment = await db.query.assignments.findFirst({
+        where: (a, { eq }) => eq(a.id, id),
+        with: { receiver: true },
+      });
+
+      if (!assignment) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy nhiệm vụ!" });
+      }
+
+      const updated = await db.update(assignments).set({
+        receiveStatus: "Đã thu hồi",
+        updatedAt: new Date(),
+      }).where(eq(assignments.id, id)).returning();
+
+      if (assignment.workId) {
+        await db.update(works).set({
+          dataStatus: "Đã thu hồi",
+          sysNote: "Nhiệm vụ đã được Lãnh đạo thu hồi",
+        }).where(eq(works.id, assignment.workId));
+
+        try {
+          await recalculateAffectedMonths([assignment.month]);
+        } catch (kpiErr) {
+          console.error("Error auto recalculating KPI after assignment deletion:", kpiErr);
+        }
+      }
+
+      if (assignment.receiverId) {
+        await db.insert(notifications).values({
+          notifyId: `N-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          senderId: assignment.assignerId,
+          receiverId: assignment.receiverId,
+          type: "Thu hồi việc",
+          title: "Nhiệm vụ đã được Lãnh đạo thu hồi",
+          content: `Lãnh đạo đã thu hồi nhiệm vụ [${assignment.taskCode || ""}] ${assignment.taskName}`,
+          relatedTarget: assignment.assignmentId,
+          status: "Chưa xem",
+        }).onConflictDoNothing();
+      }
+
+      res.json({ success: true, data: updated[0], message: "Đã thu hồi nhiệm vụ giao việc thành công!" });
+    } catch (error) {
+      console.error("Error revoking assignment:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // 4. Overtime APIs
+  app.get("/api/overtimes", async (req, res) => {
+    try {
+      const all = await db.query.overtimes.findMany({
+        with: {
+          user: true,
+          approver: true,
+        },
+        orderBy: (o, { desc }) => [desc(o.otDate)],
+      });
+      res.json({ success: true, data: all });
+    } catch (error) {
+      console.error("Error fetching overtimes:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/overtimes", async (req, res) => {
+    try {
+      const p = req.body;
+      let user = null;
+      if (p.userId) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.id, Number(p.userId)),
+        });
+      }
+      if (!user && p.userEmail) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.email, String(p.userEmail)),
+        });
+      }
+      if (!user && p.userName) {
+        user = await db.query.users.findFirst({
+          where: (u, { eq }) => eq(u.name, String(p.userName)),
+        });
+      }
+      const userId = user ? user.id : (p.userId ? Number(p.userId) : 1);
+
+      const newOt = await db.insert(overtimes).values({
+        otId: p.otId || `OT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        month: p.month || "08-2026",
+        userId: userId,
+        otDate: new Date(p.otDate || new Date()),
+        startTime: p.startTime || "17:00",
+        endTime: p.endTime || "20:30",
+        breakMinutes: parseInt(p.breakMinutes || "0") || 0,
+        totalRegHours: String(p.totalRegHours || "3.5"),
+        content: p.content || "",
+        reason: p.reason || "",
+        project: p.project || "",
+        expectedResult: p.expectedResult || "",
+        actualResult: p.actualResult || "",
+        evidence: p.evidence || "",
+        employeeNote: p.note || p.employeeNote || "",
+        approvalStatus: p.approvalStatus || "Chờ duyệt",
+      }).returning();
+
+      // Notify leaders about new overtime registration
+      try {
+        const leaders = await db.query.users.findMany({
+          where: (u, { or, eq }) => or(eq(u.role, 'LEADER'), eq(u.role, 'ADMIN'))
+        });
+        const dateStr = new Date(p.otDate || new Date()).toLocaleDateString('vi-VN');
+        for (const leader of leaders) {
+          if (leader.id !== userId) {
+            await db.insert(notifications).values({
+              notifyId: `NOTIF-OT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              senderId: userId,
+              receiverId: leader.id,
+              type: 'OT_REGISTRATION',
+              title: `Đăng ký làm thêm mới từ ${user?.name || 'Nhân viên'}`,
+              content: `${user?.name || 'Nhân viên'} vừa đăng ký làm thêm ngoài giờ ngày ${dateStr} (${p.totalRegHours || '3.5'} giờ): ${p.content || ''}`,
+              relatedTarget: `/approve-ot`,
+              status: 'Chưa xem'
+            });
+          }
+        }
+      } catch (errNotif) {
+        console.error("Error creating leader notification for OT:", errNotif);
+      }
+
+      res.json({ success: true, data: newOt[0], message: "Đăng ký làm thêm ngoài giờ thành công!" });
+    } catch (error) {
+      console.error("Error creating overtime:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Batch action on overtimes (Duyệt, Yêu cầu bổ sung, Không duyệt, Cho phép sửa, Hủy đăng ký)
+  app.post("/api/overtimes/batch-action", async (req, res) => {
+    try {
+      const { ids, action, approverNote, approverId, hoursMap } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ success: false, error: "Chưa chọn dòng nào để xử lý" });
+      }
+
+      let targetStatus = 'Đã duyệt';
+      let allowEdit = false;
+      let actionLabel = 'Phê duyệt';
+
+      if (action === 'approve' || action === 'Đã duyệt') {
+        targetStatus = 'Đã duyệt';
+        allowEdit = false;
+        actionLabel = 'Đã duyệt';
+      } else if (action === 'supplement' || action === 'Yêu cầu bổ sung') {
+        targetStatus = 'Yêu cầu bổ sung';
+        allowEdit = true;
+        actionLabel = 'Yêu cầu bổ sung';
+      } else if (action === 'reject' || action === 'Không duyệt') {
+        targetStatus = 'Không duyệt';
+        allowEdit = false;
+        actionLabel = 'Không duyệt';
+      } else if (action === 'allow_edit' || action === 'Cho phép sửa') {
+        targetStatus = 'Cho phép sửa';
+        allowEdit = true;
+        actionLabel = 'Cho phép sửa';
+      } else if (action === 'cancel' || action === 'Hủy đăng ký' || action === 'Đã hủy') {
+        targetStatus = 'Đã hủy';
+        allowEdit = false;
+        actionLabel = 'Đã hủy';
+      }
+
+      const updatedList = [];
+
+      for (const rawId of ids) {
+        const id = parseInt(rawId);
+        if (isNaN(id)) continue;
+
+        const currentOt = await db.query.overtimes.findFirst({
+          where: eq(overtimes.id, id),
+          with: { user: true }
+        });
+        if (!currentOt) continue;
+
+        const approvedHours = hoursMap && hoursMap[id] !== undefined
+          ? String(hoursMap[id])
+          : (targetStatus === 'Không duyệt' || targetStatus === 'Đã hủy' ? '0' : String(currentOt.approvedHours || currentOt.totalRegHours || '0'));
+
+        const updateData: any = {
+          approvalStatus: targetStatus,
+          approvedHours: approvedHours,
+          allowEdit: allowEdit,
+          updatedAt: new Date(),
+          approvalDate: new Date(),
+        };
+
+        if (approverNote !== undefined) {
+          updateData.approverNote = approverNote;
+        }
+        if (approverId) {
+          updateData.approverId = parseInt(approverId);
+        }
+
+        const [upd] = await db.update(overtimes).set(updateData).where(eq(overtimes.id, id)).returning();
+        updatedList.push(upd);
+
+        // Notify the employee about the decision
+        if (currentOt.userId) {
+          try {
+            const dateStr = currentOt.otDate ? new Date(currentOt.otDate).toLocaleDateString('vi-VN') : '';
+            await db.insert(notifications).values({
+              notifyId: `NOTIF-OT-ACT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              senderId: approverId ? parseInt(approverId) : null,
+              receiverId: currentOt.userId,
+              type: 'OT_STATUS_UPDATE',
+              title: `Kết quả xử lý làm thêm: ${targetStatus}`,
+              content: `Phiếu làm thêm ngày ${dateStr} (${approvedHours} giờ) đã được chuyển trạng thái: ${targetStatus}. ${approverNote ? `Ý kiến: ${approverNote}` : ''}`,
+              relatedTarget: `/ot-my`,
+              status: 'Chưa xem'
+            });
+          } catch (eNotif) {
+            console.error("Error creating employee notification:", eNotif);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        count: updatedList.length,
+        data: updatedList,
+        message: `Đã xử lý ${updatedList.length} bản ghi sang trạng thái "${targetStatus}" thành công!`
+      });
+    } catch (error) {
+      console.error("Error batch processing overtimes:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.put("/api/overtimes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const p = req.body;
+      const updateData: any = { updatedAt: new Date() };
+
+      if (p.approvalStatus !== undefined) updateData.approvalStatus = p.approvalStatus;
+      if (p.approvedHours !== undefined) {
+        updateData.approvedHours = (p.approvedHours !== null && p.approvedHours !== undefined && p.approvedHours !== '' && p.approvedHours !== 'null')
+          ? String(p.approvedHours)
+          : null;
+      }
+      if (p.approverNote !== undefined) updateData.approverNote = p.approverNote;
+      if (p.approverId !== undefined) {
+        updateData.approverId = (p.approverId && !isNaN(parseInt(p.approverId))) ? parseInt(p.approverId) : null;
+      }
+      if (p.approvalDate !== undefined) {
+        updateData.approvalDate = (p.approvalDate && p.approvalDate !== 'null' && p.approvalDate !== '') ? new Date(p.approvalDate) : null;
+      }
+      if (p.actualResult !== undefined) updateData.actualResult = p.actualResult;
+      if (p.evidence !== undefined) updateData.evidence = p.evidence;
+      if (p.employeeNote !== undefined) updateData.employeeNote = p.employeeNote;
+      if (p.allowEdit !== undefined) updateData.allowEdit = !!p.allowEdit;
+      if (p.content !== undefined) updateData.content = p.content;
+      if (p.reason !== undefined) updateData.reason = p.reason;
+      if (p.project !== undefined) updateData.project = p.project;
+      if (p.expectedResult !== undefined) updateData.expectedResult = p.expectedResult;
+      if (p.startTime !== undefined) updateData.startTime = p.startTime;
+      if (p.endTime !== undefined) updateData.endTime = p.endTime;
+      if (p.breakMinutes !== undefined) {
+        updateData.breakMinutes = (p.breakMinutes !== null && p.breakMinutes !== undefined) ? (parseInt(p.breakMinutes) || 0) : 0;
+      }
+      if (p.totalRegHours !== undefined) {
+        updateData.totalRegHours = (p.totalRegHours !== null && p.totalRegHours !== undefined && p.totalRegHours !== '') ? String(p.totalRegHours) : '3.5';
+      }
+      if (p.month !== undefined) updateData.month = p.month;
+      if (p.otDate !== undefined && p.otDate) {
+        updateData.otDate = new Date(p.otDate);
+      }
+
+      const updated = await db.update(overtimes).set(updateData).where(eq(overtimes.id, id)).returning();
+      res.json({ success: true, data: updated[0], message: "Đã cập nhật đăng ký làm thêm!" });
+    } catch (error) {
+      console.error("Error updating overtime:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/overtimes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(overtimes).where(eq(overtimes.id, id));
+      res.json({ success: true, message: "Đã xóa đăng ký làm thêm!" });
+    } catch (error) {
+      console.error("Error deleting overtime:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // 5. Categories APIs
+  app.get("/api/categories", async (req, res) => {
+    try {
+      const all = await db.query.categories.findMany({
+        orderBy: (cat, { asc }) => [asc(cat.order)],
+      });
+      res.json({ success: true, data: all });
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/categories", async (req, res) => {
+    try {
+      const p = req.body;
+      const newCat = await db.insert(categories).values({
+        code: p.code || `CAT-${Date.now()}`,
+        name: p.name,
+        type: p.type || "TASK",
+        properties: p.properties || {},
+        status: p.status || "Đang dùng",
+        order: parseInt(p.order || "0"),
+      }).onConflictDoUpdate({
+        target: categories.code,
+        set: {
+          name: p.name,
+          properties: p.properties || {},
+          status: p.status || "Đang dùng",
+          order: parseInt(p.order || "0"),
+        },
+      }).returning();
+
+      res.json({ success: true, data: newCat[0], message: "Đã lưu danh mục thành công!" });
+    } catch (error) {
+      console.error("Error creating category:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.put("/api/categories/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const p = req.body;
+      const updatedCat = await db.update(categories).set({
+        code: p.code,
+        name: p.name,
+        type: p.type,
+        properties: p.properties || {},
+        status: p.status || "Đang dùng",
+        order: parseInt(p.order || "0"),
+      }).where(eq(categories.id, id)).returning();
+      res.json({ success: true, data: updatedCat[0] });
+    } catch (error) {
+      console.error("Error updating category:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/categories/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(categories).where(eq(categories.id, id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // 6. Notifications APIs
+  app.get("/api/notifications", requireSessionAuthenticated, async (req, res) => {
+    try {
+      const all = await db.query.notifications.findMany({
+        where: (n, { eq }) => eq(n.receiverId, Number((req as any).authUser.id)),
+        with: { sender: true, receiver: true },
+        orderBy: (n, { desc }) => [desc(n.createdAt)],
+      });
+      res.json({ success: true, data: all });
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // 7. Sync & Backup Router
+  app.use("/api/sync", syncRouter);
+
+  // 8. Online & Session Tracking Router
+  app.use("/api/online", onlineRouter);
+
+  // Global API error handler for fail-closed resilience
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+    console.error("Unhandled API error:", err?.message || err);
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    res.status(500).json({ success: false, error: err?.message || 'Lỗi máy chủ nội bộ' });
+  });
+
+  // Vite middleware
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer();
