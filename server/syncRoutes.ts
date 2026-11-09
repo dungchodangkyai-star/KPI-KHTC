@@ -2,11 +2,17 @@ import express from 'express';
 import { db } from '../src/db/index.ts';
 import { users, categories, works, assignments, overtimes, kpiResults, notifications, systemLogs } from '../src/db/schema.ts';
 import { eq, inArray, sql } from 'drizzle-orm';
-import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword } from './auth.ts';
+import { DEFAULT_INITIAL_PASSWORD, formatStoredPassword, requireStrictAdminSession } from './auth.ts';
 import { formatMonth, getCurrentMonth, WORK_NATURE_COEFS, getWorkStatusFactor, getNatureCoef } from '../src/utils.ts';
 import { calculateAndSaveUserKpi, recalculateKpiForMonth } from './kpiRoutes.ts';
 
 export const syncRouter = express.Router();
+
+// Toàn bộ nhóm /api/sync đọc hoặc thay đổi dữ liệu nghiệp vụ thật (bao gồm
+// xuất bản sao đầy đủ, nhập Excel và xóa dữ liệu). Khóa ở cấp router để mọi
+// endpoint hiện tại và endpoint bổ sung sau này đều bắt buộc phiên ADMIN;
+// không dựa vào việc giao diện có ẩn nút hay không.
+syncRouter.use(requireStrictAdminSession);
 
 // Bộ mã dùng chung không chứa danh sách nhân sự của bất kỳ phòng nào.
 // Nhân sự được nhập/khôi phục vào CSDL riêng qua chức năng Đồng bộ dữ liệu.

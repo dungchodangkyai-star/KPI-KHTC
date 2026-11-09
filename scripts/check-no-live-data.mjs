@@ -50,6 +50,14 @@ for (const file of files) {
   }
 }
 
+// Regression guard: /api/sync contains full database export/import/reset
+// endpoints. A UI-only permission check is insufficient because the URLs can
+// be called directly. Fail CI if the router-level ADMIN gate is removed.
+const syncRoutesSource = readFileSync('server/syncRoutes.ts', 'utf8');
+if (!/syncRouter\.use\(requireStrictAdminSession\)/.test(syncRoutesSource)) {
+  sourceViolations.push('server/syncRoutes.ts: thiếu khóa ADMIN cấp router cho /api/sync');
+}
+
 if (violations.length || sourceViolations.length) {
   console.error('PHÁT HIỆN DỮ LIỆU THẬT/CẤU HÌNH RUNTIME ĐANG ĐƯỢC GIT THEO DÕI:');
   for (const file of violations) console.error(`- ${file}`);
