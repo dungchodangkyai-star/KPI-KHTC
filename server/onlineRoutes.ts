@@ -2,6 +2,7 @@ import express from 'express';
 import { db } from '../src/db/index.ts';
 import { systemLogs, users } from '../src/db/schema.ts';
 import { desc } from 'drizzle-orm';
+import { isSystemAccount } from './systemAccount.ts';
 import {
   recordHeartbeat,
   removeSession,
@@ -47,7 +48,8 @@ onlineRouter.post('/heartbeat', async (req, res) => {
 onlineRouter.get('/sessions', async (req, res) => {
   try {
     const summary = getActiveSessionsSummary();
-    const totalUsersCount = await db.$count(users);
+    const allUsers = await db.query.users.findMany();
+    const totalUsersCount = allUsers.filter((user) => !isSystemAccount(user)).length;
 
     return res.json({
       success: true,

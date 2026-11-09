@@ -4,6 +4,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
+import { isSystemAccount } from "./server/systemAccount.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
 import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken } from "./server/auth.ts";
 import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
@@ -925,7 +926,9 @@ async function startServer() {
       const allUsers = await db.query.users.findMany({
         orderBy: (u, { asc }) => [asc(u.name)],
       });
-      res.json({ success: true, data: allUsers });
+      // Tài khoản quản trị hệ thống ẩn không phải nhân sự nghiệp vụ. Không trả
+      // tài khoản này cho bất kỳ màn hình nhân sự/KPI/báo cáo nào dùng API chung.
+      res.json({ success: true, data: allUsers.filter((user) => !isSystemAccount(user)) });
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ error: String(error) });

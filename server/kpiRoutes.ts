@@ -15,6 +15,7 @@ import {
   getCurrentMonth
 } from '../src/utils.ts';
 import { getDeploymentOrgConfig, getDeploymentRuntimeConfig } from './deploymentConfig.ts';
+import { isSystemAccount } from './systemAccount.ts';
 
 export const kpiRouter = express.Router();
 const DEPLOYMENT_ORG_CONFIG = getDeploymentOrgConfig(DEFAULT_ORG_CONFIG);
@@ -202,6 +203,9 @@ export function isKpiLeaderOrAdmin(u: any): boolean {
 
 export function isUserActive(u: any): boolean {
   if (!u) return false;
+  // Quản trị hệ thống ẩn có toàn quyền vận hành nhưng không phải nhân sự và
+  // tuyệt đối không được tham gia mẫu số, tỷ trọng hay kết quả KPI của phòng.
+  if (isSystemAccount(u)) return false;
   const st = String(u.status || '').toLowerCase().trim();
   if (st === 'đang làm') return true;
   if (

@@ -58,6 +58,17 @@ if (!/syncRouter\.use\(requireStrictAdminSession\)/.test(syncRoutesSource)) {
   sourceViolations.push('server/syncRoutes.ts: thiếu khóa ADMIN cấp router cho /api/sync');
 }
 
+// Regression guard: tài khoản ADMIN vận hành dùng chung phải bị ẩn khỏi danh
+// sách nhân sự và bị loại khỏi mọi phép tính KPI ở phía máy chủ.
+const serverSource = readFileSync('server.ts', 'utf8');
+const kpiRoutesSource = readFileSync('server/kpiRoutes.ts', 'utf8');
+if (!/allUsers\.filter\(\(user\) => !isSystemAccount\(user\)\)/.test(serverSource)) {
+  sourceViolations.push('server.ts: /api/users chưa loại tài khoản quản trị hệ thống ẩn');
+}
+if (!/if \(isSystemAccount\(u\)\) return false;/.test(kpiRoutesSource)) {
+  sourceViolations.push('server/kpiRoutes.ts: phép tính KPI chưa loại tài khoản quản trị hệ thống ẩn');
+}
+
 if (violations.length || sourceViolations.length) {
   console.error('PHÁT HIỆN DỮ LIỆU THẬT/CẤU HÌNH RUNTIME ĐANG ĐƯỢC GIT THEO DÕI:');
   for (const file of violations) console.error(`- ${file}`);

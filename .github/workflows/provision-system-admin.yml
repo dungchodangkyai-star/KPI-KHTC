@@ -1,0 +1,73 @@
+name: Khoi tao quan tri he thong an
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_email:
+        description: "Email ADMIN KHTC can sao chep; de trong neu KHTC chi co mot ADMIN"
+        required: false
+        type: string
+      confirm_provision:
+        description: "Xac nhan tao/cap nhat ADMIN an tren tat ca phong"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  provision:
+    if: ${{ inputs.confirm_provision == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - id: config
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('config/deployments.json', 'utf8'));
+          const lines = [
+            'provider=' + config.defaults.workloadIdentityProvider,
+            'service_account=' + config.defaults.serviceAccount,
+            'project_id=' + config.defaults.projectId,
+            'targets=' + JSON.stringify(config.deployments.filter(x => x.enabled !== false).map(x => ({code:x.code, secret:x.databaseSecret})))
+          ];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join('\n') + '\n');
+          NODE
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ steps.config.outputs.provider }}
+          service_account: ${{ steps.config.outputs.service_account }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Tao ADMIN an trong tung CSDL
+        shell: bash
+        env:
+          PROJECT_ID: ${{ steps.config.outputs.project_id }}
+          TARGETS_JSON: ${{ steps.config.outputs.targets }}
+          SYSTEM_ADMIN_EMAIL: ${{ inputs.admin_email }}
+        run: |
+          set -euo pipefail
+          source_url="$(gcloud secrets versions access latest --secret=kpi-database-url --project="$PROJECT_ID")"
+          while IFS=$'\t' read -r code secret; do
+            target_url="$(gcloud secrets versions access latest --secret="$secret" --project="$PROJECT_ID")"
+            echo "Khoi tao tai khoan quan tri an cho: $code"
+            SOURCE_DATABASE_URL="$source_url" TARGET_DATABASE_URL="$target_url" \
+              SYSTEM_ADMIN_EMAIL="$SYSTEM_ADMIN_EMAIL" node scripts/provision-system-admin.mjs
+            unset target_url
+          done < <(jq -r '.[] | [.code,.secret] | @tsv' <<<"$TARGETS_JSON")
+          unset source_url
+      - name: Ket qua
+        run: |
+          {
+            echo "## Khoi tao ADMIN an thanh cong"
+            echo "- Tai khoan co role ADMIN va full_access."
+            echo "- Co co system_account nen khong xuat hien trong /api/users."
+            echo "- Bi loai khoi toan bo mau so, ty trong, thong ke va bao cao KPI."
+          } >> "$GITHUB_STEP_SUMMARY"
