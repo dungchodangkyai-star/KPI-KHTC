@@ -4,7 +4,7 @@
 #
 # Purpose: Wakes up KPI-KHTC backup scheduler tick endpoint every 5 minutes.
 # Timezone: Asia/Ho_Chi_Minh
-# Target: https://kpi-khtc.ai.studio/api/backups/scheduler-tick
+# Target: https://khtc.kpi-bana.vn/api/backups/scheduler-tick
 # Authentication: Protected by BACKUP_SCHEDULER_TOKEN in header
 # Server autonomously determines when a backup slot is due.
 # ==============================================================================
@@ -14,7 +14,7 @@ set -euo pipefail
 JOB_NAME="${SCHEDULER_JOB_NAME:-kpi-khtc-backup-scheduler}"
 SCHEDULE="${SCHEDULER_CRON:-*/5 * * * *}"
 TIMEZONE="${SCHEDULER_TIMEZONE:-Asia/Ho_Chi_Minh}"
-TARGET_URL="${SCHEDULER_TARGET_URL:-https://kpi-khtc.ai.studio/api/backups/scheduler-tick}"
+TARGET_URL="${SCHEDULER_TARGET_URL:-https://khtc.kpi-bana.vn/api/backups/scheduler-tick}"
 LOCATION="${SCHEDULER_LOCATION:-asia-southeast1}"
 TOKEN="${BACKUP_SCHEDULER_TOKEN:-}"
 

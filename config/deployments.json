@@ -19,7 +19,7 @@
       "shortName": "KHTC",
       "service": "kpi-khtc",
       "databaseSecret": "kpi-database-url",
-      "fixedUrl": "https://kpi-khtc.ai.studio",
+      "fixedUrl": "https://khtc.kpi-bana.vn",
       "themeColor": "#1F4E78",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -31,7 +31,7 @@
       "shortName": "VP",
       "service": "kpi-vp",
       "databaseSecret": "kpi-vp-database-url",
-      "fixedUrl": "https://kpi-vp-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://vp.kpi-bana.vn",
       "themeColor": "#2563EB",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -43,7 +43,7 @@
       "shortName": "QLKT 1",
       "service": "kpi-qlkt1",
       "databaseSecret": "kpi-qlkt1-database-url",
-      "fixedUrl": "https://kpi-qlkt1-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://qlkt1.kpi-bana.vn",
       "themeColor": "#0F766E",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -55,7 +55,7 @@
       "shortName": "QLKT 2",
       "service": "kpi-qlkt2",
       "databaseSecret": "kpi-qlkt2-database-url",
-      "fixedUrl": "https://kpi-qlkt2-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://qlkt2.kpi-bana.vn",
       "themeColor": "#047857",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -67,7 +67,7 @@
       "shortName": "QLCT 1",
       "service": "kpi-qlct1",
       "databaseSecret": "kpi-qlct1-database-url",
-      "fixedUrl": "https://kpi-qlct1-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://qlct1.kpi-bana.vn",
       "themeColor": "#7C3AED",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -79,7 +79,7 @@
       "shortName": "QLCT 2",
       "service": "kpi-qlct2",
       "databaseSecret": "kpi-qlct2-database-url",
-      "fixedUrl": "https://kpi-qlct2-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://qlct2.kpi-bana.vn",
       "themeColor": "#9333EA",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -91,7 +91,7 @@
       "shortName": "QLMBXD",
       "service": "kpi-qlmbxd",
       "databaseSecret": "kpi-qlmbxd-database-url",
-      "fixedUrl": "https://kpi-qlmbxd-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://qlmbxd.kpi-bana.vn",
       "themeColor": "#C2410C",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
@@ -103,7 +103,7 @@
       "shortName": "TĐ&KSNB",
       "service": "kpi-tdksnb",
       "databaseSecret": "kpi-tdksnb-database-url",
-      "fixedUrl": "https://kpi-tdksnb-357878679052.asia-southeast1.run.app",
+      "fixedUrl": "https://tdksnb.kpi-bana.vn",
       "themeColor": "#BE123C",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
       "location": "Đắk Lắk"
