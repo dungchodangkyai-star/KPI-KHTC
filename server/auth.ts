@@ -445,7 +445,10 @@ authRouter.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    const msg = 'Lỗi hệ thống khi đăng nhập: ' + String(error);
+    // Never expose SQL text, table/column names or connection details to the
+    // browser. Startup readiness normally prevents this branch during schema
+    // migration; this message is the final safe fallback for other DB faults.
+    const msg = 'Hệ thống đang kết nối cơ sở dữ liệu. Vui lòng chờ vài giây rồi đăng nhập lại.';
     return res.status(500).json({ success: false, message: msg, error: msg });
   }
 });

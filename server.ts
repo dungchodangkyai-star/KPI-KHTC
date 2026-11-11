@@ -225,14 +225,17 @@ async function startServer() {
   let schemaInitialized = false;
   let schemaInitError: string | null = null;
 
-  // Migrate schema and seed data on startup
-  setTimeout(async () => {
+  // Database readiness is a hard startup requirement. Cloud Run must not be
+  // allowed to send login/API traffic to this revision until the schema has
+  // been verified. Previously this ran in a delayed setTimeout after listen(),
+  // which created a cold-start race where /api/auth/login queried an old
+  // department schema and exposed a raw SQL error to the user.
+  const initializeDatabaseBeforeServing = async (): Promise<void> => {
     try {
       const mode = getStorageMode();
       if (mode === 'postgres' && !isPostgresConfigured()) {
         schemaInitError = 'DATABASE_URL chưa được cấu hình trong Secrets';
-        console.warn('[Startup] Fail-Closed: DATABASE_URL is not set. Real write operations locked.');
-        return;
+        throw new Error(schemaInitError);
       }
 
       // 1. ensureDatabaseSchema MUST run before seeder. Neon may briefly time
@@ -257,14 +260,15 @@ async function startServer() {
       } else {
         schemaInitialized = false;
         schemaInitError = migResult.message || 'Lỗi đồng bộ cấu trúc bảng CSDL';
-        console.error("Schema sync failed:", schemaInitError);
+        throw new Error(schemaInitError);
       }
     } catch (e: any) {
       schemaInitialized = false;
       schemaInitError = e?.message || String(e);
-      console.warn("Startup background sync notice:", e);
+      console.error("[Startup] Database initialization failed; refusing to accept traffic:", e);
+      throw e;
     }
-  }, 2000);
+  };
 
   // --- API Routes ---
 
@@ -1879,9 +1883,17 @@ async function startServer() {
     });
   }
 
+  // Do not open the HTTP port until schema migration, seeding and scheduler
+  // initialization have completed. A failed candidate revision therefore
+  // stays unready and the release workflow keeps/rolls back to the old one.
+  await initializeDatabaseBeforeServing();
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[Startup] Server did not start:', error);
+  process.exit(1);
+});
