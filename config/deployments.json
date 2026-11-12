@@ -7,7 +7,11 @@
     "container": "app-container",
     "artifactRepository": "kpi-release",
     "imageName": "kpi-khtc",
-    "features": {},
+    "features": {
+      "specializedWorkFields": false,
+      "specializedApprovalFlow": false,
+      "specializedReports": false
+    },
     "backupBucket": "kpi-release-engine-kpi-backups",
     "workloadIdentityProvider": "projects/357878679052/locations/global/workloadIdentityPools/github-actions/providers/github-kpi-khtc",
     "serviceAccount": "github-kpi-release@kpi-release-engine.iam.gserviceaccount.com"
@@ -23,7 +27,12 @@
       "fixedUrl": "https://khtc.kpi-bana.vn",
       "themeColor": "#1F4E78",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "vp",
@@ -35,7 +44,12 @@
       "fixedUrl": "https://vp.kpi-bana.vn",
       "themeColor": "#2563EB",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "qlkt1",
@@ -47,7 +61,12 @@
       "fixedUrl": "https://qlkt1.kpi-bana.vn",
       "themeColor": "#0F766E",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "qlkt2",
@@ -59,7 +78,12 @@
       "fixedUrl": "https://qlkt2.kpi-bana.vn",
       "themeColor": "#047857",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "qlct1",
@@ -71,7 +95,12 @@
       "fixedUrl": "https://qlct1.kpi-bana.vn",
       "themeColor": "#7C3AED",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "qlct2",
@@ -83,7 +112,12 @@
       "fixedUrl": "https://qlct2.kpi-bana.vn",
       "themeColor": "#9333EA",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "qlmbxd",
@@ -95,7 +129,12 @@
       "fixedUrl": "https://qlmbxd.kpi-bana.vn",
       "themeColor": "#C2410C",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     },
     {
       "code": "tdksnb",
@@ -107,7 +146,12 @@
       "fixedUrl": "https://tdksnb.kpi-bana.vn",
       "themeColor": "#BE123C",
       "parentAgency": "Ban Quản lý dự án ĐTXD CT Giao thông và Nông nghiệp PTNT tỉnh Đắk Lắk",
-      "location": "Đắk Lắk"
+      "location": "Đắk Lắk",
+      "features": {
+        "specializedWorkFields": false,
+        "specializedApprovalFlow": false,
+        "specializedReports": false
+      }
     }
   ]
 }

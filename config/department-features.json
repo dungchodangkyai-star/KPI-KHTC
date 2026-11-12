@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "frontendRoot": "src/department-features",
+  "serverRoot": "server/department-features",
+  "apiPrefix": "/api/department-features",
+  "features": {
+    "specializedWorkFields": {
+      "description": "Trường nhập công việc đặc thù theo phòng",
+      "frontendDirectory": "specializedWorkFields",
+      "serverDirectory": "specializedWorkFields"
+    },
+    "specializedApprovalFlow": {
+      "description": "Luồng thẩm định hoặc phê duyệt đặc thù theo phòng",
+      "frontendDirectory": "specializedApprovalFlow",
+      "serverDirectory": "specializedApprovalFlow"
+    },
+    "specializedReports": {
+      "description": "Báo cáo đặc thù theo phòng",
+      "frontendDirectory": "specializedReports",
+      "serverDirectory": "specializedReports"
+    }
+  }
+}
