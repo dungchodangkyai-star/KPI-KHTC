@@ -1,4 +1,9 @@
 import type { OrgConfig } from '../src/types.ts';
+import {
+  parseDeploymentFeatureFlags,
+  type DeploymentFeatureFlags,
+  type DeploymentFeatureKey
+} from '../src/deploymentFeatures.ts';
 
 export interface DeploymentRuntimeConfig {
   code: string;
@@ -9,6 +14,7 @@ export interface DeploymentRuntimeConfig {
   location?: string;
   appUrl?: string;
   themeColor: string;
+  features: DeploymentFeatureFlags;
 }
 
 function readEnv(name: string): string | undefined {
@@ -42,8 +48,13 @@ export function getDeploymentRuntimeConfig(): DeploymentRuntimeConfig {
     systemTitle: readEnv('SYSTEM_TITLE'),
     location: readEnv('ORG_LOCATION'),
     appUrl: readEnv('APP_URL'),
-    themeColor
+    themeColor,
+    features: parseDeploymentFeatureFlags(readEnv('DEPLOYMENT_FEATURES_JSON'))
   };
+}
+
+export function isDeploymentFeatureEnabled(feature: DeploymentFeatureKey): boolean {
+  return getDeploymentRuntimeConfig().features[feature] === true;
 }
 
 export function getDeploymentOrgConfig(base: OrgConfig): OrgConfig {

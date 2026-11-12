@@ -183,6 +183,7 @@ jobs:
           PARENT_AGENCY: ${{ matrix.parentAgency }}
           ORG_LOCATION: ${{ matrix.location }}
           THEME_COLOR: ${{ matrix.themeColor }}
+          DEPLOYMENT_FEATURES_JSON: ${{ toJSON(matrix.features) }}
           FIXED_URL: ${{ matrix.fixedUrl }}
         run: |
           set -euo pipefail
@@ -209,10 +210,11 @@ jobs:
             exit 1
           }
           trap rollback ERR
+          expected_features="$(jq -c '{specializedWorkFields:false,specializedApprovalFlow:false,specializedReports:false} * .' <<<"$DEPLOYMENT_FEATURES_JSON")"
           jq -n --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg short "$DEPLOYMENT_SHORT_NAME" \
             --arg agency "$PARENT_AGENCY" --arg location "$ORG_LOCATION" --arg color "$THEME_COLOR" --arg url "$FIXED_URL" \
-            --arg commit "$GITHUB_SHA" \
-            '{DEPLOYMENT_CODE:$code,DEPLOYMENT_NAME:$name,DEPLOYMENT_SHORT_NAME:$short,PARENT_AGENCY:$agency,ORG_LOCATION:$location,THEME_COLOR:$color,APP_URL:$url,BUILD_COMMIT:$commit}' \
+            --arg commit "$GITHUB_SHA" --arg features "$DEPLOYMENT_FEATURES_JSON" \
+            '{DEPLOYMENT_CODE:$code,DEPLOYMENT_NAME:$name,DEPLOYMENT_SHORT_NAME:$short,PARENT_AGENCY:$agency,ORG_LOCATION:$location,THEME_COLOR:$color,APP_URL:$url,BUILD_COMMIT:$commit,DEPLOYMENT_FEATURES_JSON:$features}' \
             > "$RUNNER_TEMP/deployment-env.json"
           # GITHUB_RUN_ID makes every manual release create a unique revision,
           # so rerunning the same commit never collides with an existing name.
@@ -228,24 +230,24 @@ jobs:
           healthy=0
           for attempt in {1..24}; do
             if response="$(curl --fail --silent --show-error --max-time 20 "$candidate_url/api/health" 2>/dev/null)"; then
-              if jq -e --arg code "$DEPLOYMENT_CODE" --arg commit "$GITHUB_SHA" \
-                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .buildCommit == $commit' \
+              if jq -e --arg code "$DEPLOYMENT_CODE" --arg commit "$GITHUB_SHA" --argjson features "$expected_features" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .deployment.features == $features and .buildCommit == $commit' \
                 <<<"$response" >/dev/null; then healthy=1; break; fi
             fi
             sleep 5
           done
           [[ "$healthy" == "1" ]] || { echo "Revision ung vien khong dung phong ban hoac CSDL chua san sang"; exit 1; }
           identity="$(curl --fail --silent --show-error --max-time 20 "$candidate_url/api/public/org-identity?release=$GITHUB_SHA")"
-          jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" \
-            '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .data.departmentName == $name' \
+          jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" --argjson features "$expected_features" \
+            '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .deployment.features == $features and .data.departmentName == $name' \
             <<<"$identity" >/dev/null || { echo "Revision ung vien khong tra ve dung nhan dien cong khai/commit"; exit 1; }
           gcloud run services update-traffic "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --to-revisions="$new_revision=100" --quiet
           traffic_switched=1
           production_ok=0
           for attempt in {1..18}; do
             if response="$(curl --fail --silent --show-error --max-time 20 "$FIXED_URL/api/health" 2>/dev/null)"; then
-              if jq -e --arg code "$DEPLOYMENT_CODE" --arg commit "$GITHUB_SHA" \
-                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .buildCommit == $commit' \
+              if jq -e --arg code "$DEPLOYMENT_CODE" --arg commit "$GITHUB_SHA" --argjson features "$expected_features" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .deployment.features == $features and .buildCommit == $commit' \
                 <<<"$response" >/dev/null; then production_ok=1; break; fi
             fi
             sleep 5
@@ -254,8 +256,8 @@ jobs:
           if ! identity="$(curl --fail --silent --show-error --max-time 20 "$FIXED_URL/api/public/org-identity?release=$GITHUB_SHA")"; then
             fail_after_switch "Khong doc duoc nhan dien tu link co dinh"
           fi
-          if ! jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" \
-            '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .data.departmentName == $name' \
+          if ! jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" --argjson features "$expected_features" \
+            '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .deployment.features == $features and .data.departmentName == $name' \
             <<<"$identity" >/dev/null; then
             fail_after_switch "Link co dinh khong tra ve dung nhan dien cong khai/commit"
           fi

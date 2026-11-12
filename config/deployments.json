@@ -7,6 +7,7 @@
     "container": "app-container",
     "artifactRepository": "kpi-release",
     "imageName": "kpi-khtc",
+    "features": {},
     "backupBucket": "kpi-release-engine-kpi-backups",
     "workloadIdentityProvider": "projects/357878679052/locations/global/workloadIdentityPools/github-actions/providers/github-kpi-khtc",
     "serviceAccount": "github-kpi-release@kpi-release-engine.iam.gserviceaccount.com"

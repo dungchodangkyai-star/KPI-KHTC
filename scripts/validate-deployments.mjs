@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = path.join(root, 'config', 'deployments.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const allowedFeatureKeys = new Set([
+  'specializedWorkFields',
+  'specializedApprovalFlow',
+  'specializedReports'
+]);
 
 const requiredDefaults = [
   'projectId', 'projectNumber', 'region', 'container', 'artifactRepository',
@@ -33,6 +38,15 @@ for (const deployment of config.deployments) {
   if (!/^[a-z][a-z0-9-]{1,62}$/.test(deployment.service)) throw new Error(`service không hợp lệ: ${deployment.service}`);
   if (!/^https:\/\//.test(deployment.fixedUrl)) throw new Error(`fixedUrl phải dùng HTTPS: ${deployment.fixedUrl}`);
   if (!/^#[0-9a-f]{6}$/i.test(deployment.themeColor)) throw new Error(`themeColor không hợp lệ: ${deployment.themeColor}`);
+
+  const features = deployment.features ?? config.defaults?.features ?? {};
+  if (!features || Array.isArray(features) || typeof features !== 'object') {
+    throw new Error(`features phải là object trong deployment ${deployment.code}`);
+  }
+  for (const [key, value] of Object.entries(features)) {
+    if (!allowedFeatureKeys.has(key)) throw new Error(`Tính năng không được đăng ký: ${key}`);
+    if (typeof value !== 'boolean') throw new Error(`features.${key} phải là boolean trong ${deployment.code}`);
+  }
 
   for (const field of Object.keys(unique)) {
     const value = deployment[field];

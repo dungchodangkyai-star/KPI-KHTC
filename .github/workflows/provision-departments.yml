@@ -149,11 +149,13 @@ jobs:
           PARENT_AGENCY: ${{ matrix.parentAgency }}
           ORG_LOCATION: ${{ matrix.location }}
           THEME_COLOR: ${{ matrix.themeColor }}
+          DEPLOYMENT_FEATURES_JSON: ${{ toJSON(matrix.features) }}
         run: |
           set -euo pipefail
+          expected_features="$(jq -c '{specializedWorkFields:false,specializedApprovalFlow:false,specializedReports:false} * .' <<<"$DEPLOYMENT_FEATURES_JSON")"
           jq -n --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg short "$DEPLOYMENT_SHORT_NAME" \
-            --arg agency "$PARENT_AGENCY" --arg location "$ORG_LOCATION" --arg color "$THEME_COLOR" \
-            '{DEPLOYMENT_CODE:$code,DEPLOYMENT_NAME:$name,DEPLOYMENT_SHORT_NAME:$short,PARENT_AGENCY:$agency,ORG_LOCATION:$location,THEME_COLOR:$color}' \
+            --arg agency "$PARENT_AGENCY" --arg location "$ORG_LOCATION" --arg color "$THEME_COLOR" --arg features "$DEPLOYMENT_FEATURES_JSON" \
+            '{DEPLOYMENT_CODE:$code,DEPLOYMENT_NAME:$name,DEPLOYMENT_SHORT_NAME:$short,PARENT_AGENCY:$agency,ORG_LOCATION:$location,THEME_COLOR:$color,DEPLOYMENT_FEATURES_JSON:$features}' \
             > "$RUNNER_TEMP/deployment-env.json"
           gcloud run deploy "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --platform=managed \
             --image="$IMAGE_URI" --allow-unauthenticated --port=8080 --cpu=1 --memory=1Gi \
@@ -165,8 +167,8 @@ jobs:
           healthy=0
           for attempt in {1..30}; do
             if response="$(curl --fail --silent --show-error --max-time 20 "$service_url/api/health" 2>/dev/null)"; then
-              if jq -e --arg code "$DEPLOYMENT_CODE" \
-                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code' \
+              if jq -e --arg code "$DEPLOYMENT_CODE" --argjson features "$expected_features" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .deployment.features == $features' \
                 <<<"$response" >/dev/null; then healthy=1; break; fi
             fi
             sleep 5
@@ -179,8 +181,8 @@ jobs:
           final_healthy=0
           for attempt in {1..30}; do
             if response="$(curl --fail --silent --show-error --max-time 20 "$service_url/api/health" 2>/dev/null)"; then
-              if jq -e --arg code "$DEPLOYMENT_CODE" \
-                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code' \
+              if jq -e --arg code "$DEPLOYMENT_CODE" --argjson features "$expected_features" \
+                '.status == "ok" and .connected == true and .storageMode == "postgres" and .schemaInitialized == true and .deployment.code == $code and .deployment.features == $features' \
                 <<<"$response" >/dev/null; then final_healthy=1; break; fi
             fi
             sleep 5

@@ -123,7 +123,8 @@ async function startServer() {
       data: getDeploymentOrgConfig(DEFAULT_ORG_CONFIG),
       deployment: {
         code: deployment.code,
-        buildCommit: String(process.env.BUILD_COMMIT || 'local')
+        buildCommit: String(process.env.BUILD_COMMIT || 'local'),
+        features: deployment.features
       }
     });
   };

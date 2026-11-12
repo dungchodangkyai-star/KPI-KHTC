@@ -1,9 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { OrgConfig } from '../types';
 import { DEFAULT_ORG_CONFIG, safeFetch, safeParseResponse } from '../utils';
+import {
+  DEFAULT_DEPLOYMENT_FEATURES,
+  type DeploymentFeatureFlags,
+  type DeploymentFeatureKey
+} from '../deploymentFeatures';
 
 interface OrgContextType {
   orgConfig: OrgConfig;
+  deploymentCode: string;
+  features: DeploymentFeatureFlags;
   loading: boolean;
   updateOrgConfig: (newConfig: Partial<OrgConfig>) => Promise<{ success: boolean; data?: OrgConfig; error?: string }>;
   resetOrgConfig: () => Promise<{ success: boolean; data?: OrgConfig; error?: string }>;
@@ -12,6 +19,8 @@ interface OrgContextType {
 
 const OrgContext = createContext<OrgContextType>({
   orgConfig: DEFAULT_ORG_CONFIG,
+  deploymentCode: 'khtc',
+  features: DEFAULT_DEPLOYMENT_FEATURES,
   loading: true,
   updateOrgConfig: async () => ({ success: false }),
   resetOrgConfig: async () => ({ success: false }),
@@ -34,6 +43,8 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [loading, setLoading] = useState(true);
+  const [deploymentCode, setDeploymentCode] = useState('khtc');
+  const [features, setFeatures] = useState<DeploymentFeatureFlags>({ ...DEFAULT_DEPLOYMENT_FEATURES });
 
   const fetchOrgConfig = async () => {
     try {
@@ -47,6 +58,11 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch (e) {
           console.warn("Error caching org config:", e);
         }
+        setDeploymentCode(String(json.deployment?.code || 'khtc'));
+        setFeatures({
+          ...DEFAULT_DEPLOYMENT_FEATURES,
+          ...(json.deployment?.features || {})
+        });
       }
     } catch (err) {
       console.error("Error fetching org config:", err);
@@ -112,6 +128,8 @@ export const OrgProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <OrgContext.Provider value={{
       orgConfig,
+      deploymentCode,
+      features,
       loading,
       updateOrgConfig,
       resetOrgConfig,
@@ -128,4 +146,13 @@ export function useOrgConfig() {
     throw new Error('useOrgConfig must be used within an OrgProvider');
   }
   return context;
+}
+
+export function useDeploymentFeatures() {
+  const { deploymentCode, features, loading } = useOrgConfig();
+  return { deploymentCode, features, loading };
+}
+
+export function useFeatureFlag(feature: DeploymentFeatureKey): boolean {
+  return useOrgConfig().features[feature] === true;
 }

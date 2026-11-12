@@ -7,6 +7,11 @@
   "databaseSecret": "kpi-kythuat-database-url",
   "fixedUrl": "https://kpi-kythuat.example.gov.vn",
   "themeColor": "#0F766E",
+  "features": {
+    "specializedWorkFields": true,
+    "specializedApprovalFlow": false,
+    "specializedReports": true
+  },
   "parentAgency": "Tên cơ quan chủ quản",
   "location": "Đắk Lắk"
 }
