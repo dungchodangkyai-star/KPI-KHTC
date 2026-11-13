@@ -241,6 +241,8 @@ jobs:
           jq -e --arg code "$DEPLOYMENT_CODE" --arg name "$DEPLOYMENT_NAME" --arg commit "$GITHUB_SHA" --argjson features "$expected_features" \
             '.success == true and .deployment.code == $code and .deployment.buildCommit == $commit and .deployment.features == $features and .data.departmentName == $name' \
             <<<"$identity" >/dev/null || { echo "Revision ung vien khong tra ve dung nhan dien cong khai/commit"; exit 1; }
+          unauth_users_status="$(curl --silent --output "$RUNNER_TEMP/unauth-users.json" --write-out '%{http_code}' --max-time 20 "$candidate_url/api/users")"
+          [[ "$unauth_users_status" == "401" ]] || { echo "API nhan su cua revision ung vien chua duoc bao ve (HTTP $unauth_users_status)"; exit 1; }
           gcloud run services update-traffic "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --to-revisions="$new_revision=100" --quiet
           traffic_switched=1
           production_ok=0
@@ -261,6 +263,8 @@ jobs:
             <<<"$identity" >/dev/null; then
             fail_after_switch "Link co dinh khong tra ve dung nhan dien cong khai/commit"
           fi
+          unauth_users_status="$(curl --silent --output "$RUNNER_TEMP/unauth-users-production.json" --write-out '%{http_code}' --max-time 20 "$FIXED_URL/api/users")"
+          [[ "$unauth_users_status" == "401" ]] || fail_after_switch "API nhan su tren link co dinh chua duoc bao ve (HTTP $unauth_users_status)"
           trap - ERR
           echo "new_revision=$new_revision" >> "$GITHUB_OUTPUT"
 

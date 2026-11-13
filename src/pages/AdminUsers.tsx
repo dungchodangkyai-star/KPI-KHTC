@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { exportStyledExcel, downloadStyledTemplate } from '../excelUtils';
-import { cleanPosition } from '../utils';
+import { cleanPosition, safeFetch } from '../utils';
 
 interface PermissionItem {
   id: string;
@@ -37,34 +37,29 @@ export default function AdminUsers() {
   const [isEditing, setIsEditing] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
+    setLoading(true);
+    setLoadError('');
     try {
-      const res = await fetch('/api/users');
+      const res = await safeFetch('/api/users');
       const data = await res.json();
-      if (data.success) {
-        setUsers(data.data);
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Không thể tải danh sách tài khoản.');
       }
+      setUsers(data.data || []);
     } catch (e) {
       console.error(e);
+      setUsers([]);
+      setLoadError(e instanceof Error ? e.message : 'Không thể tải danh sách tài khoản.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const getAdminUserId = () => {
-    try {
-      const stored = localStorage.getItem('kpi_logged_in_user');
-      if (stored) {
-        const u = JSON.parse(stored);
-        return u?.id;
-      }
-    } catch {}
-    return null;
   };
 
   const handleApproveUser = async (user: any) => {
@@ -72,20 +67,15 @@ export default function AdminUsers() {
     
     setActionLoadingId(user.id);
     try {
-      const adminUserId = getAdminUserId();
-      const res = await fetch('/api/auth/approve-user', {
+      const res = await safeFetch('/api/auth/approve-user', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           userId: user.id,
           role: user.role || 'STAFF',
           position: user.position || 'Chuyên viên',
-          group: user.group || 'Kế hoạch - Tài chính',
-          adminUserId
+          group: user.group || 'Kế hoạch - Tài chính'
         })
       });
       const data = await res.json();
@@ -108,15 +98,11 @@ export default function AdminUsers() {
     
     setActionLoadingId(user.id);
     try {
-      const adminUserId = getAdminUserId();
-      const res = await fetch('/api/auth/reject-user', {
+      const res = await safeFetch('/api/auth/reject-user', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ userId: user.id, adminUserId })
+        body: JSON.stringify({ userId: user.id })
       });
       const data = await res.json();
       if (data.success) {
@@ -182,7 +168,7 @@ export default function AdminUsers() {
         permissions: JSON.stringify(formData.permissions || [])
       };
 
-      const res = await fetch(url, {
+      const res = await safeFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -219,7 +205,7 @@ export default function AdminUsers() {
   const handleDelete = async (id: number) => {
     if (!confirm('Bạn có chắc chắn muốn xóa tài khoản này? (Lưu ý: Dữ liệu liên quan có thể bị ảnh hưởng)')) return;
     try {
-      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      const res = await safeFetch(`/api/users/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) fetchUsers();
       else alert('Lỗi: ' + (data.message || data.error || 'Không thể xóa tài khoản.'));
@@ -231,18 +217,11 @@ export default function AdminUsers() {
   const handleResetPassword = async (user: any) => {
     if (!confirm(`Đặt lại mật khẩu cho tài khoản "${user.name}" (${user.email}) về mặc định (123456@)?\nNgười dùng sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập kế tiếp.`)) return;
     try {
-      const adminUserId = getAdminUserId();
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await safeFetch('/api/auth/reset-password', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(adminUserId ? { 'x-admin-id': String(adminUserId), 'x-user-id': String(adminUserId) } : {})
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ 
-          userId: user.id,
-          adminUserId 
-        })
+        body: JSON.stringify({ userId: user.id })
       });
       const data = await res.json();
       if (data.success) {
@@ -325,11 +304,15 @@ export default function AdminUsers() {
           };
           if (!payload.email || !payload.name) continue;
           
-          await fetch('/api/users', {
+          const importRes = await safeFetch('/api/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
+          if (!importRes.ok) {
+            const importError = await importRes.json().catch(() => ({}));
+            throw new Error(importError.message || importError.error || `Không thể nhập ${payload.email}`);
+          }
           successCount++;
         }
         alert(`Đã import và cập nhật thành công ${successCount} nhân sự.`);
@@ -633,6 +616,25 @@ export default function AdminUsers() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="flex items-start justify-between gap-4 rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-red-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <div className="font-black">Không tải được danh sách tài khoản</div>
+              <div className="mt-0.5 text-sm">{loadError} Đây không có nghĩa là phòng không có yêu cầu chờ duyệt.</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={fetchUsers}
+            className="shrink-0 rounded-xl border border-red-300 bg-white px-3 py-2 text-sm font-bold hover:bg-red-100"
+          >
+            Tải lại
+          </button>
+        </div>
+      )}
 
       {/* PENDING APPROVAL ALERT BANNER (Shows when there are users waiting for approval) */}
       {pendingUsers.length > 0 && (

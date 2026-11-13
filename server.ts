@@ -5,8 +5,9 @@ import { createServer as createViteServer } from "vite";
 import { db, pool, checkDatabaseHealth, getStorageMode, isPostgresConfigured } from "./src/db/index.ts";
 import { users, works, assignments, notifications, overtimes, categories } from "./src/db/schema.ts";
 import { isSystemAccount } from "./server/systemAccount.ts";
+import { sanitizeUserRecord, sanitizeUserRecords } from "./server/userSecurity.ts";
 import { eq, desc, asc, and, or } from "drizzle-orm";
-import { authRouter, requireSessionAuthenticated, requireStrictAdminSession, readSessionToken } from "./server/auth.ts";
+import { authRouter, requireSessionAuthenticated, requireStrictSessionAuthenticated, requireStrictAdminSession, readSessionToken } from "./server/auth.ts";
 import { kpiRouter, calculateAndSaveUserKpi, recalculateKpiForMonth, recalculateAffectedMonths, isKpiLeaderOrAdmin } from "./server/kpiRoutes.ts";
 import { getDeploymentOrgConfig } from "./server/deploymentConfig.ts";
 import { DEFAULT_ORG_CONFIG } from "./src/utils.ts";
@@ -926,21 +927,23 @@ async function startServer() {
   });
 
   // 2. Users APIs
-  app.get("/api/users", async (req, res) => {
+  app.get("/api/users", requireStrictSessionAuthenticated, async (req, res) => {
     try {
       const allUsers = await db.query.users.findMany({
         orderBy: (u, { asc }) => [asc(u.name)],
       });
       // Tài khoản quản trị hệ thống ẩn không phải nhân sự nghiệp vụ. Không trả
       // tài khoản này cho bất kỳ màn hình nhân sự/KPI/báo cáo nào dùng API chung.
-      res.json({ success: true, data: allUsers.filter((user) => !isSystemAccount(user)) });
+      const visibleUsers = allUsers.filter((user) => !isSystemAccount(user));
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, data: sanitizeUserRecords(visibleUsers) });
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.post("/api/users", async (req, res) => {
+  app.post("/api/users", requireStrictAdminSession, async (req, res) => {
     try {
       const p = req.body;
       const newUser = await db.insert(users).values({
@@ -967,14 +970,14 @@ async function startServer() {
           updatedAt: new Date(),
         },
       }).returning();
-      res.json({ success: true, data: newUser[0], message: "Đã lưu người dùng!" });
+      res.json({ success: true, data: sanitizeUserRecord(newUser[0]), message: "Đã lưu người dùng!" });
     } catch (error) {
       console.error("Error creating/updating user:", error);
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.put("/api/users/:id", async (req, res) => {
+  app.put("/api/users/:id", requireStrictAdminSession, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const p = req.body;
@@ -990,14 +993,14 @@ async function startServer() {
         permissions: p.permissions,
         updatedAt: new Date(),
       }).where(eq(users.id, id)).returning();
-      res.json({ success: true, data: updated[0], message: "Đã cập nhật người dùng!" });
+      res.json({ success: true, data: sanitizeUserRecord(updated[0]), message: "Đã cập nhật người dùng!" });
     } catch (error) {
       console.error("Error updating user:", error);
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.delete("/api/users/:id", async (req, res) => {
+  app.delete("/api/users/:id", requireStrictAdminSession, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(users).where(eq(users.id, id));

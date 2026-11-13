@@ -5,6 +5,7 @@ import { users } from '../src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import { logActivity, removeSession, getClientIp } from './onlineTracker.ts';
 import { getDeploymentRuntimeConfig } from './deploymentConfig.ts';
+import { sanitizeUserRecord } from './userSecurity.ts';
 
 export const DEFAULT_INITIAL_PASSWORD = '123456@';
 // Quyền quản trị chỉ dựa trên role lưu trong CSDL của từng phòng.
@@ -111,6 +112,44 @@ export async function requireSessionAuthenticated(req: express.Request, res: exp
       return res.status(503).json({
         success: false,
         error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối (thiếu biến môi trường DATABASE_URL trong Secrets). Hệ thống đang ở chế độ Fail-Closed để bảo vệ toàn vẹn dữ liệu.',
+        storageMode: 'postgres',
+        connected: false
+      });
+    }
+    return res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+}
+
+/**
+ * Strict authenticator for APIs returning personnel information.
+ * It accepts only a signed session token and never trusts a user id supplied
+ * by the browser.
+ */
+export async function requireStrictSessionAuthenticated(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = readSessionToken(req);
+  if (!session || !Number.isInteger(session.userId)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Yêu cầu phiên đăng nhập hợp lệ. Vui lòng đăng nhập lại.'
+    });
+  }
+
+  try {
+    const user = await db.query.users.findFirst({ where: (u: any, { eq }: any) => eq(u.id, session.userId) });
+    if (!user || user.status !== 'Đang làm') {
+      return res.status(401).json({
+        success: false,
+        error: 'Tài khoản không tồn tại hoặc không còn hoạt động.'
+      });
+    }
+
+    (req as any).authUser = user;
+    next();
+  } catch (err: any) {
+    if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Cơ sở dữ liệu Neon PostgreSQL chưa được kết nối.',
         storageMode: 'postgres',
         connected: false
       });
@@ -536,7 +575,7 @@ authRouter.post('/change-password', requireAuthenticated, async (req, res) => {
 });
 
 // 3. RESET PASSWORD ENDPOINT (Admin feature)
-authRouter.post('/reset-password', requireAdmin, async (req, res) => {
+authRouter.post('/reset-password', requireStrictAdminSession, async (req, res) => {
   try {
     const { userId } = req.body;
     if (!userId) {
@@ -560,6 +599,14 @@ authRouter.post('/reset-password', requireAdmin, async (req, res) => {
       mustChangePassword: true,
       updatedAt: new Date()
     }).where(eq(users.id, Number(targetUser.id)));
+
+    await logActivity({
+      userId: (req as any).authUser?.id,
+      action: 'ĐẶT_LẠI_MẬT_KHẨU',
+      target: String(targetUser.id),
+      result: 'Thành công',
+      note: `Đã đặt lại mật khẩu cho ${targetUser.email}`
+    });
 
     return res.json({
       success: true,
@@ -669,10 +716,19 @@ authRouter.post('/register-request', async (req, res) => {
     if (existingUser) {
       if (existingUser.status === 'Chờ duyệt') {
         const msg = `Email "${cleanEmail}" đã gửi yêu cầu đăng ký trước đó và đang chờ Quản trị viên phê duyệt.`;
-        return res.status(400).json({
-          success: false,
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).json({
+          success: true,
+          alreadySubmitted: true,
           message: msg,
-          error: msg
+          request: sanitizeUserRecord({
+            id: existingUser.id,
+            name: existingUser.name,
+            email: existingUser.email,
+            position: existingUser.position,
+            status: existingUser.status,
+            createdAt: existingUser.createdAt
+          })
         });
       }
       const msg = `Email "${cleanEmail}" đã tồn tại trong hệ thống. Nếu quên mật khẩu, vui lòng liên hệ Quản trị viên để được đặt lại.`;
@@ -685,7 +741,9 @@ authRouter.post('/register-request', async (req, res) => {
 
     const defaultPwdHash = formatStoredPassword(DEFAULT_INITIAL_PASSWORD);
 
-    const newUser = await db.insert(users).values({
+    // Idempotent insert: a double click or network retry must not turn a
+    // successfully stored request into a misleading server error.
+    const insertedUsers = await db.insert(users).values({
       name: cleanName,
       email: cleanEmail,
       phone: phone.trim(),
@@ -699,12 +757,47 @@ authRouter.post('/register-request', async (req, res) => {
       permissions: JSON.stringify([]),
       password: defaultPwdHash,
       mustChangePassword: true,
-    }).returning();
+    }).onConflictDoNothing({ target: users.email }).returning();
+
+    const registeredUser = insertedUsers[0] || await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.email, cleanEmail)
+    });
+
+    if (!registeredUser || registeredUser.status !== 'Chờ duyệt') {
+      const msg = registeredUser
+        ? `Email "${cleanEmail}" đã tồn tại trong hệ thống.`
+        : 'Không thể xác nhận yêu cầu đăng ký đã được lưu. Vui lòng thử lại.';
+      return res.status(409).json({ success: false, message: msg, error: msg });
+    }
+
+    await logActivity({
+      userId: registeredUser.id,
+      action: 'ĐĂNG_KÝ_TÀI_KHOẢN',
+      target: deployment.code,
+      result: 'Chờ duyệt',
+      note: `Yêu cầu đăng ký ${cleanEmail} đã được lưu vào ${deployment.name}`,
+      details: {
+        email: cleanEmail,
+        position: cleanPosition,
+        deploymentCode: deployment.code,
+        submittedAt: new Date().toISOString(),
+        note: String(note || '').trim().slice(0, 500)
+      }
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
 
     return res.json({
       success: true,
       message: 'Đăng ký tài khoản thành công! Yêu cầu của bạn đã được gửi đến Quản trị viên của phòng để phê duyệt kích hoạt.',
-      user: newUser[0]
+      request: sanitizeUserRecord({
+        id: registeredUser.id,
+        name: registeredUser.name,
+        email: registeredUser.email,
+        position: registeredUser.position,
+        status: registeredUser.status,
+        createdAt: registeredUser.createdAt
+      })
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -714,7 +807,7 @@ authRouter.post('/register-request', async (req, res) => {
 });
 
 // 6. APPROVE PENDING USER (Admin feature)
-authRouter.post('/approve-user', requireAdmin, async (req, res) => {
+authRouter.post('/approve-user', requireStrictAdminSession, async (req, res) => {
   try {
     const { userId, role, position, group } = req.body;
     if (!userId) {
@@ -743,10 +836,18 @@ authRouter.post('/approve-user', requireAdmin, async (req, res) => {
       updatedAt: new Date()
     }).where(eq(users.id, Number(targetUser.id))).returning();
 
+    await logActivity({
+      userId: (req as any).authUser?.id,
+      action: 'DUYỆT_TÀI_KHOẢN',
+      target: String(targetUser.id),
+      result: 'Thành công',
+      note: `Đã kích hoạt tài khoản ${targetUser.email}`
+    });
+
     return res.json({
       success: true,
       message: `Đã phê duyệt và kích hoạt tài khoản cho nhân sự "${targetUser.name}". Mật khẩu mặc định ban đầu là 123456@.`,
-      user: updated[0]
+      user: sanitizeUserRecord(updated[0])
     });
   } catch (error) {
     console.error('Approve user error:', error);
@@ -756,7 +857,7 @@ authRouter.post('/approve-user', requireAdmin, async (req, res) => {
 });
 
 // 7. REJECT PENDING USER (Admin feature)
-authRouter.post('/reject-user', requireAdmin, async (req, res) => {
+authRouter.post('/reject-user', requireStrictAdminSession, async (req, res) => {
   try {
     const { userId, reason } = req.body;
     if (!userId) {
@@ -777,6 +878,14 @@ authRouter.post('/reject-user', requireAdmin, async (req, res) => {
       status: 'Từ chối',
       updatedAt: new Date()
     }).where(eq(users.id, Number(targetUser.id)));
+
+    await logActivity({
+      userId: (req as any).authUser?.id,
+      action: 'TỪ_CHỐI_TÀI_KHOẢN',
+      target: String(targetUser.id),
+      result: 'Thành công',
+      note: `Đã từ chối tài khoản ${targetUser.email}${reason ? `: ${String(reason).slice(0, 300)}` : ''}`
+    });
 
     return res.json({
       success: true,

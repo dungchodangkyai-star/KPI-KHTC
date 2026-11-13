@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "npm run check:data-safety && npm run validate:deployments && npm run validate:department-isolation && tsx server/testDeploymentConfig.ts && tsx server/testDepartmentFeatureMatrix.ts && tsx server/testMigrationHardening.ts && tsx server/testBackupScheduler.ts"
+    "test": "npm run check:data-safety && npm run validate:deployments && npm run validate:department-isolation && tsx server/testDeploymentConfig.ts && tsx server/testDepartmentFeatureMatrix.ts && tsx server/testUserSecurity.ts && tsx server/testMigrationHardening.ts && tsx server/testBackupScheduler.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

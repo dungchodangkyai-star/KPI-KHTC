@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
-import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, formatMonth, getActiveLoggedInUser } from '../utils';
+import { STANDARD_MONTHS, MONTH_GROUPS, getCurrentMonth, formatMonth, getActiveLoggedInUser, safeFetch } from '../utils';
 
 export default function OtRegister() {
   const navigate = useNavigate();
@@ -41,7 +41,7 @@ export default function OtRegister() {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await fetch('/api/users');
+        const res = await safeFetch('/api/users');
         const data = await res.json();
         if (data.success && data.data?.length > 0) {
           setUsers(data.data);
