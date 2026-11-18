@@ -934,7 +934,13 @@ async function startServer() {
       });
       // Tài khoản quản trị hệ thống ẩn không phải nhân sự nghiệp vụ. Không trả
       // tài khoản này cho bất kỳ màn hình nhân sự/KPI/báo cáo nào dùng API chung.
-      const visibleUsers = allUsers.filter((user) => !isSystemAccount(user));
+      const authUser = (req as any).authUser;
+      const includeInactive = req.query.scope === 'admin' && authUser?.role === 'ADMIN';
+      const inactiveStatuses = new Set(['Nghỉ việc', 'Đã nghỉ', 'Từ chối']);
+      const nonSystemUsers = allUsers.filter((user) => !isSystemAccount(user));
+      const visibleUsers = nonSystemUsers.filter((user) =>
+        includeInactive || !inactiveStatuses.has(String(user.status || ''))
+      );
       res.setHeader('Cache-Control', 'no-store');
       res.json({ success: true, data: sanitizeUserRecords(visibleUsers) });
     } catch (error) {
@@ -1001,13 +1007,70 @@ async function startServer() {
   });
 
   app.delete("/api/users/:id", requireStrictAdminSession, async (req, res) => {
+    const client = await pool.connect();
     try {
       const id = parseInt(req.params.id);
-      await db.delete(users).where(eq(users.id, id));
-      res.json({ success: true, message: "Đã xóa nhân sự" });
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: 'Mã nhân sự không hợp lệ.' });
+      }
+
+      const authUser = (req as any).authUser;
+      if (Number(authUser?.id) === id) {
+        return res.status(400).json({ success: false, error: 'Không thể xóa tài khoản đang đăng nhập.' });
+      }
+
+      await client.query('BEGIN');
+      const targetResult = await client.query('SELECT * FROM users WHERE id = $1 FOR UPDATE', [id]);
+      const targetUser = targetResult.rows[0];
+      if (!targetUser) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, error: 'Không tìm thấy nhân sự.' });
+      }
+      if (isSystemAccount(targetUser)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, error: 'Không thể xóa tài khoản quản trị hệ thống ẩn.' });
+      }
+
+      const refs = await client.query(`
+        SELECT
+          (SELECT COUNT(*) FROM works WHERE user_id = $1 OR approver_id = $1) +
+          (SELECT COUNT(*) FROM assignments WHERE assigner_id = $1 OR receiver_id = $1) +
+          (SELECT COUNT(*) FROM overtimes WHERE user_id = $1 OR approver_id = $1) +
+          (SELECT COUNT(*) FROM kpi_results WHERE user_id = $1) +
+          (SELECT COUNT(*) FROM notifications WHERE sender_id = $1 OR receiver_id = $1) +
+          (SELECT COUNT(*) FROM system_logs WHERE user_id = $1)
+          AS reference_count
+      `, [id]);
+      const referenceCount = Number(refs.rows[0]?.reference_count || 0);
+
+      if (referenceCount > 0) {
+        // Never cascade-delete KPI/history. Archive the account so it can no
+        // longer sign in or affect current personnel statistics while all
+        // historical work, approval and audit records remain intact.
+        await client.query(`
+          UPDATE users
+          SET status = 'Nghỉ việc', role = 'STAFF', permissions = '[]',
+              password = NULL, must_change_password = TRUE, updated_at = NOW()
+          WHERE id = $1
+        `, [id]);
+        await client.query('COMMIT');
+        return res.json({
+          success: true,
+          archived: true,
+          referenceCount,
+          message: `Tài khoản đã phát sinh ${referenceCount} bản ghi nghiệp vụ nên không xóa cứng. Hệ thống đã ngừng hoạt động tài khoản và loại khỏi thống kê hiện hành, đồng thời giữ nguyên lịch sử KPI.`
+        });
+      }
+
+      await client.query('DELETE FROM users WHERE id = $1', [id]);
+      await client.query('COMMIT');
+      return res.json({ success: true, archived: false, message: "Đã xóa hoàn toàn nhân sự chưa phát sinh dữ liệu." });
     } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
       console.error("Error deleting user:", error);
-      res.status(500).json({ error: String(error) });
+      res.status(500).json({ success: false, error: 'Không thể xử lý tài khoản. Dữ liệu nghiệp vụ vẫn được giữ nguyên.' });
+    } finally {
+      client.release();
     }
   });
 

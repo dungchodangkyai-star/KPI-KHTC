@@ -29,33 +29,40 @@ function createSessionToken(userId: number): string {
 
 export function readSessionToken(req: express.Request): AuthSession | null {
   try {
-    let token: string | null = null;
+    const tokenCandidates: string[] = [];
     const authHeader = String(req.headers.authorization || '');
     if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.slice(7).trim();
+      tokenCandidates.push(authHeader.slice(7).trim());
     }
-    if (!token && req.headers['x-session-token']) {
-      token = String(req.headers['x-session-token']).trim();
+    if (req.headers['x-session-token']) {
+      tokenCandidates.push(String(req.headers['x-session-token']).trim());
     }
-    if (!token) {
-      const cookieHeader = String(req.headers.cookie || '');
-      const rawCookie = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith('kpi_session='));
-      if (rawCookie) {
-        token = decodeURIComponent(rawCookie.slice('kpi_session='.length));
+    const cookieHeader = String(req.headers.cookie || '');
+    const rawCookie = cookieHeader.split(';').map(v => v.trim()).find(v => v.startsWith('kpi_session='));
+    if (rawCookie) {
+      tokenCandidates.push(decodeURIComponent(rawCookie.slice('kpi_session='.length)));
+    }
+
+    // A stale token in localStorage must not mask a still-valid HttpOnly
+    // cookie. Validate every available candidate and accept the first valid
+    // signed session instead of failing immediately on the Bearer header.
+    for (const rawToken of tokenCandidates) {
+      try {
+        const token = rawToken.trim().replace(/^"(.*)"$/, '$1');
+        const [payload, signature] = token.split('.');
+        if (!payload || !signature) continue;
+        const expected = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(payload).digest('base64url');
+        const actualBuffer = Buffer.from(signature);
+        const expectedBuffer = Buffer.from(expected);
+        if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) continue;
+        const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as AuthSession;
+        if (!Number.isInteger(parsed.userId) || parsed.expiresAt <= Date.now()) continue;
+        return parsed;
+      } catch {
+        continue;
       }
     }
-    if (!token) return null;
-    token = token.trim().replace(/^"(.*)"$/, '$1');
-
-    const [payload, signature] = token.split('.');
-    if (!payload || !signature) return null;
-    const expected = crypto.createHmac('sha256', AUTH_SESSION_SECRET).update(payload).digest('base64url');
-    const actualBuffer = Buffer.from(signature);
-    const expectedBuffer = Buffer.from(expected);
-    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as AuthSession;
-    if (!Number.isInteger(parsed.userId) || parsed.expiresAt <= Date.now()) return null;
-    return parsed;
+    return null;
   } catch {
     return null;
   }
@@ -144,6 +151,7 @@ export async function requireStrictSessionAuthenticated(req: express.Request, re
     }
 
     (req as any).authUser = user;
+    try { setSessionCookie(req, res, user.id); } catch {}
     next();
   } catch (err: any) {
     if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
@@ -189,6 +197,7 @@ export async function requireStrictAdminSession(req: express.Request, res: expre
     }
 
     (req as any).authUser = user;
+    try { setSessionCookie(req, res, user.id); } catch {}
     next();
   } catch (err: any) {
     if (getStorageMode() === 'postgres' && !isPostgresConfigured()) {
@@ -395,7 +404,7 @@ authRouter.post('/login', async (req, res) => {
       });
     }
 
-    if (user.status === 'Khóa' || user.status === 'Nghỉ việc' || user.status === 'Từ chối') {
+    if (user.status === 'Khóa' || user.status === 'Nghỉ việc' || user.status === 'Đã nghỉ' || user.status === 'Từ chối') {
       const msg = `Tài khoản "${user.name}" hiện đang bị tạm khóa hoặc đã ngưng hoạt động. Vui lòng liên hệ Quản trị viên để được hỗ trợ.`;
       return res.status(403).json({
         success: false,

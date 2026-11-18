@@ -47,7 +47,7 @@ export default function AdminUsers() {
     setLoading(true);
     setLoadError('');
     try {
-      const res = await safeFetch('/api/users');
+      const res = await safeFetch('/api/users?scope=admin');
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.message || data.error || 'Không thể tải danh sách tài khoản.');
@@ -207,7 +207,10 @@ export default function AdminUsers() {
     try {
       const res = await safeFetch(`/api/users/${id}`, { method: 'DELETE' });
       const data = await res.json();
-      if (data.success) fetchUsers();
+      if (data.success) {
+        alert(data.message || 'Đã xử lý tài khoản thành công.');
+        fetchUsers();
+      }
       else alert('Lỗi: ' + (data.message || data.error || 'Không thể xóa tài khoản.'));
     } catch (e) {
       console.error(e);
@@ -926,7 +929,7 @@ export default function AdminUsers() {
                                 <option value="Đang làm">Đang làm việc (Kích hoạt)</option>
                                 <option value="Chờ duyệt">Chờ duyệt (Chưa kích hoạt)</option>
                                 <option value="Từ chối">Từ chối đăng ký</option>
-                                <option value="Đã nghỉ">Đã nghỉ việc</option>
+                                <option value="Nghỉ việc">Nghỉ việc</option>
                                 <option value="Đình chỉ">Đình chỉ / Khóa</option>
                               </select>
                             </div>
@@ -1209,9 +1212,9 @@ export default function AdminUsers() {
                           Từ chối
                         </span>
                       )}
-                      {user.status === 'Đã nghỉ' && (
+                      {(user.status === 'Nghỉ việc' || user.status === 'Đã nghỉ') && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-600 border border-slate-300">
-                          Đã nghỉ
+                          Nghỉ việc
                         </span>
                       )}
                       {user.status === 'Đình chỉ' && (
@@ -1220,7 +1223,7 @@ export default function AdminUsers() {
                           Đình chỉ
                         </span>
                       )}
-                      {!['Đang làm', 'Chờ duyệt', 'Từ chối', 'Đã nghỉ', 'Đình chỉ'].includes(user.status) && (
+                      {!['Đang làm', 'Chờ duyệt', 'Từ chối', 'Nghỉ việc', 'Đã nghỉ', 'Đình chỉ'].includes(user.status) && (
                         <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-700 border border-slate-300">
                           {user.status || 'Chưa xác định'}
                         </span>

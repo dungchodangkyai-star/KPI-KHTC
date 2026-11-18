@@ -1540,22 +1540,46 @@ export async function safeParseResponse<T = any>(
  * Safe fetch with automatic retry and exponential backoff and auth headers
  */
 export async function safeFetch(url: string, options?: RequestInit, retries = 2, delayMs = 400): Promise<Response> {
-  const authHeaders = getAuthHeaders();
-  const mergedOptions: RequestInit = {
+  const buildOptions = (): RequestInit => ({
     ...options,
+    credentials: options?.credentials || 'include',
     headers: {
-      ...authHeaders,
+      ...getAuthHeaders(),
       ...(options?.headers || {})
     }
-  };
+  });
   let lastError: any;
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(url, mergedOptions);
+      let res = await fetch(url, buildOptions());
       if (res.status === 429 && i < retries) {
         // Rate exceeded - exponential backoff + jitter
         await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, i) + Math.random() * 200));
         continue;
+      }
+
+      // The visible user cached in localStorage may outlive the signed
+      // 12-hour session. First try to renew from the HttpOnly cookie. If that
+      // also fails, clear the stale UI session and return to the login page.
+      const isAuthEndpoint = url.startsWith('/api/auth/');
+      if (res.status === 401 && !isAuthEndpoint && typeof window !== 'undefined') {
+        try {
+          const refresh = await fetch('/api/auth/session', { credentials: 'include' });
+          if (refresh.ok) {
+            const sessionData = await refresh.json();
+            const refreshedToken = sessionData?.token || sessionData?.sessionToken;
+            if (sessionData?.success && refreshedToken) {
+              setActiveSessionToken(refreshedToken);
+              res = await fetch(url, buildOptions());
+              return res;
+            }
+          }
+        } catch {}
+
+        clearActiveLoggedInUser();
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.replace('/login?reason=session-expired');
+        }
       }
       return res;
     } catch (err) {
