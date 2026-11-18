@@ -32,7 +32,9 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  // Mặc định chỉ hiển thị nhân sự đang hoạt động. Hồ sơ nghỉ việc vẫn được
+  // giữ trong mục Lưu trữ để bảo toàn lịch sử công việc/KPI.
+  const [statusFilter, setStatusFilter] = useState('Đang làm');
   
   const [isEditing, setIsEditing] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
@@ -209,6 +211,7 @@ export default function AdminUsers() {
       const data = await res.json();
       if (data.success) {
         alert(data.message || 'Đã xử lý tài khoản thành công.');
+        if (data.archived) setStatusFilter('Đang làm');
         fetchUsers();
       }
       else alert('Lỗi: ' + (data.message || data.error || 'Không thể xóa tài khoản.'));
@@ -538,6 +541,10 @@ export default function AdminUsers() {
     return users.filter(u => u.status === 'Đang làm').length;
   }, [users]);
 
+  const archivedUsersCount = useMemo(() => {
+    return users.filter(u => u.status !== 'Đang làm' && u.status !== 'Chờ duyệt').length;
+  }, [users]);
+
   const filteredUsers = useMemo(() => {
     return users.filter(u => {
       const matchSearch = !searchQuery.trim() || 
@@ -579,7 +586,7 @@ export default function AdminUsers() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-black text-slate-800">Quản trị Nhân sự & Tài khoản</h1>
               <span className="text-xs font-extrabold bg-blue-100 text-[#1F4E78] px-2.5 py-0.5 rounded-full border border-blue-200">
-                {users.length} nhân sự
+                {activeUsersCount} nhân sự đang làm
               </span>
               {pendingUsers.length > 0 && (
                 <span className="text-xs font-black bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full border border-amber-300 animate-pulse flex items-center gap-1">
@@ -743,15 +750,6 @@ export default function AdminUsers() {
             <div className="flex items-center bg-slate-200/70 p-1 rounded-xl gap-1">
               <button
                 type="button"
-                onClick={() => setStatusFilter('ALL')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  statusFilter === 'ALL' ? 'bg-white text-[#1F4E78] shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Tất cả ({users.length})
-              </button>
-              <button
-                type="button"
                 onClick={() => setStatusFilter('Đang làm')}
                 className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
                   statusFilter === 'Đang làm' ? 'bg-white text-emerald-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -762,16 +760,29 @@ export default function AdminUsers() {
               <button
                 type="button"
                 onClick={() => setStatusFilter('Chờ duyệt')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 ${
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
                   statusFilter === 'Chờ duyệt' ? 'bg-white text-amber-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <span>Chờ duyệt</span>
-                {pendingUsers.length > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center">
-                    {pendingUsers.length}
-                  </span>
-                )}
+                Chờ duyệt ({pendingUsers.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('OTHER')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 ${
+                  statusFilter === 'OTHER' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Lưu trữ ({archivedUsersCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                  statusFilter === 'ALL' ? 'bg-white text-[#1F4E78] shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Tất cả ({users.length})
               </button>
             </div>
 
@@ -1121,6 +1132,7 @@ export default function AdminUsers() {
               {/* USERS LIST ROWS */}
               {filteredUsers.map((user: any) => {
                 const isMainAdmin = user.role === 'ADMIN';
+                const isArchived = user.status !== 'Đang làm' && user.status !== 'Chờ duyệt';
                 let parsedUserPerms: string[] = [];
                 if (user.permissions) {
                   try {
@@ -1256,13 +1268,13 @@ export default function AdminUsers() {
                           </>
                         )}
 
-                        <button 
+                        {!isArchived && <button
                           onClick={() => handleResetPassword(user)} 
                           title="Đặt lại mật khẩu về 123456@" 
                           className="p-2 text-amber-700 hover:bg-amber-100/70 border border-amber-200 rounded-xl transition shadow-2xs"
                         >
                           <Key className="w-4 h-4" />
-                        </button>
+                        </button>}
                         <button 
                           onClick={() => handleEdit(user)} 
                           title="Sửa thông tin & Phân quyền" 
@@ -1270,7 +1282,7 @@ export default function AdminUsers() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        {!isMainAdmin && (
+                        {!isMainAdmin && !isArchived && (
                           <button 
                             onClick={() => handleDelete(user.id)} 
                             title="Xóa tài khoản" 
@@ -1278,6 +1290,11 @@ export default function AdminUsers() {
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
+                        )}
+                        {isArchived && (
+                          <span className="px-2.5 py-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-xl">
+                            Đã lưu trữ
+                          </span>
                         )}
                       </div>
                     </td>
