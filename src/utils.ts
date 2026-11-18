@@ -1290,7 +1290,8 @@ export const isPersonalRoute = (path: string): boolean => {
     '/self-score-a',
     '/score-a',
     '/kpi',
-    '/print-personal'
+    '/print-personal',
+    '/help'
   ];
   return personalRoutes.includes(cleanPath);
 };

@@ -7,7 +7,7 @@ import {
   Send, CheckSquare, Settings, 
   Database, Users, LayoutDashboard, BarChart3, Radio, ChevronDown, UserCheck,
   Bell, AlertCircle, KeyRound, LogOut, ShieldCheck, Lock, Server,
-  PanelLeftClose, PanelLeftOpen, Menu, ChevronLeft
+  PanelLeftClose, PanelLeftOpen, Menu, ChevronLeft, HelpCircle
 } from 'lucide-react';
 import { 
   cn, 
@@ -84,6 +84,13 @@ const allNavGroups = [
       { name: 'Cơ sở dữ liệu', href: '/admin/database', icon: Server, desc: 'Cấu hình kết nối DB đa chế độ' },
       { name: 'Đồng bộ dữ liệu', href: '/admin/sync', icon: Database, desc: 'Import từ Excel / App Script' },
       { name: 'Cài đặt danh mục', href: '/admin/settings', icon: Settings, desc: 'Cấu hình danh mục & tham số' },
+    ]
+  },
+  {
+    title: 'TRỢ GIÚP & HƯỚNG DẪN',
+    isPersonal: true,
+    items: [
+      { name: 'Hướng dẫn sử dụng', href: '/help', icon: HelpCircle, desc: 'Tra cứu thao tác theo vai trò' },
     ]
   }
 ];
@@ -181,6 +188,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       '/admin/database': 'Cơ sở dữ liệu & Sao lưu',
       '/admin/sync': 'Đồng bộ dữ liệu Excel',
       '/admin/settings': 'Cấu hình tham số hệ thống',
+      '/help': 'Hướng dẫn sử dụng',
       '/login': 'Đăng nhập hệ thống'
     };
 
@@ -887,6 +895,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               )}
             </div>
+
+            <Link
+              to={`/help?from=${encodeURIComponent(location.pathname)}`}
+              className="hidden sm:flex min-h-[44px] min-w-[44px] p-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg text-slate-700 hover:text-[#1F4E78] transition shadow-2xs cursor-pointer items-center justify-center"
+              title="Mở hướng dẫn cho màn hình hiện tại"
+              aria-label="Mở hướng dẫn sử dụng"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </Link>
 
             <div 
               onClick={() => setShowSwitchMenu(!showSwitchMenu)}

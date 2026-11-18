@@ -24,6 +24,7 @@ import ApproveWork from './pages/ApproveWork';
 import OtApprove from './pages/OtApprove';
 import Stats from './pages/Stats';
 import DepartmentKpiSummary from './pages/DepartmentKpiSummary';
+import HelpCenter from './pages/HelpCenter';
 
 import { OrgProvider } from './contexts/OrgContext';
 
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="/department-kpi" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
           <Route path="/kpi-summary" element={<Navigate to="/department-kpi" replace />} />
           <Route path="/print-department" element={<ProtectedRoute><DepartmentKpiSummary /></ProtectedRoute>} />
+          <Route path="/help" element={<ProtectedRoute><HelpCenter /></ProtectedRoute>} />
           
           {/* Admin Routes */}
           <Route path="/ot-summary" element={<ProtectedRoute><OtSummary /></ProtectedRoute>} />
